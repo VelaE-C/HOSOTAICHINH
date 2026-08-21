@@ -44,3 +44,74 @@ button{font-family:inherit;cursor:pointer;}
 @media (max-width:1023px){
   #toast-wrap{right:12px;left:12px;bottom:24px;}
 }
+
+/* ============================================================
+   SHELL — topbar, sidebar, bottom nav (theo VelaEC App Template Guide)
+   ============================================================ */
+.topbar{position:sticky;top:0;z-index:100;height:52px;background:var(--navy);display:flex;align-items:center;gap:14px;padding:0 18px;color:#fff;}
+.topbar .hamburger{display:none;background:none;border:none;color:#fff;font-size:20px;cursor:pointer;}
+.topbar .logo{width:32px;height:32px;border-radius:7px;background:var(--orange);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex:none;}
+.topbar .appname{font-weight:700;font-size:14.5px;white-space:nowrap;}
+.topbar .spacer{flex:1;}
+.topbar .user-info{font-size:12px;color:#CBD5E1;display:flex;align-items:center;gap:8px;}
+.topbar .user-info b{color:#fff;}
+.topbar .role-tag{background:rgba(255,255,255,.12);padding:2px 8px;border-radius:20px;font-size:11px;}
+.logout-btn{background:none;border:none;color:#CBD5E1;font-size:12px;cursor:pointer;text-decoration:underline;}
+
+.shell{display:flex;min-height:calc(100vh - 52px);}
+.sidebar{width:210px;flex:none;background:#fff;border-right:1px solid var(--gray2);padding:16px 10px;}
+.sb-group{font-size:10.5px;font-weight:700;letter-spacing:.5px;color:var(--gray4);text-transform:uppercase;padding:14px 10px 6px;}
+.sb-group:first-child{padding-top:2px;}
+.sb-item{display:flex;align-items:center;gap:10px;padding:9px 16px;border-radius:7px;color:var(--gray7);font-size:13.5px;cursor:pointer;border:none;background:transparent;width:100%;text-align:left;}
+.sb-item:hover{background:var(--gray1);color:var(--navy);}
+.sb-item.active{background:var(--lblue);color:var(--blue);font-weight:600;border-left:3px solid var(--navy);padding-left:13px;}
+.sb-icon{width:16px;text-align:center;flex:none;}
+
+main{flex:1;min-width:0;padding:20px;padding-bottom:80px;}
+.page-head{margin-bottom:18px;}
+.page-head h1{font-size:18px;margin:0 0 3px;color:var(--gray8);}
+.page-head .sub{font-size:12.5px;color:var(--gray5);}
+
+.bottomnav{display:none;position:fixed;left:0;right:0;bottom:0;height:56px;background:#fff;border-top:1px solid var(--gray2);z-index:90;}
+.bn-inner{display:flex;height:100%;}
+.bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:none;color:var(--gray5);font-size:10.5px;}
+.bn-item.active{color:var(--blue);}
+.bn-icon{font-size:18px;}
+.more-sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;border-radius:14px 14px 0 0;z-index:210;display:none;padding:8px 8px 20px;box-shadow:0 -6px 24px rgba(0,0,0,.15);}
+.more-sheet.show{display:block;}
+.more-sheet .sheet-handle{width:36px;height:4px;background:var(--gray2);border-radius:20px;margin:6px auto 10px;}
+.more-sheet .item{display:flex;align-items:center;gap:12px;padding:13px 14px;font-size:14px;color:var(--gray8);}
+
+@media (max-width:1023px){
+  .sidebar{position:fixed;top:0;bottom:0;left:0;width:230px;z-index:120;transform:translateX(-100%);transition:.2s;box-shadow:2px 0 12px rgba(0,0,0,.15);}
+  .sidebar.open{transform:none;}
+  .topbar .hamburger{display:block;}
+  main{padding:12px;padding-bottom:76px;}
+  .bottomnav{display:block;}
+}
+
+/* ============================================================
+   CARD / TABLE / BADGE — dùng chung cho mọi module
+   ============================================================ */
+.card{background:#fff;border:1px solid var(--gray2);border-radius:var(--radius);padding:16px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+.card-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:4px;}
+.card-sub{font-size:12px;color:var(--gray4);margin-bottom:12px;}
+.stat-row{display:grid;gap:14px;}
+.stat-num{font-size:22px;font-weight:700;color:var(--gray8);margin-top:2px;}
+.stat-num.teal{color:var(--teal);}
+.stat-num.green{color:var(--green);}
+.stat-delta{font-size:11.5px;color:var(--gray5);margin-top:4px;}
+
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--gray5);font-weight:700;padding:9px 10px;border-bottom:1.5px solid var(--gray2);background:var(--gray1);}
+td{padding:11px 10px;border-bottom:1px solid var(--gray2);vertical-align:middle;}
+tr.click{cursor:pointer;}
+tr.click:hover td{background:var(--lblue);}
+.mono{font-variant-numeric:tabular-nums;}
+.code-chip{font-size:11px;background:var(--gray1);border:1px solid var(--gray2);padding:2px 7px;border-radius:5px;color:var(--gray7);}
+
+.bar-track{height:7px;background:var(--gray2);border-radius:20px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:20px;}
+
+.empty-note{text-align:center;padding:40px 16px;color:var(--gray4);font-size:13px;}
+.warn-box{display:flex;gap:9px;background:#FEF3C7;border:1px solid #FDE68A;color:#92400E;padding:11px 13px;border-radius:8px;font-size:12.5px;margin-bottom:18px;line-height:1.5;}
