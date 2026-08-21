@@ -5,7 +5,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { toast, loading, statusBadge } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates } from '../core/approvalUI.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -98,7 +98,7 @@ export async function openDetail(id, user, onClose) {
 async function openCreateModal(user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
-  const { data: templates } = await supabase.from('document_templates').select('id, name').eq('doc_type', 'totrinh');
+  const templates = await resolveDefaultTemplates(user.id, 'totrinh');
 
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Trình tờ trình phê duyệt chủ trương</div><button class="panel-close" id="pClose">✕</button></div>
@@ -111,7 +111,8 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Nội dung / phạm vi áp dụng</label>
         <textarea id="fContent" class="form-input" rows="4" placeholder="Mô tả ngắn gọn nội dung, phạm vi áp dụng của tờ trình"></textarea></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
-        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
     </div>
     <div class="panel-footer">
       <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu nháp</button>
