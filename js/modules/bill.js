@@ -142,7 +142,8 @@ export async function openDetail(id, user, onClose) {
 async function openCreateModal(user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id').eq('status', 'active').order('doc_number');
+  const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
+  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id').eq('status', 'active').order('doc_number');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const templates = await resolveDefaultTemplates(user.id, 'bill');
 
@@ -152,7 +153,10 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
-        <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" data-value="${c.value}" data-adj="${c.value_adjustment || 0}">${c.doc_number}</option>`).join('')}</select></div>
+        <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}">${c.doc_number}</option>`).join('')}</select></div>
+      <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
+        <select id="fPartner" class="form-input">${(partners || []).map((p) => `<option value="${p.id}">${p.name} (MST ${p.mst})</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Tự điền theo hợp đồng liên kết nếu có chọn ở trên.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
         <input type="number" id="fPeriod" class="form-input" value="1" min="1"></div>
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
@@ -180,18 +184,20 @@ async function openCreateModal(user, onClose) {
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
 
-  // Khi chọn hợp đồng liên kết, tự điền A và B theo đúng hợp đồng đó
+  // Khi chọn hợp đồng liên kết, tự điền A, B, và Đối tác theo đúng hợp đồng đó
   modal.querySelector('#fContract').addEventListener('change', (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
       modal.querySelector('#fA').value = opt.dataset.value || '';
       modal.querySelector('#fB').value = opt.dataset.adj || 0;
+      if (opt.dataset.partner) modal.querySelector('#fPartner').value = opt.dataset.partner;
     }
   });
 
   async function doSave(submitAfter) {
     const project_id = modal.querySelector('#fProject').value;
     const contract_id = modal.querySelector('#fContract').value || null;
+    const partner_id = modal.querySelector('#fPartner').value;
     const period_no = Number(modal.querySelector('#fPeriod').value);
     const scope = modal.querySelector('#fScope').value;
     const val_a = Number(modal.querySelector('#fA').value);
@@ -203,7 +209,7 @@ async function openCreateModal(user, onClose) {
     const checklist_required = Number(modal.querySelector('#fChecklist').value);
     const template_id = modal.querySelector('#fTemplate').value;
 
-    if (!project_id || !val_a || !budget_code) return toast('Điền đủ thông tin bắt buộc', 'error');
+    if (!project_id || !partner_id || !val_a || !budget_code) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
 
     // Quy tắc: kỳ N+1 chỉ tạo được khi kỳ N đã qua tối thiểu bước 2
     if (contract_id && period_no > 1) {
@@ -222,7 +228,7 @@ async function openCreateModal(user, onClose) {
     loading(true);
     const { data: newBill, error } = await supabase
       .from('bills')
-      .insert({ project_id, contract_id, period_no, scope, val_a, val_b, val_d, val_f, val_i, checklist_required, template_id: template_id || null, created_by: user.id, status: 'draft' })
+      .insert({ project_id, contract_id, partner_id, period_no, scope, val_a, val_b, val_d, val_f, val_i, checklist_required, template_id: template_id || null, created_by: user.id, status: 'draft' })
       .select('id')
       .single();
     if (error) return toast('Lỗi tạo bill: ' + error.message, 'error');
@@ -233,10 +239,12 @@ async function openCreateModal(user, onClose) {
       const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'bill', p_doc_id: newBill.id });
       if (subErr) return toast('Đã lưu nháp, nhưng trình lỗi: ' + subErr.message, 'error');
       toast('Đã trình bill', 'success');
+      closeModal(modal, onClose);
     } else {
-      toast('Đã lưu nháp', 'success');
+      toast('Đã lưu nháp — mở lại hồ sơ để đính kèm file', 'success');
+      closeModal(modal, () => {}); // đóng form tạo, không refresh danh sách vội
+      openDetail(newBill.id, user, onClose); // mở luôn chi tiết để đính kèm file ngay
     }
-    closeModal(modal, onClose);
   }
 
   modal.querySelector('#btnSaveDraft').addEventListener('click', () => doSave(false));
