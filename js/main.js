@@ -3,6 +3,7 @@
 // ============================================================
 import { supabase } from './core/config.js';
 import { signInWithMicrosoft, signOut, getCurrentAppUser, onAuthStateChange } from './core/auth.js';
+import { renderShell } from './core/shell.js';
 
 let currentUser = null;
 let booted = false; // tránh render trùng khi Supabase bắn nhiều sự kiện auth liên tiếp lúc khởi động
@@ -72,15 +73,7 @@ function renderDeactivatedScreen(email) {
 }
 
 function renderApp(user) {
-  // Mốc bàn giao cho bước tiếp theo: dựng sidebar/topbar thật + nối các module
-  // (dashboard.js, hopdong.js, bill.js...) — hiện tại chỉ hiện xác nhận đăng nhập thành công
-  document.getElementById('app-root').innerHTML = `
-    <div style="padding:40px;font-family:sans-serif">
-      <h2>✅ Đăng nhập thành công</h2>
-      <p>Xin chào <b>${user.full_name}</b> (${user.email})</p>
-      <p>Vai trò: ${user.roles.length ? user.roles.join(', ') : '⚠️ Chưa được gán vai trò nào — báo QLCP&HĐ'}</p>
-      <p style="color:var(--gray5);font-size:13px">Bước tiếp theo: dựng giao diện chính (sidebar, dashboard...) tại đây.</p>
-    </div>`;
+  renderShell(user);
 }
 
 onAuthStateChange(() => {
