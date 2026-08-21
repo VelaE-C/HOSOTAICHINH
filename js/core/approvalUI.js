@@ -71,7 +71,36 @@ export function timelineHtml(logs) {
     .join('');
 }
 
-// Nút hành động — quyết định hiện gì dựa trên trạng thái hồ sơ + việc người
+// Tự nhận diện đúng Mẫu hồ sơ phù hợp với người đang tạo hồ sơ — không bắt họ
+// tự chọn giữa 1 danh sách lẫn lộn mẫu công trường/phòng ban khác nhau
+export async function resolveDefaultTemplates(userId, docType) {
+  const { data: myRoles } = await supabase.from('user_roles').select('role_type, department').eq('user_id', userId);
+  const depts = (myRoles || []).filter((r) => r.role_type === 'ChuyenVienPhongBan' && r.department).map((r) => r.department);
+
+  let templates = [];
+  if (depts.length) {
+    const { data: matchSteps } = await supabase
+      .from('template_steps')
+      .select('template_id, document_templates!inner(id, name, doc_type)')
+      .eq('role_type', 'ChuyenVienPhongBan')
+      .in('department', depts)
+      .eq('document_templates.doc_type', docType);
+    const ids = [...new Set((matchSteps || []).map((s) => s.template_id))];
+    if (ids.length) {
+      const { data } = await supabase.from('document_templates').select('id, name').in('id', ids);
+      templates = data || [];
+    }
+  }
+  if (!templates.length) {
+    const { data } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType).eq('origin_scope', 'site');
+    templates = data || [];
+  }
+  if (!templates.length) {
+    const { data } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType);
+    templates = data || [];
+  }
+  return templates;
+}
 // đang đăng nhập có đang là người cần xử lý bước hiện tại hay không
 export function actionFooterHtml(doc, docType, user, assignments) {
   const myPending = assignments.find((a) => a.step_no === doc.current_step && a.user_id === user.id && a.status === 'pending');
