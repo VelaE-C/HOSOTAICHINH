@@ -60,7 +60,7 @@ async function openDetail(id, user, onClose) {
 
   const { data: c } = await supabase
     .from('contracts')
-    .select('*, partners(name), projects(name), contract_budget_lines(budget_code, value)')
+    .select('*, partners(name), projects(name), to_trinh_chu_truong(doc_number, title), contract_budget_lines(budget_code, value)')
     .eq('id', id)
     .single();
   if (!c) {
@@ -78,6 +78,7 @@ async function openDetail(id, user, onClose) {
       <div class="kv">
         <div class="k">Dự án</div><div class="v">${c.projects?.name || '—'}</div>
         <div class="k">Giá trị hợp đồng</div><div class="v mono" style="font-weight:700">${fmt(c.value)} ₫</div>
+        <div class="k">Tờ trình căn cứ</div><div class="v">${c.to_trinh_chu_truong ? `<span class="code-chip">${c.to_trinh_chu_truong.doc_number}</span>` : '<span style="color:var(--amber);font-size:12px">⚠️ Chưa gắn tờ trình chủ trương</span>'}</div>
         <div class="k">Trạng thái</div><div class="v">${statusBadge(c.status)}</div>
         <div class="k">Chia mã ngân sách</div><div class="v">${(c.contract_budget_lines || []).map((l) => `<div class="budget-line"><span class="code-chip">${l.budget_code}</span><span class="mono">${fmt(l.value)} ₫</span></div>`).join('') || '<span style="color:var(--gray4)">Chưa chia</span>'}</div>
       </div>
@@ -99,6 +100,7 @@ async function openCreateModal(user, onClose) {
   const { data: partners } = await supabase.from('partners').select('id, name, mst, abbr').order('name');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const { data: templates } = await supabase.from('document_templates').select('id, name').eq('doc_type', 'contract');
+  const { data: toTrinhList } = await supabase.from('to_trinh_chu_truong').select('id, doc_number, title').order('doc_number');
 
   const box = modal.querySelector('.panel-box') || document.createElement('div');
   modal.innerHTML = `<div class="panel-box">
@@ -124,6 +126,9 @@ async function openCreateModal(user, onClose) {
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Bản đầu: chia 100% giá trị hợp đồng vào 1 mã — chia nhiều mã sẽ làm ở bản sau.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+      <div style="margin-bottom:13px"><label class="form-label">Tờ trình chủ trương làm căn cứ (không bắt buộc)</label>
+        <select id="fToTrinh" class="form-input"><option value="">— Chưa gắn —</option>${(toTrinhList || []).map((t) => `<option value="${t.id}">${t.doc_number} — ${t.title}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Không có trong danh sách? Vào tab Tờ trình chủ trương tạo trước — hợp đồng vẫn trình được nếu chưa gắn, chỉ hiện cảnh báo nhẹ.</div></div>
     </div>
     <div class="panel-footer">
       <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu nháp</button>
@@ -141,6 +146,7 @@ async function openCreateModal(user, onClose) {
     const value = Number(modal.querySelector('#fValue').value);
     const budget_code = modal.querySelector('#fBudgetCode').value;
     const template_id = modal.querySelector('#fTemplate').value;
+    const to_trinh_id = modal.querySelector('#fToTrinh').value || null;
 
     if (!project_id || !partner_id || !value || !budget_code) {
       return toast('Điền đủ thông tin bắt buộc trước khi lưu', 'error');
@@ -149,7 +155,7 @@ async function openCreateModal(user, onClose) {
 
     const { data: newContract, error } = await supabase
       .from('contracts')
-      .insert({ project_id, partner_id, contract_type, value, template_id: template_id || null, created_by: user.id, status: 'draft' })
+      .insert({ project_id, partner_id, contract_type, value, template_id: template_id || null, to_trinh_id, created_by: user.id, status: 'draft' })
       .select('id')
       .single();
     if (error) return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
