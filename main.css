@@ -1,0 +1,46 @@
+/* ============================================================
+   main.css — Design tokens theo VelaEC App Template Guide.
+   KHÔNG tự đổi màu/kích thước tùy ý — sửa ở đây sẽ ảnh hưởng mọi app dùng chung guide.
+   ============================================================ */
+:root{
+  --navy:#1A2B4A; --blue:#2563EB; --teal:#0D9488; --green:#16A34A; --amber:#D97706; --red:#DC2626; --orange:#F97316;
+  --gray8:#1E293B; --gray7:#334155; --gray5:#64748B; --gray4:#94A3B8; --gray3:#CBD5E1; --gray2:#E2E8F0; --gray1:#F8FAFC;
+  --lblue:#EFF6FF; --radius:8px;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,Inter,sans-serif;background:var(--gray1);color:var(--gray8);}
+button{font-family:inherit;cursor:pointer;}
+
+/* ===== Màn hình đăng nhập ===== */
+.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+.login-card{background:#fff;border:1px solid var(--gray2);border-radius:12px;padding:36px 32px;max-width:360px;width:100%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.06);}
+.login-card .brand-mark{width:48px;height:48px;border-radius:10px;background:var(--orange);color:#fff;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;}
+.login-card h1{font-size:18px;margin:0 0 8px;color:var(--navy);}
+.login-card p{font-size:13.5px;color:var(--gray7);margin:0 0 20px;line-height:1.5;}
+
+/* ===== Button ===== */
+.btn{font-size:13px;font-weight:600;padding:10px 16px;border-radius:7px;border:1px solid transparent;}
+.btn-primary{background:var(--blue);color:#fff;}
+.btn-primary:hover{background:#1D4ED8;}
+.btn-secondary{background:#fff;border-color:var(--gray3);color:var(--gray7);}
+.btn-secondary:hover{background:var(--gray1);}
+
+/* ===== Badge trạng thái (5 loại chuẩn) ===== */
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap;}
+.badge.done{background:#DCFCE7;color:#166534;}
+.badge.progress{background:#FEF3C7;color:#92400E;}
+.badge.danger{background:#FEE2E2;color:#991B1B;}
+.badge.info{background:#EFF6FF;color:#1D4ED8;}
+.badge.idle{background:#F8FAFC;color:#64748B;border:1px solid var(--gray2);}
+
+/* ===== Toast ===== */
+#toast-wrap{position:fixed;bottom:24px;right:24px;z-index:999;display:flex;flex-direction:column;gap:8px;}
+.toast{padding:11px 16px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.12);border-left:4px solid;animation:toastIn .18s ease;}
+.toast.success{border-color:var(--green);background:#DCFCE7;color:#166534;}
+.toast.error{border-color:var(--red);background:#FEE2E2;color:#991B1B;}
+.toast.info{border-color:var(--blue);background:#EFF6FF;color:#1D4ED8;}
+@keyframes toastIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+
+@media (max-width:1023px){
+  #toast-wrap{right:12px;left:12px;bottom:24px;}
+}
