@@ -171,7 +171,7 @@ async function openUserDetail(id, currentUser, onClose) {
   const { data: myRoles } = await supabase.from('user_roles').select('id, role_type, department').eq('user_id', id);
   const { data: myAssignments } = await supabase
     .from('project_role_assignments')
-    .select('id, role_type, effective_from, effective_to, projects(code, name)')
+    .select('id, role_type, project_id, effective_from, effective_to, projects(code, name)')
     .eq('user_id', id)
     .is('effective_to', null)
     .order('role_type');
@@ -242,16 +242,43 @@ async function openUserDetail(id, currentUser, onClose) {
   box.querySelector('#btnAddAssign').addEventListener('click', async () => {
     const project_id = box.querySelector('#fAssignProject').value;
     const role_type = box.querySelector('#fAssignRole').value;
-    const { error } = await supabase.from('project_role_assignments').insert({ project_id, user_id: id, role_type, effective_from: new Date().toISOString().slice(0, 10), created_by: currentUser.id });
+    loading(true);
+    const { data, error } = await supabase.rpc('fn_reassign_project_role', {
+      p_project_id: project_id, p_role_type: role_type, p_new_user_id: id, p_actor_id: currentUser.id,
+    });
     if (error) return toast('Lỗi: ' + error.message, 'error');
-    toast('Đã phân công dự án', 'success');
+    if (data.old_user_id) {
+      toast(`Đã thay người phụ trách — chuyển giao ${data.transferred_count} hồ sơ đang chờ duyệt sang người mới`, 'success');
+    } else {
+      toast('Đã phân công dự án', 'success');
+    }
     openUserDetail(id, currentUser, onClose);
   });
 
   box.querySelectorAll('[data-end-assign]').forEach((el) =>
     el.addEventListener('click', async () => {
-      if (!confirm('Kết thúc phân công này? Hồ sơ cũ vẫn định tuyến đúng người phụ trách tại thời điểm đã trình.')) return;
-      await supabase.from('project_role_assignments').update({ effective_to: new Date().toISOString().slice(0, 10) }).eq('id', el.dataset.endAssign);
+      const assignId = el.dataset.endAssign;
+      const assignInfo = (myAssignments || []).find((a) => a.id === assignId);
+      let pendingCount = 0;
+      if (assignInfo) {
+        const [{ data: cIds }, { data: bIds }, { data: tIds }] = await Promise.all([
+          supabase.from('contracts').select('id').eq('project_id', assignInfo.project_id),
+          supabase.from('bills').select('id').eq('project_id', assignInfo.project_id),
+          supabase.from('to_trinh_chu_truong').select('id').eq('project_id', assignInfo.project_id),
+        ]);
+        const idsByType = { contract: (cIds || []).map((r) => r.id), bill: (bIds || []).map((r) => r.id), totrinh: (tIds || []).map((r) => r.id) };
+        const counts = await Promise.all(
+          Object.entries(idsByType).map(([docType, ids]) =>
+            ids.length
+              ? supabase.from('approval_assignments').select('id', { count: 'exact', head: true }).eq('user_id', id).eq('status', 'pending').eq('role_type', assignInfo.role_type).eq('document_type', docType).in('document_id', ids)
+              : Promise.resolve({ count: 0 }),
+          ),
+        );
+        pendingCount = counts.reduce((s, r) => s + (r.count || 0), 0);
+      }
+      const warn = pendingCount > 0 ? `\n\n⚠️ Người này còn ${pendingCount} hồ sơ đang chờ duyệt ở dự án này — nếu kết thúc mà KHÔNG gán người thay ngay, các hồ sơ đó sẽ bị treo, không ai duyệt được. Nên dùng khung "Phân công theo dự án" bên dưới để gán người mới thay vì chỉ bấm Kết thúc.` : '';
+      if (!confirm('Kết thúc phân công này?' + warn)) return;
+      await supabase.from('project_role_assignments').update({ effective_to: new Date().toISOString().slice(0, 10) }).eq('id', assignId);
       toast('Đã kết thúc phân công', 'success');
       openUserDetail(id, currentUser, onClose);
     }),
