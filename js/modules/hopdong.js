@@ -92,7 +92,8 @@ export async function openDetail(id, user, onClose) {
   `;
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
-  renderAttachments(box.querySelector('#attachArea'), 'contract', id, user.id);
+  const canEditAttach = c.created_by === user.id && ['draft', 'rejected'].includes(c.status);
+  renderAttachments(box.querySelector('#attachArea'), 'contract', id, user.id, canEditAttach);
   wireActions(box, 'contract', id, c.current_step, assignments, () => {
     closeModal(modal, onClose);
   });
