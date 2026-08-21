@@ -72,11 +72,14 @@ export async function render(container, user) {
 
 async function openCreateTemplateModal(onClose) {
   const modal = ensureModal();
+  const { data: existingTemplates } = await supabase.from('document_templates').select('id, name');
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Tạo mẫu hồ sơ mới</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Mỗi bước phải chọn ít nhất 1 vai trò — bỏ trống 1 bước sẽ khiến hồ sơ bị kẹt mãi ở bước đó, không ai duyệt được.</div>
-      <div style="margin-bottom:13px"><label class="form-label">Tên mẫu *</label><input type="text" id="fName" class="form-input" placeholder="VD: Hợp đồng văn phòng - Phòng Nhân sự"></div>
+      ${existingTemplates && existingTemplates.length ? `<div style="margin-bottom:16px"><label class="form-label">Nhân bản từ mẫu có sẵn (không bắt buộc — đỡ phải tick lại từ đầu)</label>
+        <select id="fCopyFrom" class="form-input"><option value="">— Tạo từ đầu —</option>${existingTemplates.map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></div>` : ''}
+      <div style="margin-bottom:13px"><label class="form-label">Tên mẫu *</label><input type="text" id="fName" class="form-input" placeholder="VD: Hợp đồng văn phòng - Phòng Thiết bị"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
         <div><label class="form-label">Áp dụng cho loại hồ sơ *</label>
           <select id="fDocType" class="form-input"><option value="contract">Hợp đồng</option><option value="bill">Bill thanh toán</option><option value="totrinh">Tờ trình chủ trương</option></select></div>
@@ -86,14 +89,35 @@ async function openCreateTemplateModal(onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Mô tả</label><input type="text" id="fDesc" class="form-input"></div>
       ${[1, 2, 3, 4].map((step) => `
         <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước ${step}</div>
-        <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:4px 10px">
-          ${ALL_ROLES.map((r) => `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="step-role" data-step="${step}" data-role="${r}">${r}</label>`).join('')}
+        <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
+          ${ALL_ROLES.map((r) => {
+            const needsDept = r === 'TruongPhongChucNang' || r === 'ChuyenVienPhongBan';
+            return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" class="step-role" data-step="${step}" data-role="${r}">${r}
+              ${needsDept ? `<input type="text" class="step-dept form-input" data-step="${step}" data-role="${r}" placeholder="Phòng ban (vd: Thiết bị)" style="width:130px;padding:3px 7px;font-size:11px">` : ''}
+            </label>`;
+          }).join('')}
         </div>`).join('')}
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu mẫu hồ sơ</button></div>
   </div>`;
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  // Nhân bản: tick sẵn đúng các ô của mẫu được chọn, kể cả phòng ban đã ghi
+  modal.querySelector('#fCopyFrom')?.addEventListener('change', async (e) => {
+    modal.querySelectorAll('.step-role').forEach((cb) => (cb.checked = false));
+    modal.querySelectorAll('.step-dept').forEach((inp) => (inp.value = ''));
+    if (!e.target.value) return;
+    const { data: steps } = await supabase.from('template_steps').select('step_no, role_type, department').eq('template_id', e.target.value);
+    (steps || []).forEach((s) => {
+      const cb = modal.querySelector(`.step-role[data-step="${s.step_no}"][data-role="${s.role_type}"]`);
+      if (cb) cb.checked = true;
+      const dept = modal.querySelector(`.step-dept[data-step="${s.step_no}"][data-role="${s.role_type}"]`);
+      if (dept && s.department) dept.value = s.department;
+    });
+    toast('Đã sao chép cấu hình — chỉnh sửa rồi lưu như mẫu mới', 'info');
+  });
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const name = modal.querySelector('#fName').value.trim();
@@ -102,7 +126,10 @@ async function openCreateTemplateModal(onClose) {
     const description = modal.querySelector('#fDesc').value.trim();
     if (!name) return toast('Điền tên mẫu', 'error');
 
-    const checked = [...modal.querySelectorAll('.step-role:checked')].map((el) => ({ step_no: Number(el.dataset.step), role_type: el.dataset.role }));
+    const checked = [...modal.querySelectorAll('.step-role:checked')].map((el) => {
+      const deptInput = modal.querySelector(`.step-dept[data-step="${el.dataset.step}"][data-role="${el.dataset.role}"]`);
+      return { step_no: Number(el.dataset.step), role_type: el.dataset.role, department: deptInput?.value.trim() || null };
+    });
     const usedSteps = new Set(checked.map((c) => c.step_no));
     if (usedSteps.size < 1) return toast('Phải chọn ít nhất 1 vai trò ở ít nhất 1 bước', 'error');
     for (let s = 1; s <= Math.max(...usedSteps); s++) {
@@ -113,7 +140,7 @@ async function openCreateTemplateModal(onClose) {
     const { data: tpl, error } = await supabase.from('document_templates').insert({ name, doc_type, origin_scope, description }).select('id').single();
     if (error) return toast('Lỗi tạo mẫu: ' + error.message, 'error');
 
-    const { error: stepErr } = await supabase.from('template_steps').insert(checked.map((c) => ({ template_id: tpl.id, step_no: c.step_no, role_type: c.role_type })));
+    const { error: stepErr } = await supabase.from('template_steps').insert(checked.map((c) => ({ template_id: tpl.id, step_no: c.step_no, role_type: c.role_type, department: c.department })));
     if (stepErr) return toast('Đã tạo mẫu nhưng lỗi lưu các bước: ' + stepErr.message, 'error');
 
     toast('Đã tạo mẫu hồ sơ mới', 'success');
@@ -189,10 +216,11 @@ async function openUserDetail(id, currentUser, onClose) {
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Vai trò hệ thống</div>
       <div class="card">
         <div id="roleList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
-          ${(myRoles || []).map((r) => `<span class="code-chip">${r.role_type} <span data-rm-role="${r.id}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:3px">✕</span></span>`).join('') || '<span style="color:var(--gray4);font-size:12px">Chưa có vai trò nào</span>'}
+          ${(myRoles || []).map((r) => `<span class="code-chip">${r.role_type}${r.department ? ' — ' + r.department : ''} <span data-rm-role="${r.id}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:3px">✕</span></span>`).join('') || '<span style="color:var(--gray4);font-size:12px">Chưa có vai trò nào</span>'}
         </div>
         <div style="display:flex;gap:8px">
           <select id="fAddRole" class="form-input">${ALL_ROLES.map((r) => `<option value="${r}">${r}</option>`).join('')}</select>
+          <input type="text" id="fAddRoleDept" class="form-input" placeholder="Phòng ban (nếu là TP/CV phòng ban)" style="max-width:200px">
           <button class="btn btn-sm btn-secondary" id="btnAddRole">+ Thêm</button>
         </div>
       </div>
@@ -225,7 +253,8 @@ async function openUserDetail(id, currentUser, onClose) {
 
   box.querySelector('#btnAddRole').addEventListener('click', async () => {
     const role_type = box.querySelector('#fAddRole').value;
-    const { error } = await supabase.from('user_roles').insert({ user_id: id, role_type });
+    const department = box.querySelector('#fAddRoleDept').value.trim() || null;
+    const { error } = await supabase.from('user_roles').insert({ user_id: id, role_type, department });
     if (error) return toast('Lỗi (có thể vai trò này đã có): ' + error.message, 'error');
     toast('Đã thêm vai trò', 'success');
     openUserDetail(id, currentUser, onClose);
