@@ -59,7 +59,7 @@ export async function render(container, user) {
   container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
 }
 
-async function openDetail(id, user, onClose) {
+export async function openDetail(id, user, onClose) {
   const modal = ensureModal();
   modal.innerHTML = `<div class="panel-box"><div class="empty-note">Đang tải…</div></div>`;
   showModal(modal, onClose);
