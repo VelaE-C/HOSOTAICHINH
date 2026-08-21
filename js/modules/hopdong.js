@@ -4,6 +4,7 @@
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates } from '../core/approvalUI.js';
+import { renderAttachments } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -82,6 +83,8 @@ export async function openDetail(id, user, onClose) {
         <div class="k">Trạng thái</div><div class="v">${statusBadge(c.status)}</div>
         <div class="k">Chia mã ngân sách</div><div class="v">${(c.contract_budget_lines || []).map((l) => `<div class="budget-line"><span class="code-chip">${l.budget_code}</span><span class="mono">${fmt(l.value)} ₫</span></div>`).join('') || '<span style="color:var(--gray4)">Chưa chia</span>'}</div>
       </div>
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
+      <div class="card" id="attachArea"></div>
       ${c.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, c.current_step)}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
     </div>
@@ -89,6 +92,7 @@ export async function openDetail(id, user, onClose) {
   `;
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+  renderAttachments(box.querySelector('#attachArea'), 'contract', id, user.id);
   wireActions(box, 'contract', id, c.current_step, assignments, () => {
     closeModal(modal, onClose);
   });
