@@ -4,7 +4,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates } from '../core/approvalUI.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -139,7 +139,7 @@ async function openCreateModal(user, onClose) {
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id').eq('status', 'active').order('doc_number');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
-  const { data: templates } = await supabase.from('document_templates').select('id, name').eq('doc_type', 'bill');
+  const templates = await resolveDefaultTemplates(user.id, 'bill');
 
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Trình bill thanh toán mới</div><button class="panel-close" id="pClose">✕</button></div>
@@ -164,7 +164,8 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ đính kèm bắt buộc (checklist)</label>
         <input type="number" id="fChecklist" class="form-input" value="5" min="0"></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
-        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
     </div>
     <div class="panel-footer">
       <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu nháp</button>
