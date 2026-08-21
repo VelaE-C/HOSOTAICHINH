@@ -18,6 +18,7 @@ export async function render(container, user) {
   (allSteps || []).forEach((s) => (stepCountMap[s.template_id] = (stepCountMap[s.template_id] || 0) + 1));
 
   const { data: projects, error: projErr } = await supabase.from('projects').select('id, code, name, investor, location, project_type, unit_count, status').order('code');
+  const { data: departments, error: deptErr } = await supabase.from('departments').select('name').order('name');
   const { data: users, error } = await supabase.from('users').select('id, email, full_name, is_active').order('full_name');
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${error.message}</div>`;
@@ -43,6 +44,16 @@ export async function render(container, user) {
     </div>
 
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
+      <div class="card-title" style="margin:0">Phòng ban</div>
+      <button class="btn btn-primary btn-sm" id="btnNewDept">+ Tạo phòng ban mới</button>
+    </div>
+    <div class="card" style="margin-bottom:22px">
+      ${deptErr ? `<div class="empty-note">⚠️ Lỗi: ${deptErr.message}</div>` :
+      departments && departments.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${departments.map((d) => `<span class="code-chip">${d.name}</span>`).join('')}</div>` :
+      `<div class="empty-note">Chưa có phòng ban nào — tạo trước khi gán Trưởng phòng/Chuyên viên/PTGD theo phòng ban.</div>`}
+    </div>
+
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
       <div class="card-title" style="margin:0">Mẫu hồ sơ (luồng duyệt)</div>
       <button class="btn btn-primary btn-sm" id="btnNewTemplate">+ Tạo mẫu mới</button>
     </div>
@@ -65,6 +76,7 @@ export async function render(container, user) {
     </tbody></table></div>`;
 
   container.querySelector('#btnNewProject').addEventListener('click', () => openCreateProjectModal(() => render(container, user)));
+  container.querySelector('#btnNewDept').addEventListener('click', () => openCreateDeptModal(() => render(container, user)));
   container.querySelector('#btnNewTemplate').addEventListener('click', () => openCreateTemplateModal(() => render(container, user)));
   container.querySelector('#btnNew').addEventListener('click', () => openCreateUserModal(user, () => render(container, user)));
   container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.id, user, () => render(container, user))));
@@ -73,10 +85,13 @@ export async function render(container, user) {
 async function openCreateTemplateModal(onClose) {
   const modal = ensureModal();
   const { data: existingTemplates } = await supabase.from('document_templates').select('id, name');
+  const { data: departments } = await supabase.from('departments').select('name').order('name');
+  const deptOptions = `<option value="">— Mọi phòng ban —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Tạo mẫu hồ sơ mới</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Mỗi bước phải chọn ít nhất 1 vai trò — bỏ trống 1 bước sẽ khiến hồ sơ bị kẹt mãi ở bước đó, không ai duyệt được.</div>
+      ${!departments || !departments.length ? `<div class="warn-box">⚠️ <div>Chưa có phòng ban nào trong hệ thống — vào khối "Phòng ban" ở trên tạo trước, nếu không sẽ không chọn được đúng Trưởng phòng/Chuyên viên/PTGD theo phòng ban.</div></div>` : ''}
       ${existingTemplates && existingTemplates.length ? `<div style="margin-bottom:16px"><label class="form-label">Nhân bản từ mẫu có sẵn (không bắt buộc — đỡ phải tick lại từ đầu)</label>
         <select id="fCopyFrom" class="form-input"><option value="">— Tạo từ đầu —</option>${existingTemplates.map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></div>` : ''}
       <div style="margin-bottom:13px"><label class="form-label">Tên mẫu *</label><input type="text" id="fName" class="form-input" placeholder="VD: Hợp đồng văn phòng - Phòng Thiết bị"></div>
@@ -95,7 +110,7 @@ async function openCreateTemplateModal(onClose) {
             const needsDept = r === 'TruongPhongChucNang' || r === 'ChuyenVienPhongBan' || r === 'PTGD';
             return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
               <input type="checkbox" class="step-role" data-step="${step}" data-role="${r}">${r}
-              ${needsDept ? `<input type="text" class="step-dept form-input dept-for-${r === 'PTGD' ? 'ptgd' : 'office'}" data-step="${step}" data-role="${r}" placeholder="Phòng ban (vd: Thiết bị)" style="width:130px;padding:3px 7px;font-size:11px">` : ''}
+              ${needsDept ? `<select class="step-dept form-input dept-for-${r === 'PTGD' ? 'ptgd' : 'office'}" data-step="${step}" data-role="${r}" style="width:140px;padding:3px 7px;font-size:11px">${deptOptions}</select>` : ''}
             </label>`;
           }).join('')}
         </div>`).join('')}
@@ -161,6 +176,30 @@ async function openCreateTemplateModal(onClose) {
   });
 }
 
+async function openCreateDeptModal(onClose) {
+  const modal = ensureModal();
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Tạo phòng ban mới</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Tên phòng ban *</label><input type="text" id="fDeptName" class="form-input" placeholder="VD: Thiết bị"></div>
+      <div style="font-size:11.5px;color:var(--gray4)">Đặt tên ngắn gọn, thống nhất — tên này sẽ hiện trong danh sách chọn khi gán vai trò cho người dùng và khi tạo Mẫu hồ sơ.</div>
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu phòng ban</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const name = modal.querySelector('#fDeptName').value.trim();
+    if (!name) return toast('Điền tên phòng ban', 'error');
+    loading(true);
+    const { error } = await supabase.from('departments').insert({ name });
+    if (error) return toast('Lỗi lưu (có thể phòng ban đã tồn tại): ' + error.message, 'error');
+    toast('Đã tạo phòng ban mới', 'success');
+    closeModal(modal, onClose);
+  });
+}
+
 async function openCreateProjectModal(onClose) {
   const modal = ensureModal();
   modal.innerHTML = `<div class="panel-box">
@@ -216,6 +255,7 @@ async function openUserDetail(id, currentUser, onClose) {
     .is('effective_to', null)
     .order('role_type');
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
+  const { data: departments } = await supabase.from('departments').select('name').order('name');
 
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
@@ -233,7 +273,10 @@ async function openUserDetail(id, currentUser, onClose) {
         </div>
         <div style="display:flex;gap:8px">
           <select id="fAddRole" class="form-input">${ALL_ROLES.map((r) => `<option value="${r}">${r}</option>`).join('')}</select>
-          <input type="text" id="fAddRoleDept" class="form-input" placeholder="Phòng ban (nếu là TP/CV phòng ban)" style="max-width:200px">
+          <select id="fAddRoleDept" class="form-input" style="max-width:200px">
+            <option value="">— Không thuộc phòng ban —</option>
+            ${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}
+          </select>
           <button class="btn btn-sm btn-secondary" id="btnAddRole">+ Thêm</button>
         </div>
       </div>
