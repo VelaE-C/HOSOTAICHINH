@@ -76,7 +76,7 @@ function finRow(label, value, code, bold) {
     </span></div>`;
 }
 
-async function openDetail(id, user, onClose) {
+export async function openDetail(id, user, onClose) {
   const modal = ensureModal();
   modal.innerHTML = `<div class="panel-box"><div class="empty-note">Đang tải…</div></div>`;
   showModal(modal, onClose);
