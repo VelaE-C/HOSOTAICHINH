@@ -7,9 +7,15 @@ import { toast, loading, fmtDate } from '../core/utils.js';
 
 const ALL_ROLES = ['QS', 'CHT', 'GDDA', 'ChuyenVienPhongBan', 'TruongPhongChucNang', 'PhapChe_CV', 'PhapChe_TP', 'KeToan_Vien', 'KeToan_Truong', 'QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'];
 const PROJECT_ROLES = ['QS', 'CHT', 'GDDA', 'PTGD'];
+const DOC_TYPE_LABEL = { contract: 'Hợp đồng', bill: 'Bill thanh toán', totrinh: 'Tờ trình chủ trương' };
 
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
+
+  const { data: templates } = await supabase.from('document_templates').select('id, name, doc_type, origin_scope, is_active');
+  const { data: allSteps } = await supabase.from('template_steps').select('template_id, step_no');
+  const stepCountMap = {};
+  (allSteps || []).forEach((s) => (stepCountMap[s.template_id] = (stepCountMap[s.template_id] || 0) + 1));
 
   const { data: projects, error: projErr } = await supabase.from('projects').select('id, code, name, investor, location, project_type, unit_count, status').order('code');
   const { data: users, error } = await supabase.from('users').select('id, email, full_name, is_active').order('full_name');
@@ -37,6 +43,17 @@ export async function render(container, user) {
     </div>
 
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
+      <div class="card-title" style="margin:0">Mẫu hồ sơ (luồng duyệt)</div>
+      <button class="btn btn-primary btn-sm" id="btnNewTemplate">+ Tạo mẫu mới</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
+      <table><thead><tr><th>Tên mẫu</th><th>Áp dụng cho loại hồ sơ</th><th>Đơn vị trình</th><th>Số bước</th></tr></thead><tbody>
+      ${templates && templates.length ? templates.map((t) => `<tr><td>${t.name}</td><td><span class="badge info">${DOC_TYPE_LABEL[t.doc_type] || t.doc_type}</span></td><td>${t.origin_scope === 'site' ? 'Công trường' : 'Phòng ban'}</td><td>${stepCountMap[t.id] || 0} vai trò / ${new Set((allSteps || []).filter((s) => s.template_id === t.id).map((s) => s.step_no)).size} bước</td></tr>`).join('') :
+      `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Chưa có mẫu hồ sơ nào</td></tr>`}
+      </tbody></table>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
       <div class="card-title" style="margin:0">Người dùng</div>
       <button class="btn btn-primary btn-sm" id="btnNew">+ Thêm người dùng</button>
     </div>
@@ -48,8 +65,60 @@ export async function render(container, user) {
     </tbody></table></div>`;
 
   container.querySelector('#btnNewProject').addEventListener('click', () => openCreateProjectModal(() => render(container, user)));
+  container.querySelector('#btnNewTemplate').addEventListener('click', () => openCreateTemplateModal(() => render(container, user)));
   container.querySelector('#btnNew').addEventListener('click', () => openCreateUserModal(user, () => render(container, user)));
   container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.id, user, () => render(container, user))));
+}
+
+async function openCreateTemplateModal(onClose) {
+  const modal = ensureModal();
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Tạo mẫu hồ sơ mới</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Mỗi bước phải chọn ít nhất 1 vai trò — bỏ trống 1 bước sẽ khiến hồ sơ bị kẹt mãi ở bước đó, không ai duyệt được.</div>
+      <div style="margin-bottom:13px"><label class="form-label">Tên mẫu *</label><input type="text" id="fName" class="form-input" placeholder="VD: Hợp đồng văn phòng - Phòng Nhân sự"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
+        <div><label class="form-label">Áp dụng cho loại hồ sơ *</label>
+          <select id="fDocType" class="form-input"><option value="contract">Hợp đồng</option><option value="bill">Bill thanh toán</option><option value="totrinh">Tờ trình chủ trương</option></select></div>
+        <div><label class="form-label">Đơn vị trình *</label>
+          <select id="fScope" class="form-input"><option value="site">Công trường</option><option value="department">Phòng ban</option></select></div>
+      </div>
+      <div style="margin-bottom:13px"><label class="form-label">Mô tả</label><input type="text" id="fDesc" class="form-input"></div>
+      ${[1, 2, 3, 4].map((step) => `
+        <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước ${step}</div>
+        <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:4px 10px">
+          ${ALL_ROLES.map((r) => `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="step-role" data-step="${step}" data-role="${r}">${r}</label>`).join('')}
+        </div>`).join('')}
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu mẫu hồ sơ</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const name = modal.querySelector('#fName').value.trim();
+    const doc_type = modal.querySelector('#fDocType').value;
+    const origin_scope = modal.querySelector('#fScope').value;
+    const description = modal.querySelector('#fDesc').value.trim();
+    if (!name) return toast('Điền tên mẫu', 'error');
+
+    const checked = [...modal.querySelectorAll('.step-role:checked')].map((el) => ({ step_no: Number(el.dataset.step), role_type: el.dataset.role }));
+    const usedSteps = new Set(checked.map((c) => c.step_no));
+    if (usedSteps.size < 1) return toast('Phải chọn ít nhất 1 vai trò ở ít nhất 1 bước', 'error');
+    for (let s = 1; s <= Math.max(...usedSteps); s++) {
+      if (!usedSteps.has(s)) return toast(`Bước ${s} đang trống nhưng bước ${s + 1} trở đi có chọn vai trò — phải điền đủ liên tiếp từ bước 1, không được bỏ trống ở giữa`, 'error');
+    }
+
+    loading(true);
+    const { data: tpl, error } = await supabase.from('document_templates').insert({ name, doc_type, origin_scope, description }).select('id').single();
+    if (error) return toast('Lỗi tạo mẫu: ' + error.message, 'error');
+
+    const { error: stepErr } = await supabase.from('template_steps').insert(checked.map((c) => ({ template_id: tpl.id, step_no: c.step_no, role_type: c.role_type })));
+    if (stepErr) return toast('Đã tạo mẫu nhưng lỗi lưu các bước: ' + stepErr.message, 'error');
+
+    toast('Đã tạo mẫu hồ sơ mới', 'success');
+    closeModal(modal, onClose);
+  });
 }
 
 async function openCreateProjectModal(onClose) {
