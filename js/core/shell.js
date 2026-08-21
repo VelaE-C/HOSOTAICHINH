@@ -13,7 +13,7 @@ const NAV = [
   { id: 'nganSach', label: 'Ngân sách', icon: '🧮', group: 'QUẢN TRỊ', more: true, title: 'Kiểm soát ngân sách', sub: 'Phân bổ · Cam kết · Thực chi' },
   { id: 'hopdongdaura', label: 'Hợp đồng đầu ra (CĐT)', icon: '🏦', group: 'QUẢN TRỊ', more: true, title: 'Hợp đồng đầu ra — Doanh thu', sub: 'Chỉ QLCP&HĐ tự nhập' },
   { id: 'doitac', label: 'Đối tác', icon: '🏗️', group: 'QUẢN TRỊ', more: true, title: 'Đối tác NTP / NCC', sub: 'Hồ sơ và lịch sử giao dịch' },
-  { id: 'users', label: 'Người dùng', icon: '👤', group: 'QUẢN TRỊ', more: true, title: 'Người dùng & phân quyền', sub: 'Tài khoản, vai trò, phân công theo dự án' },
+  { id: 'users', label: 'Người dùng', icon: '👤', group: 'QUẢN TRỊ', more: true, title: 'Quản trị hệ thống', sub: 'Dự án, người dùng, mẫu hồ sơ (luồng duyệt)' },
 ];
 
 // Đúng theo bảng phân quyền mục 9 concept — 1 người có thể giữ nhiều vai trò,
