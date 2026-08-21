@@ -3,7 +3,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates } from '../core/approvalUI.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -99,7 +99,7 @@ async function openCreateModal(user, onClose) {
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst, abbr').order('name');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
-  const { data: templates } = await supabase.from('document_templates').select('id, name').eq('doc_type', 'contract');
+  const templates = await resolveDefaultTemplates(user.id, 'contract');
   const { data: toTrinhList } = await supabase.from('to_trinh_chu_truong').select('id, doc_number, title').order('doc_number');
 
   const box = modal.querySelector('.panel-box') || document.createElement('div');
@@ -125,7 +125,8 @@ async function openCreateModal(user, onClose) {
         <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Bản đầu: chia 100% giá trị hợp đồng vào 1 mã — chia nhiều mã sẽ làm ở bản sau.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
-        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn — không hiện mẫu của phòng ban khác.'}</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Tờ trình chủ trương làm căn cứ (không bắt buộc)</label>
         <select id="fToTrinh" class="form-input"><option value="">— Chưa gắn —</option>${(toTrinhList || []).map((t) => `<option value="${t.id}">${t.doc_number} — ${t.title}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Không có trong danh sách? Vào tab Tờ trình chủ trương tạo trước — hợp đồng vẫn trình được nếu chưa gắn, chỉ hiện cảnh báo nhẹ.</div></div>
