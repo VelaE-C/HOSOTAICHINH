@@ -11,6 +11,7 @@ const PROJECT_ROLES = ['QS', 'CHT', 'GDDA', 'PTGD'];
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
+  const { data: projects, error: projErr } = await supabase.from('projects').select('id, code, name, investor, location, project_type, unit_count, status').order('code');
   const { data: users, error } = await supabase.from('users').select('id, email, full_name, is_active').order('full_name');
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${error.message}</div>`;
@@ -20,9 +21,24 @@ export async function render(container, user) {
   const roleMap = {};
   (roles || []).forEach((r) => (roleMap[r.user_id] = [...(roleMap[r.user_id] || []), r.role_type]));
 
+  const statusVN = { active: 'Đang thi công', completed: 'Hoàn thành', paused: 'Tạm dừng' };
+
   container.innerHTML = `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-      <button class="btn btn-primary" id="btnNew">+ Thêm người dùng</button>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
+      <div class="card-title" style="margin:0">Dự án</div>
+      <button class="btn btn-primary btn-sm" id="btnNewProject">+ Tạo dự án mới</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
+      ${projErr ? `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${projErr.message}</div>` : `
+      <table><thead><tr><th>Mã</th><th>Tên dự án</th><th>Chủ đầu tư</th><th>Địa điểm</th><th>Loại hình</th><th>Số căn</th><th>Trạng thái</th></tr></thead><tbody>
+      ${projects && projects.length ? projects.map((p) => `<tr><td class="mono">${p.code}</td><td>${p.name}</td><td>${p.investor || '—'}</td><td>${p.location || '—'}</td><td>${p.project_type || '—'}</td><td>${p.unit_count || '—'}</td><td><span class="badge idle">${statusVN[p.status] || p.status}</span></td></tr>`).join('') :
+      `<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:20px">Chưa có dự án nào</td></tr>`}
+      </tbody></table>`}
+    </div>
+
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
+      <div class="card-title" style="margin:0">Người dùng</div>
+      <button class="btn btn-primary btn-sm" id="btnNew">+ Thêm người dùng</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th></tr></thead><tbody>
     ${users && users.length ? users.map((u) => `<tr class="click" data-id="${u.id}"><td>${u.full_name}</td><td class="mono">${u.email}</td>
@@ -31,8 +47,50 @@ export async function render(container, user) {
     `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Chưa có người dùng nào</td></tr>`}
     </tbody></table></div>`;
 
+  container.querySelector('#btnNewProject').addEventListener('click', () => openCreateProjectModal(() => render(container, user)));
   container.querySelector('#btnNew').addEventListener('click', () => openCreateUserModal(user, () => render(container, user)));
   container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.id, user, () => render(container, user))));
+}
+
+async function openCreateProjectModal(onClose) {
+  const modal = ensureModal();
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Tạo dự án mới</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mã dự án * (dùng trong số hợp đồng, viết liền không dấu, vd VEGACITY)</label><input type="text" id="fCode" class="form-input" style="text-transform:uppercase"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Tên dự án *</label><input type="text" id="fName" class="form-input"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Chủ đầu tư (CĐT)</label><input type="text" id="fInvestor" class="form-input"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Địa điểm</label><input type="text" id="fLocation" class="form-input"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
+        <div><label class="form-label">Loại hình</label><input type="text" id="fType" class="form-input" placeholder="VD: Villa, Liền kề"></div>
+        <div><label class="form-label">Số lượng căn</label><input type="number" id="fUnits" class="form-input"></div>
+      </div>
+      <div style="margin-bottom:13px"><label class="form-label">Ngày khởi công</label><input type="date" id="fStart" class="form-input"></div>
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu dự án</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const code = modal.querySelector('#fCode').value.trim().toUpperCase();
+    const name = modal.querySelector('#fName').value.trim();
+    if (!code || !name) return toast('Điền đủ Mã dự án và Tên dự án', 'error');
+
+    loading(true);
+    const { error } = await supabase.from('projects').insert({
+      code, name,
+      investor: modal.querySelector('#fInvestor').value.trim() || null,
+      location: modal.querySelector('#fLocation').value.trim() || null,
+      project_type: modal.querySelector('#fType').value.trim() || null,
+      unit_count: modal.querySelector('#fUnits').value ? Number(modal.querySelector('#fUnits').value) : null,
+      start_date: modal.querySelector('#fStart').value || null,
+      status: 'active',
+    });
+    if (error) return toast('Lỗi lưu dự án (mã có thể đã tồn tại): ' + error.message, 'error');
+    toast('Đã tạo dự án mới', 'success');
+    closeModal(modal, onClose);
+  });
 }
 
 async function openUserDetail(id, currentUser, onClose) {
