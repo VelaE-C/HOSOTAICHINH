@@ -23,7 +23,8 @@ function fmtSize(kb) {
 }
 
 // Gọi hàm này để vẽ + gắn toàn bộ chức năng vào 1 khung <div>
-export async function renderAttachments(container, ownerType, ownerId, currentUserId) {
+// canEdit = false -> chỉ xem/tải file, ẩn hẳn nút Thêm/Xóa (hồ sơ đang duyệt hoặc đã hoàn tất)
+export async function renderAttachments(container, ownerType, ownerId, currentUserId, canEdit = true) {
   await refresh();
 
   async function refresh() {
@@ -41,17 +42,19 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
 
     const count = files?.length || 0;
     container.innerHTML = `
+      ${!canEdit ? `<div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">🔒 Hồ sơ đang khóa (đang duyệt hoặc đã hoàn tất) — chỉ xem, không thêm/xóa được.</div>` : ''}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
         ${count ? files.map((f) => `
           <span class="linked-chip" style="background:var(--gray1);color:var(--gray7);cursor:pointer" data-open-file="${f.id}" data-path="${f.file_url}">
             ${fileIcon(f.file_name)} ${f.file_name}
             <span style="color:var(--gray4);font-weight:400;font-size:11px">(${fmtSize(f.file_size_kb)})</span>
-            ${f.uploaded_by === currentUserId ? `<span data-del-file="${f.id}" data-path="${f.file_url}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:2px">✕</span>` : ''}
+            ${canEdit && f.uploaded_by === currentUserId ? `<span data-del-file="${f.id}" data-path="${f.file_url}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:2px">✕</span>` : ''}
           </span>`).join('') : '<span style="color:var(--gray4);font-size:12px">Chưa có file đính kèm</span>'}
       </div>
+      ${canEdit ? `
       <input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg">
       <button class="btn btn-sm btn-secondary" id="btnAddFile" ${count >= MAX_FILES ? 'disabled' : ''}>+ Thêm file (PDF, Word, Excel, ảnh)</button>
-      <div style="font-size:11px;color:var(--gray4);margin-top:5px">${count}/${MAX_FILES} file — tối đa ${MAX_FILES} file mỗi hồ sơ.</div>
+      <div style="font-size:11px;color:var(--gray4);margin-top:5px">${count}/${MAX_FILES} file — tối đa ${MAX_FILES} file mỗi hồ sơ.</div>` : ''}
     `;
 
     container.querySelector('#btnAddFile')?.addEventListener('click', () => container.querySelector('#fileInput').click());
