@@ -146,10 +146,12 @@ async function openCreateModal(user, onClose) {
       const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'totrinh', p_doc_id: newDoc.id });
       if (subErr) return toast('Đã lưu nháp, nhưng trình lỗi: ' + subErr.message, 'error');
       toast('Đã trình hồ sơ', 'success');
+      closeModal(modal, onClose);
     } else {
-      toast('Đã lưu nháp', 'success');
+      toast('Đã lưu nháp — mở lại hồ sơ để đính kèm file', 'success');
+      closeModal(modal, () => {});
+      openDetail(newDoc.id, user, onClose);
     }
-    closeModal(modal, onClose);
   }
 
   modal.querySelector('#btnSaveDraft').addEventListener('click', () => doSave(false));
