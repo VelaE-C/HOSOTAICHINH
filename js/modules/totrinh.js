@@ -6,6 +6,7 @@
 import { supabase } from '../core/config.js';
 import { toast, loading, statusBadge } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates } from '../core/approvalUI.js';
+import { renderAttachments } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -86,12 +87,15 @@ export async function openDetail(id, user, onClose) {
             : '<span style="color:var(--gray4);font-size:12px">Chưa có hợp đồng nào chọn tờ trình này làm căn cứ</span>'
         }</div>
       </div>
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
+      <div class="card" id="attachArea"></div>
       ${t.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, t.current_step)}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
     </div>
     ${actionFooterHtml(t, 'totrinh', user, assignments)}
   `;
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+  renderAttachments(box.querySelector('#attachArea'), 'totrinh', id, user.id);
   wireActions(box, 'totrinh', id, t.current_step, assignments, () => closeModal(modal, onClose));
 }
 
