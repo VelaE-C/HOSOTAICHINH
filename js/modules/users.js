@@ -84,17 +84,18 @@ async function openCreateTemplateModal(onClose) {
         <div><label class="form-label">Áp dụng cho loại hồ sơ *</label>
           <select id="fDocType" class="form-input"><option value="contract">Hợp đồng</option><option value="bill">Bill thanh toán</option><option value="totrinh">Tờ trình chủ trương</option></select></div>
         <div><label class="form-label">Đơn vị trình *</label>
-          <select id="fScope" class="form-input"><option value="site">Công trường</option><option value="department">Phòng ban</option></select></div>
+          <select id="fScope" class="form-input"><option value="site">Công trường</option><option value="department">Phòng ban</option></select>
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Công trường: PTGD phân theo dự án. Phòng ban: PTGD phân theo phòng ban (ô bên dưới).</div></div>
       </div>
       <div style="margin-bottom:13px"><label class="form-label">Mô tả</label><input type="text" id="fDesc" class="form-input"></div>
       ${[1, 2, 3, 4].map((step) => `
         <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước ${step}</div>
         <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
           ${ALL_ROLES.map((r) => {
-            const needsDept = r === 'TruongPhongChucNang' || r === 'ChuyenVienPhongBan';
+            const needsDept = r === 'TruongPhongChucNang' || r === 'ChuyenVienPhongBan' || r === 'PTGD';
             return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
               <input type="checkbox" class="step-role" data-step="${step}" data-role="${r}">${r}
-              ${needsDept ? `<input type="text" class="step-dept form-input" data-step="${step}" data-role="${r}" placeholder="Phòng ban (vd: Thiết bị)" style="width:130px;padding:3px 7px;font-size:11px">` : ''}
+              ${needsDept ? `<input type="text" class="step-dept form-input dept-for-${r === 'PTGD' ? 'ptgd' : 'office'}" data-step="${step}" data-role="${r}" placeholder="Phòng ban (vd: Thiết bị)" style="width:130px;padding:3px 7px;font-size:11px">` : ''}
             </label>`;
           }).join('')}
         </div>`).join('')}
@@ -103,6 +104,18 @@ async function openCreateTemplateModal(onClose) {
   </div>`;
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  // PTGD chỉ cần ô phòng ban khi Đơn vị trình = Phòng ban; ở Công trường PTGD phân theo
+  // dự án nên ẩn ô này đi, tránh nhầm lẫn
+  function togglePtgdDept() {
+    const isDept = modal.querySelector('#fScope').value === 'department';
+    modal.querySelectorAll('.dept-for-ptgd').forEach((el) => {
+      el.style.display = isDept ? '' : 'none';
+      if (!isDept) el.value = '';
+    });
+  }
+  modal.querySelector('#fScope').addEventListener('change', togglePtgdDept);
+  togglePtgdDept();
 
   // Nhân bản: tick sẵn đúng các ô của mẫu được chọn, kể cả phòng ban đã ghi
   modal.querySelector('#fCopyFrom')?.addEventListener('change', async (e) => {
