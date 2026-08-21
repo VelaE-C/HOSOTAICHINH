@@ -1,0 +1,84 @@
+// ============================================================
+// duyet.js — Hộp thư chờ duyệt, gộp cả 3 loại hồ sơ, KHÔNG lọc theo dự án
+// (đúng thiết kế: luôn hiện hết để không bỏ sót hồ sơ cần xử lý)
+// ============================================================
+import { supabase } from '../core/config.js';
+import { fmt } from '../core/utils.js';
+
+export async function render(container, user) {
+  container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
+
+  const { data: mine, error } = await supabase
+    .from('approval_assignments')
+    .select('document_type, document_id, step_no, role_type')
+    .eq('user_id', user.id)
+    .eq('status', 'pending');
+
+  if (error) {
+    container.innerHTML = `<div class="empty-note">⚠️ Lỗi tải dữ liệu: ${error.message}</div>`;
+    return;
+  }
+  if (!mine || mine.length === 0) {
+    container.innerHTML = `<div class="card empty-note"><div style="font-size:30px;margin-bottom:8px">🗂️</div><div style="font-weight:600;color:var(--gray7);margin-bottom:3px">Không có hồ sơ nào chờ bạn duyệt</div><div>Quay lại sau, hoặc kiểm tra bạn đã được gán đúng vai trò/dự án chưa.</div></div>`;
+    return;
+  }
+
+  // Gom theo loại hồ sơ để truy vấn 1 lần cho mỗi bảng, đỡ gọi lẻ tẻ nhiều lần
+  const idsByType = { contract: [], bill: [], totrinh: [] };
+  mine.forEach((m) => idsByType[m.document_type]?.push(m.document_id));
+
+  const [contracts, bills, totrinhs] = await Promise.all([
+    idsByType.contract.length
+      ? supabase.from('contracts').select('id, doc_number, value, project_id, partners(name), projects(code)').in('id', idsByType.contract)
+      : { data: [] },
+    idsByType.bill.length
+      ? supabase.from('bills').select('id, doc_number, val_a, val_b, val_d, val_f, val_i, project_id, partners(name), projects(code)').in('id', idsByType.bill)
+      : { data: [] },
+    idsByType.totrinh.length
+      ? supabase.from('to_trinh_chu_truong').select('id, doc_number, title, project_id, projects(code)').in('id', idsByType.totrinh)
+      : { data: [] },
+  ]);
+
+  const contractMap = Object.fromEntries((contracts.data || []).map((c) => [c.id, c]));
+  const billMap = Object.fromEntries((bills.data || []).map((b) => [b.id, b]));
+  const totrinhMap = Object.fromEntries((totrinhs.data || []).map((t) => [t.id, t]));
+
+  const rows = mine
+    .map((m) => {
+      if (m.document_type === 'contract') {
+        const c = contractMap[m.document_id];
+        if (!c) return null;
+        return { ...m, docNumber: c.doc_number, projectCode: c.projects?.code, partner: c.partners?.name, value: c.value, label: 'Hợp đồng' };
+      }
+      if (m.document_type === 'bill') {
+        const b = billMap[m.document_id];
+        if (!b) return null;
+        const J = Number(b.val_d) - 0.1 * Number(b.val_d) + Number(b.val_f) + Number(b.val_i);
+        return { ...m, docNumber: b.doc_number, projectCode: b.projects?.code, partner: b.partners?.name, value: J, label: 'Bill thanh toán' };
+      }
+      const t = totrinhMap[m.document_id];
+      if (!t) return null;
+      return { ...m, docNumber: t.doc_number, projectCode: t.projects?.code, partner: '—', value: null, label: 'Tờ trình chủ trương' };
+    })
+    .filter(Boolean);
+
+  container.innerHTML = `
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Loại</th><th>Số hồ sơ</th><th>Đối tác</th><th>Giá trị</th><th>Bước</th><th></th></tr></thead><tbody>
+    ${rows
+      .map(
+        (r) => `<tr><td><span class="badge idle">${r.projectCode || '—'}</span></td><td>${r.label}</td><td class="mono">${r.docNumber}</td><td>${r.partner}</td>
+      <td class="mono">${r.value != null ? fmt(r.value) : '—'}</td><td>Bước ${r.step_no}</td>
+      <td style="text-align:right"><button class="btn btn-sm btn-secondary" data-type="${r.document_type}" data-id="${r.document_id}">Xem &amp; duyệt</button></td></tr>`,
+      )
+      .join('')}
+    </tbody></table></div>`;
+
+  container.querySelectorAll('[data-type]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const type = btn.dataset.type;
+      const id = btn.dataset.id;
+      const mod = await import(`./${type === 'contract' ? 'hopdong' : type === 'bill' ? 'bill' : 'totrinh'}.js`);
+      mod.openDetail(id, user, () => render(container, user));
+    }),
+  );
+}
