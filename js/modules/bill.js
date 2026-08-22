@@ -22,6 +22,49 @@ function calcBill(b, contract) {
   return { C, VAT, E, G, H, I, K };
 }
 
+// Khi hợp đồng liên kết có NHIỀU mã ngân sách, tách D thành nhiều ô nhập theo từng mã
+// (tổng các ô = D) — khớp đúng cách hợp đồng đã chia từ đầu, không nhập gộp 1 số nữa
+function renderDSection(wrapEl, contractLines, prefillLines) {
+  const isMulti = contractLines && contractLines.length > 1;
+  if (!isMulti) {
+    const prefill = prefillLines?.[0]?.value ?? '';
+    wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện kỳ này (chưa VAT)</label>
+      <input type="number" id="fD" class="form-input" value="${prefill}">`;
+    return;
+  }
+  wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện theo từng mã ngân sách (chưa VAT)</label>
+    <div class="card" style="padding:10px 14px">
+      ${contractLines
+        .map((l) => {
+          const prefill = prefillLines?.find((p) => p.budget_code === l.budget_code)?.value ?? '';
+          return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span class="code-chip" style="width:140px;flex:none">${l.budget_code}</span>
+          <input type="number" class="d-per-code form-input" data-code="${l.budget_code}" placeholder="Lũy kế theo mã này" value="${prefill}" style="flex:1">
+        </div>`;
+        })
+        .join('')}
+      <div class="d-total" style="font-size:12px;font-weight:600;margin-top:6px;color:var(--navy)"></div>
+    </div>`;
+  const updateTotal = () => {
+    const total = [...wrapEl.querySelectorAll('.d-per-code')].reduce((s, i) => s + (Number(i.value) || 0), 0);
+    wrapEl.querySelector('.d-total').textContent = `Tổng D: ${total.toLocaleString('vi-VN')} ₫`;
+  };
+  wrapEl.addEventListener('input', (e) => {
+    if (e.target.classList.contains('d-per-code')) updateTotal();
+  });
+  updateTotal();
+}
+
+function readDValue(wrapEl) {
+  const multiInputs = wrapEl.querySelectorAll('.d-per-code');
+  if (multiInputs.length) {
+    const perCode = [...multiInputs].map((i) => ({ budget_code: i.dataset.code, value: Number(i.value) || 0 })).filter((l) => l.value > 0);
+    return { val_d: perCode.reduce((s, l) => s + l.value, 0), perCode };
+  }
+  const single = wrapEl.querySelector('#fD');
+  return { val_d: Number(single?.value) || 0, perCode: null };
+}
+
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
@@ -175,8 +218,15 @@ async function openEditModal(bill, user, onClose) {
   const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
   const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, retention_rate, vat_rate').eq('status', 'active').order('doc_number');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
-  const { data: currentLines } = await supabase.from('bill_budget_lines').select('budget_code').eq('bill_id', bill.id);
+  const { data: currentLines } = await supabase.from('bill_budget_lines').select('budget_code, value').eq('bill_id', bill.id);
   const currentBudgetCode = currentLines?.[0]?.budget_code || '';
+
+  // Nếu hợp đồng liên kết có nhiều mã, cần biết trước để vẽ đúng dSection nhiều dòng ngay từ đầu
+  let contractLinesForBill = null;
+  if (bill.contract_id) {
+    const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', bill.contract_id);
+    if (cLines && cLines.length > 1) contractLinesForBill = cLines;
+  }
 
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Sửa bill — ${bill.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
@@ -194,16 +244,16 @@ async function openEditModal(bill, user, onClose) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
         <div><label class="form-label">A — Giá trị HĐ ban đầu (có VAT)</label><input type="number" id="fA" class="form-input" value="${bill.val_a}"></div>
         <div><label class="form-label">B — Điều chỉnh HĐ (có VAT)</label><input type="number" id="fB" class="form-input" value="${bill.val_b}"></div>
-        <div><label class="form-label">D — Lũy kế thực hiện kỳ này (chưa VAT)</label><input type="number" id="fD" class="form-input" value="${bill.val_d}"></div>
         <div><label class="form-label">F — Giá trị tạm ứng</label><input type="number" id="fF" class="form-input" value="${bill.val_f}"></div>
         <div><label class="form-label">Tỉ lệ giữ lại (%)</label><input type="number" id="fRetention" class="form-input" value="${bill.retention_rate}" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="${bill.vat_rate}" step="0.1"></div>
         <div><label class="form-label">H — Giá trị khấu trừ</label><input type="number" id="fH" class="form-input" value="${bill.val_h || 0}"></div>
-        <div><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="${bill.val_i}"></div>
+        <div style="grid-column:1/-1"><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="${bill.val_i}"></div>
       </div>
+      <div id="dSectionWrap" style="margin-bottom:13px"></div>
       <div style="margin-bottom:13px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label>
         <input type="text" id="fDeductNote" class="form-input" value="${bill.deduction_note || ''}"></div>
-      <div style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
+      <div id="singleBudgetCodeWrap" style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
         <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}" ${c.code === currentBudgetCode ? 'selected' : ''}>${c.code} — ${c.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ đính kèm bắt buộc (checklist)</label>
         <input type="number" id="fChecklist" class="form-input" value="${bill.checklist_required || 0}" min="0"></div>
@@ -213,7 +263,11 @@ async function openEditModal(bill, user, onClose) {
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(bill.id, user, onClose));
 
-  modal.querySelector('#fContract').addEventListener('change', (e) => {
+  const dWrap = modal.querySelector('#dSectionWrap');
+  renderDSection(dWrap, contractLinesForBill, currentLines);
+  modal.querySelector('#singleBudgetCodeWrap').style.display = contractLinesForBill ? 'none' : '';
+
+  modal.querySelector('#fContract').addEventListener('change', async (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
       modal.querySelector('#fA').value = opt.dataset.value || '';
@@ -221,6 +275,13 @@ async function openEditModal(bill, user, onClose) {
       if (opt.dataset.partner) modal.querySelector('#fPartner').value = opt.dataset.partner;
       if (opt.dataset.retention) modal.querySelector('#fRetention').value = opt.dataset.retention;
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
+
+      const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
+      renderDSection(dWrap, cLines, null);
+      modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
+    } else {
+      renderDSection(dWrap, null, null);
+      modal.querySelector('#singleBudgetCodeWrap').style.display = '';
     }
   });
 
@@ -232,7 +293,7 @@ async function openEditModal(bill, user, onClose) {
     const scope = modal.querySelector('#fScope').value;
     const val_a = Number(modal.querySelector('#fA').value);
     const val_b = Number(modal.querySelector('#fB').value);
-    const val_d = Number(modal.querySelector('#fD').value);
+    const { val_d, perCode } = readDValue(dWrap);
     const val_f = Number(modal.querySelector('#fF').value);
     const val_i = Number(modal.querySelector('#fI').value);
     const val_h = Number(modal.querySelector('#fH').value);
@@ -242,7 +303,7 @@ async function openEditModal(bill, user, onClose) {
     const budget_code = modal.querySelector('#fBudgetCode').value;
     const checklist_required = Number(modal.querySelector('#fChecklist').value);
 
-    if (!project_id || !partner_id || !val_a || !budget_code) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
+    if (!project_id || !partner_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
     loading(true);
@@ -252,8 +313,9 @@ async function openEditModal(bill, user, onClose) {
       .eq('id', bill.id);
     if (error) return toast('Lỗi lưu: ' + error.message, 'error');
 
+    const linesToSave = perCode && perCode.length ? perCode : [{ budget_code, value: val_d }];
     await supabase.from('bill_budget_lines').delete().eq('bill_id', bill.id);
-    await supabase.from('bill_budget_lines').insert({ bill_id: bill.id, budget_code, value: calcBill({ val_a, val_b, val_d, val_f, val_i, val_h, retention_rate, vat_rate }).K });
+    await supabase.from('bill_budget_lines').insert(linesToSave.map((l) => ({ bill_id: bill.id, budget_code: l.budget_code, value: l.value })));
 
     toast('Đã lưu thay đổi', 'success');
     openDetail(bill.id, user, onClose);
@@ -285,16 +347,16 @@ async function openCreateModal(user, onClose) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
         <div><label class="form-label">A — Giá trị HĐ ban đầu (có VAT)</label><input type="number" id="fA" class="form-input"></div>
         <div><label class="form-label">B — Điều chỉnh HĐ (có VAT)</label><input type="number" id="fB" class="form-input" value="0"></div>
-        <div><label class="form-label">D — Lũy kế thực hiện kỳ này (chưa VAT)</label><input type="number" id="fD" class="form-input"></div>
         <div><label class="form-label">F — Giá trị tạm ứng</label><input type="number" id="fF" class="form-input" value="0"></div>
         <div><label class="form-label">Tỉ lệ giữ lại (%)</label><input type="number" id="fRetention" class="form-input" value="10" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="8" step="0.1"></div>
         <div><label class="form-label">H — Giá trị khấu trừ</label><input type="number" id="fH" class="form-input" value="0"></div>
-        <div><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="0"></div>
+        <div style="grid-column:1/-1"><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="0"></div>
       </div>
+      <div id="dSectionWrap" style="margin-bottom:13px"></div>
       <div style="margin-bottom:13px" id="deductNoteWrap"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label>
         <input type="text" id="fDeductNote" class="form-input" placeholder="VD: Phạt chậm tiến độ 5 ngày"></div>
-      <div style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
+      <div id="singleBudgetCodeWrap" style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
         <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">"Dự trù tài chính" sẽ tự lấy theo đúng Ngân sách phân bổ của mã này, không cần nhập tay.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ đính kèm bắt buộc (checklist)</label>
@@ -311,8 +373,11 @@ async function openCreateModal(user, onClose) {
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
 
-  // Khi chọn hợp đồng liên kết, tự điền A, B, Đối tác, % giữ lại, % VAT theo đúng hợp đồng đó
-  modal.querySelector('#fContract').addEventListener('change', (e) => {
+  const dWrap = modal.querySelector('#dSectionWrap');
+  renderDSection(dWrap, null, null); // mặc định: chưa chọn hợp đồng -> D đơn giản
+
+  // Khi chọn hợp đồng liên kết, tự điền A, B, Đối tác, % giữ lại, % VAT, và tách D theo mã nếu hợp đồng có nhiều mã
+  modal.querySelector('#fContract').addEventListener('change', async (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
       modal.querySelector('#fA').value = opt.dataset.value || '';
@@ -320,6 +385,13 @@ async function openCreateModal(user, onClose) {
       if (opt.dataset.partner) modal.querySelector('#fPartner').value = opt.dataset.partner;
       if (opt.dataset.retention) modal.querySelector('#fRetention').value = opt.dataset.retention;
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
+
+      const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
+      renderDSection(dWrap, cLines, null);
+      modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
+    } else {
+      renderDSection(dWrap, null, null);
+      modal.querySelector('#singleBudgetCodeWrap').style.display = '';
     }
   });
 
@@ -331,7 +403,7 @@ async function openCreateModal(user, onClose) {
     const scope = modal.querySelector('#fScope').value;
     const val_a = Number(modal.querySelector('#fA').value);
     const val_b = Number(modal.querySelector('#fB').value);
-    const val_d = Number(modal.querySelector('#fD').value);
+    const { val_d, perCode } = readDValue(dWrap);
     const val_f = Number(modal.querySelector('#fF').value);
     const val_i = Number(modal.querySelector('#fI').value);
     const val_h = Number(modal.querySelector('#fH').value);
@@ -342,7 +414,7 @@ async function openCreateModal(user, onClose) {
     const checklist_required = Number(modal.querySelector('#fChecklist').value);
     const template_id = modal.querySelector('#fTemplate').value;
 
-    if (!project_id || !partner_id || !val_a || !budget_code) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
+    if (!project_id || !partner_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
     // Quy tắc: kỳ N+1 chỉ tạo được khi kỳ N đã qua tối thiểu bước 2
@@ -367,7 +439,11 @@ async function openCreateModal(user, onClose) {
       .single();
     if (error) return toast('Lỗi tạo bill: ' + error.message, 'error');
 
-    await supabase.from('bill_budget_lines').insert({ bill_id: newBill.id, budget_code, value: calcBill({ val_a, val_b, val_d, val_f, val_i, val_h, retention_rate, vat_rate }).K });
+    // Chia mã ngân sách: nếu hợp đồng có nhiều mã, lưu đúng từng phần D theo mã (không lưu K —
+    // K là số tiền thanh toán thực tế đã trừ tạm ứng/giữ lại, không phản ánh đúng "đã dùng ngân sách");
+    // nếu chỉ 1 mã, lưu D của mã đó
+    const linesToSave = perCode && perCode.length ? perCode : [{ budget_code, value: val_d }];
+    await supabase.from('bill_budget_lines').insert(linesToSave.map((l) => ({ bill_id: newBill.id, budget_code: l.budget_code, value: l.value })));
 
     if (submitAfter) {
       const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'bill', p_doc_id: newBill.id });
@@ -398,7 +474,9 @@ function ensureModal() {
 }
 function showModal(modal, onClose) {
   modal.classList.add('show');
-  modal.onclick = (e) => { if (e.target === modal) closeModal(modal, onClose); };
+  modal.onclick = (e) => {
+    if (!e.target.closest('.panel-box')) closeModal(modal, onClose);
+  };
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
