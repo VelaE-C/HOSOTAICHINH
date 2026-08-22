@@ -10,7 +10,7 @@ import { fmt, tyi, budgetColor } from '../core/utils.js';
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải dữ liệu…</div>`;
 
-  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }] =
+  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }] =
     await Promise.all([
       supabase.from('projects').select('id, code, name').order('code'),
       supabase.from('v_budget_summary').select('*'),
@@ -18,10 +18,22 @@ export async function render(container, user) {
       supabase.from('v_flagged_documents').select('*'),
       supabase.from('contracts').select('id, doc_number, value, project_id, partners(name)'),
       supabase.from('bills').select('contract_id, val_d'),
+      supabase.from('project_role_assignments').select('role_type, projects(code)').eq('user_id', user.id).is('effective_to', null),
     ]);
 
+  // Khối "Vai trò của tôi" — tra cứu nhanh đang giữ vị trí gì, ở đâu, không cần lật từng hồ sơ
+  const myRoleChips = [
+    ...(user.roles || [])
+      .filter((r) => !['CHT', 'GDDA', 'PTGD', 'QS'].includes(r)) // vai trò gắn dự án hiện riêng bên dưới, tránh trùng
+      .map((r) => `<span class="code-chip">${r}</span>`),
+    ...(myAssignments || []).map((a) => `<span class="code-chip">${a.role_type} — ${a.projects?.code || '—'}</span>`),
+  ];
+  const myRolesHtml = myRoleChips.length
+    ? `<div class="card" style="margin-bottom:16px"><div class="card-sub" style="margin-bottom:8px">Vai trò của tôi</div><div style="display:flex;flex-wrap:wrap;gap:6px">${myRoleChips.join('')}</div></div>`
+    : '';
+
   if (!projects || projects.length === 0) {
-    container.innerHTML = `<div class="empty-note">Chưa có dự án nào trong hệ thống, hoặc bạn chưa được phân công dự án nào.</div>`;
+    container.innerHTML = myRolesHtml + `<div class="empty-note">Chưa có dự án nào trong hệ thống, hoặc bạn chưa được phân công dự án nào.</div>`;
     return;
   }
 
@@ -43,7 +55,7 @@ export async function render(container, user) {
     return { partner: c.partners?.name || '—', docNumber: c.doc_number, value: c.value, lũyKe, left: c.value - lũyKe, over: lũyKe > c.value };
   });
 
-  container.innerHTML = `
+  container.innerHTML = myRolesHtml + `
     ${budgetRows && budgetRows.length ? `
     <div class="card"><div class="stat-row" style="grid-template-columns:repeat(3,1fr)">
       <div><div class="card-sub" style="margin:0">Ngân sách phân bổ</div><div class="stat-num">${tyi(totBudget)}</div></div>
