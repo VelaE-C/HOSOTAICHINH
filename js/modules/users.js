@@ -40,7 +40,7 @@ export async function render(container, user) {
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
       ${projErr ? `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${projErr.message}</div>` : `
       <table><thead><tr><th>Mã</th><th>Tên dự án</th><th>Chủ đầu tư</th><th>Địa điểm</th><th>Loại hình</th><th>Số căn</th><th>Trạng thái</th></tr></thead><tbody>
-      ${projects && projects.length ? projects.map((p) => `<tr><td class="mono">${p.code}</td><td>${p.name}</td><td>${p.investor || '—'}</td><td>${p.location || '—'}</td><td>${p.project_type || '—'}</td><td>${p.unit_count || '—'}</td><td><span class="badge idle">${statusVN[p.status] || p.status}</span></td></tr>`).join('') :
+      ${projects && projects.length ? projects.map((p) => `<tr class="click proj-row" data-id="${p.id}" data-name="${p.name}"><td class="mono">${p.code}</td><td>${p.name}</td><td>${p.investor || '—'}</td><td>${p.location || '—'}</td><td>${p.project_type || '—'}</td><td>${p.unit_count || '—'}</td><td><span class="badge idle">${statusVN[p.status] || p.status}</span></td></tr>`).join('') :
       `<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:20px">Chưa có dự án nào</td></tr>`}
       </tbody></table>`}
     </div>
@@ -91,6 +91,7 @@ export async function render(container, user) {
     </tbody></table></div>`;
 
   container.querySelector('#btnNewProject').addEventListener('click', () => openCreateProjectModal(() => render(container, user)));
+  container.querySelectorAll('.proj-row').forEach((row) => row.addEventListener('click', () => openProjectAssignModal(row.dataset.id, row.dataset.name, user, () => render(container, user))));
   container.querySelector('#btnNewDept').addEventListener('click', () => openCreateDeptModal(() => render(container, user)));
   container.querySelectorAll('.dept-chip').forEach((chip) => chip.addEventListener('click', () => openEditDeptModal(chip.dataset.name, () => render(container, user))));
   container.querySelector('#btnNewBudgetCat').addEventListener('click', () => openCreateBudgetCatModal(() => render(container, user)));
@@ -262,11 +263,35 @@ async function openEditBudgetCatModal(code, onClose) {
 
 async function openEditDeptModal(name, onClose) {
   const modal = ensureModal();
+  const { data: holders } = await supabase
+    .from('user_roles')
+    .select('id, role_type, users(full_name, email)')
+    .eq('department', name)
+    .in('role_type', ['TruongPhongChucNang', 'PTGD']);
+  const { data: users } = await supabase.from('users').select('id, full_name, email').eq('is_active', true).order('full_name');
+  const userOptions = `<option value="">— Chọn người —</option>${(users || []).map((u) => `<option value="${u.id}">${u.full_name} (${u.email})</option>`).join('')}`;
+  const roleLabel = { TruongPhongChucNang: 'Trưởng phòng', PTGD: 'PTGD phụ trách' };
+
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Phòng ban: ${name}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="margin-bottom:13px"><label class="form-label">Tên phòng ban</label><input type="text" id="fName" class="form-input" value="${name}"></div>
-      <div style="font-size:11.5px;color:var(--gray4)">Đổi tên ở đây sẽ tự cập nhật lại hết những chỗ đang dùng tên cũ (người dùng, mẫu hồ sơ) — không cần sửa tay từng nơi.</div>
+      <div style="font-size:11.5px;color:var(--gray4);margin-bottom:16px">Đổi tên ở đây sẽ tự cập nhật lại hết những chỗ đang dùng tên cũ (người dùng, mẫu hồ sơ) — không cần sửa tay từng nơi.</div>
+
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Người phụ trách phòng ban này</div>
+      <div class="card" style="padding:12px 14px">
+        <div id="holderList" style="margin-bottom:10px">
+          ${(holders || []).length ? holders.map((h) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray1);font-size:13px">
+            <span><span class="code-chip">${roleLabel[h.role_type]}</span> ${h.users?.full_name} <span style="color:var(--gray4)">(${h.users?.email})</span></span>
+            <span data-rm-holder="${h.id}" style="cursor:pointer;color:var(--red);font-size:12px">Gỡ</span>
+          </div>`).join('') : '<div style="color:var(--gray4);font-size:12px">Chưa gán ai</div>'}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px">
+          <select id="fHolderUser" class="form-input">${userOptions}</select>
+          <select id="fHolderRole" class="form-input"><option value="TruongPhongChucNang">Trưởng phòng</option><option value="PTGD">PTGD phụ trách</option></select>
+          <button class="btn btn-sm btn-secondary" id="btnAddHolder">+ Thêm</button>
+        </div>
+      </div>
     </div>
     <div class="panel-footer">
       <button class="btn btn-danger" id="btnDelete">🗑️ Xóa phòng ban</button>
@@ -275,6 +300,25 @@ async function openEditDeptModal(name, onClose) {
   </div>`;
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelector('#btnAddHolder').addEventListener('click', async () => {
+    const userId = modal.querySelector('#fHolderUser').value;
+    const role_type = modal.querySelector('#fHolderRole').value;
+    if (!userId) return toast('Chọn người trước', 'error');
+    loading(true);
+    const { error } = await supabase.from('user_roles').insert({ user_id: userId, role_type, department: name });
+    if (error) return toast('Lỗi (có thể đã gán rồi): ' + error.message, 'error');
+    toast('Đã thêm người phụ trách', 'success');
+    openEditDeptModal(name, onClose);
+  });
+
+  modal.querySelectorAll('[data-rm-holder]').forEach((el) =>
+    el.addEventListener('click', async () => {
+      await supabase.from('user_roles').delete().eq('id', el.dataset.rmHolder);
+      toast('Đã gỡ', 'success');
+      openEditDeptModal(name, onClose);
+    }),
+  );
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const newName = modal.querySelector('#fName').value.trim();
@@ -295,6 +339,66 @@ async function openEditDeptModal(name, onClose) {
     toast('Đã xóa phòng ban', 'success');
     closeModal(modal, onClose);
   });
+}
+
+async function openProjectAssignModal(projectId, projectName, currentUser, onClose) {
+  const modal = ensureModal();
+  const { data: assignments } = await supabase
+    .from('project_role_assignments')
+    .select('id, role_type, user_id, effective_from, users(full_name, email)')
+    .eq('project_id', projectId)
+    .is('effective_to', null);
+  const { data: users } = await supabase.from('users').select('id, full_name, email').eq('is_active', true).order('full_name');
+  const userOptions = `<option value="">— Chọn người —</option>${(users || []).map((u) => `<option value="${u.id}">${u.full_name} (${u.email})</option>`).join('')}`;
+
+  const roleLabel = { CHT: 'Chỉ huy trưởng', GDDA: 'Giám đốc dự án', PTGD: 'Phó Tổng Giám đốc' };
+  const currentByRole = {};
+  (assignments || []).forEach((a) => (currentByRole[a.role_type] = a));
+
+  const rows = Object.keys(roleLabel)
+    .map((role) => {
+      const cur = currentByRole[role];
+      return `<div style="margin-bottom:14px">
+      <label class="form-label">${roleLabel[role]}</label>
+      <div style="font-size:12.5px;color:${cur ? 'var(--gray8)' : 'var(--gray4)'};margin-bottom:6px">${cur ? `Hiện tại: <b>${cur.users?.full_name}</b> (${cur.users?.email}) — từ ${new Date(cur.effective_from).toLocaleDateString('vi-VN')}` : 'Chưa gán'}</div>
+      <div style="display:flex;gap:8px">
+        <select class="form-input reassign-select" data-role="${role}" style="flex:1">${userOptions}</select>
+        <button class="btn btn-sm btn-secondary reassign-btn" data-role="${role}">Đổi</button>
+      </div>
+    </div>`;
+    })
+    .join('');
+
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Người phụ trách dự án — ${projectName}</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:16px">ℹ️ Đổi người sẽ tự động chuyển giao hồ sơ đang chờ duyệt của dự án này sang người mới (nếu có), không bị treo.</div>
+      ${rows}
+    </div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelectorAll('.reassign-btn').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const role = btn.dataset.role;
+      const select = modal.querySelector(`.reassign-select[data-role="${role}"]`);
+      const newUserId = select.value;
+      if (!newUserId) return toast('Chọn người trước khi đổi', 'error');
+
+      loading(true);
+      const { data, error } = await supabase.rpc('fn_reassign_project_role', {
+        p_project_id: projectId, p_role_type: role, p_new_user_id: newUserId, p_actor_id: currentUser.id,
+      });
+      if (error) return toast('Lỗi: ' + error.message, 'error');
+      if (data.old_user_id) {
+        toast(`Đã thay ${roleLabel[role]} — chuyển giao ${data.transferred_count} hồ sơ đang chờ duyệt sang người mới`, 'success');
+      } else {
+        toast(`Đã gán ${roleLabel[role]}`, 'success');
+      }
+      openProjectAssignModal(projectId, projectName, currentUser, onClose);
+    }),
+  );
 }
 
 async function openCreateDeptModal(onClose) {
