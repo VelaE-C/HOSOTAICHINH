@@ -101,6 +101,58 @@ export async function resolveDefaultTemplates(userId, docType) {
   }
   return templates;
 }
+
+// ============================================================
+// Chia nhiều dòng mã ngân sách — dùng chung cho form Hợp đồng và Bill
+// ============================================================
+
+export function budgetLineRowHtml(categories, code = '', value = '') {
+  return `<div class="budget-line-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+    <select class="bl-code form-input" style="flex:1.3">${categories.map((c) => `<option value="${c.code}" ${c.code === code ? 'selected' : ''}>${c.code} — ${c.name}</option>`).join('')}</select>
+    <input type="number" class="bl-value form-input" style="flex:1" placeholder="Giá trị" value="${value}">
+    <button type="button" class="bl-remove btn btn-sm btn-secondary" style="flex:none">✕</button>
+  </div>`;
+}
+
+// wrapEl phải chứa: .bl-rows (nơi đặt các dòng), .bl-add (nút thêm dòng), .bl-total (nơi hiện tổng)
+export function wireBudgetLines(wrapEl, categories, targetValueSelector) {
+  function updateTotal() {
+    const rows = [...wrapEl.querySelectorAll('.budget-line-row')];
+    const total = rows.reduce((s, r) => s + (Number(r.querySelector('.bl-value').value) || 0), 0);
+    const targetEl = document.querySelector(targetValueSelector);
+    const target = targetEl ? Number(targetEl.value) || 0 : 0;
+    const totalEl = wrapEl.querySelector('.bl-total');
+    if (totalEl) {
+      totalEl.textContent = `Tổng đã chia: ${total.toLocaleString('vi-VN')} / ${target.toLocaleString('vi-VN')} ₫`;
+      totalEl.style.color = total === target ? 'var(--green)' : 'var(--red)';
+    }
+    return total;
+  }
+  wrapEl.addEventListener('input', (e) => {
+    if (e.target.classList.contains('bl-value')) updateTotal();
+  });
+  wrapEl.addEventListener('click', (e) => {
+    if (e.target.classList.contains('bl-remove')) {
+      if (wrapEl.querySelectorAll('.budget-line-row').length <= 1) return;
+      e.target.closest('.budget-line-row').remove();
+      updateTotal();
+    }
+  });
+  wrapEl.querySelector('.bl-add')?.addEventListener('click', () => {
+    wrapEl.querySelector('.bl-rows').insertAdjacentHTML('beforeend', budgetLineRowHtml(categories));
+    updateTotal();
+  });
+  document.querySelector(targetValueSelector)?.addEventListener('input', updateTotal);
+  updateTotal();
+  return updateTotal;
+}
+
+export function readBudgetLines(wrapEl) {
+  return [...wrapEl.querySelectorAll('.budget-line-row')]
+    .map((r) => ({ budget_code: r.querySelector('.bl-code').value, value: Number(r.querySelector('.bl-value').value) || 0 }))
+    .filter((l) => l.value > 0);
+}
+
 // đang đăng nhập có đang là người cần xử lý bước hiện tại hay không
 export function actionFooterHtml(doc, docType, user, assignments) {
   const myPending = assignments.find((a) => a.step_no === doc.current_step && a.user_id === user.id && a.status === 'pending');
