@@ -53,7 +53,7 @@ export function renderShell(user) {
   document.getElementById('app-root').innerHTML = `
     <div class="topbar">
       <button class="hamburger" id="hamburger">☰</button>
-      <div class="logo">V</div>
+      <img class="logo" src="https://raw.githubusercontent.com/VelaE-C/HOSOTAICHINH/refs/heads/main/LOGO%20DUNG.JPEG.png" alt="VELA">
       <div class="appname">VELA Hồ Sơ TC</div>
       <div class="spacer"></div>
       <div class="user-info">
