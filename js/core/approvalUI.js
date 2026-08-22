@@ -58,7 +58,7 @@ export function railHtml(assignments, currentStep) {
 
 export function timelineHtml(logs) {
   if (!logs.length) return `<div class="empty-note" style="padding:16px 0">Chưa có lịch sử</div>`;
-  const actionLabel = { submit: 'Trình hồ sơ', resubmit: 'Trình lại', approve: 'Đã duyệt', reject: 'Từ chối' };
+  const actionLabel = { submit: 'Trình hồ sơ', resubmit: 'Trình lại', approve: 'Đã duyệt', reject: 'Từ chối', edit_budget: 'Điều chỉnh mã ngân sách (QLCP&HĐ)' };
   return logs
     .map(
       (l) => `<div class="tl-item">
