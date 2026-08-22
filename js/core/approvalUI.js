@@ -213,9 +213,14 @@ export function wireActions(container, docType, docId, currentStep, assignments,
     // Ghi thẳng vào bảng notifications — trigger sẽ tự gọi Edge Function gửi email/push
     const pendingUserIds = assignments.filter((a) => a.step_no === currentStep && a.status === 'pending').map((a) => a.user_id);
     if (!pendingUserIds.length) return toast('Không còn ai chưa duyệt ở bước này', 'info');
+    let okCount = 0;
+    let lastError = null;
     for (const uid of pendingUserIds) {
-      await supabase.from('notifications').insert({ document_type: docType, document_id: docId, user_id: uid, channel: 'email', trigger_type: 'manual_nudge' });
+      const { error } = await supabase.from('notifications').insert({ document_type: docType, document_id: docId, user_id: uid, channel: 'email', trigger_type: 'manual_nudge' });
+      if (error) lastError = error;
+      else okCount++;
     }
-    toast('Đã gửi nhắc duyệt', 'success');
+    if (okCount > 0) toast(`Đã gửi nhắc duyệt (${okCount}/${pendingUserIds.length} người)`, 'success');
+    if (lastError) toast('Lỗi gửi nhắc: ' + lastError.message, 'error');
   });
 }
