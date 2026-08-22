@@ -20,6 +20,7 @@ export async function render(container, user) {
 
   const { data: projects, error: projErr } = await supabase.from('projects').select('id, code, name, investor, location, project_type, unit_count, status').order('code');
   const { data: departments, error: deptErr } = await supabase.from('departments').select('name').order('name');
+  const { data: budgetCats, error: bcErr } = await supabase.from('budget_categories').select('code, name, group_code').order('code');
   const { data: users, error } = await supabase.from('users').select('id, email, full_name, is_active').order('full_name');
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${error.message}</div>`;
@@ -50,8 +51,21 @@ export async function render(container, user) {
     </div>
     <div class="card" style="margin-bottom:22px">
       ${deptErr ? `<div class="empty-note">⚠️ Lỗi: ${deptErr.message}</div>` :
-      departments && departments.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${departments.map((d) => `<span class="code-chip">${d.name}</span>`).join('')}</div>` :
+      departments && departments.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${departments.map((d) => `<span class="code-chip dept-chip" data-name="${d.name}" style="cursor:pointer">${d.name}</span>`).join('')}</div>` :
       `<div class="empty-note">Chưa có phòng ban nào — tạo trước khi gán Trưởng phòng/Chuyên viên/PTGD theo phòng ban.</div>`}
+    </div>
+
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
+      <div class="card-title" style="margin:0">Mã ngân sách (danh mục mẫu — do phòng KSCP quản lý)</div>
+      <button class="btn btn-primary btn-sm" id="btnNewBudgetCat">+ Tạo mã ngân sách mới</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
+      ${bcErr ? `<div class="empty-note">⚠️ Lỗi: ${bcErr.message}</div>` : `
+      <table><thead><tr><th>Mã</th><th>Tên</th><th>Nhóm</th></tr></thead><tbody>
+      ${budgetCats && budgetCats.length ? budgetCats.map((c) => `<tr class="click bc-row" data-code="${c.code}"><td class="mono">${c.code}</td><td>${c.name}</td><td>${c.group_code || '—'}</td></tr>`).join('') :
+      `<tr><td colspan="3" style="text-align:center;color:var(--gray4);padding:20px">Chưa có mã ngân sách nào</td></tr>`}
+      </tbody></table>`}
+      <div style="font-size:11px;color:var(--gray4);padding:8px 14px">Đây là danh mục MẪU dùng chung — khi tạo phiên bản ngân sách cho từng dự án, chỉ cần chọn đúng những mã liên quan tới dự án đó, không bắt buộc dùng hết.</div>
     </div>
 
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
@@ -78,6 +92,9 @@ export async function render(container, user) {
 
   container.querySelector('#btnNewProject').addEventListener('click', () => openCreateProjectModal(() => render(container, user)));
   container.querySelector('#btnNewDept').addEventListener('click', () => openCreateDeptModal(() => render(container, user)));
+  container.querySelectorAll('.dept-chip').forEach((chip) => chip.addEventListener('click', () => openEditDeptModal(chip.dataset.name, () => render(container, user))));
+  container.querySelector('#btnNewBudgetCat').addEventListener('click', () => openCreateBudgetCatModal(() => render(container, user)));
+  container.querySelectorAll('.bc-row').forEach((row) => row.addEventListener('click', () => openEditBudgetCatModal(row.dataset.code, () => render(container, user))));
   container.querySelector('#btnNewTemplate').addEventListener('click', () => openCreateTemplateModal(() => render(container, user)));
   container.querySelector('#btnNew').addEventListener('click', () => openCreateUserModal(user, () => render(container, user)));
   container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.id, user, () => render(container, user))));
@@ -173,6 +190,109 @@ async function openCreateTemplateModal(onClose) {
     if (stepErr) return toast('Đã tạo mẫu nhưng lỗi lưu các bước: ' + stepErr.message, 'error');
 
     toast('Đã tạo mẫu hồ sơ mới', 'success');
+    closeModal(modal, onClose);
+  });
+}
+
+async function openCreateBudgetCatModal(onClose) {
+  const modal = ensureModal();
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Tạo mã ngân sách mới</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mã * (viết liền không dấu, vd NCC_ThepXayDung)</label><input type="text" id="fCode" class="form-input"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Tên đầy đủ *</label><input type="text" id="fName" class="form-input" placeholder="VD: Cung cấp thép xây dựng"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Nhóm chi phí</label><input type="text" id="fGroup" class="form-input" placeholder="VD: B.2"></div>
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu mã ngân sách</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const code = modal.querySelector('#fCode').value.trim();
+    const name = modal.querySelector('#fName').value.trim();
+    const group_code = modal.querySelector('#fGroup').value.trim() || null;
+    if (!code || !name) return toast('Điền đủ Mã và Tên', 'error');
+    loading(true);
+    const { error } = await supabase.from('budget_categories').insert({ code, name, group_code });
+    if (error) return toast('Lỗi lưu (có thể mã đã tồn tại): ' + error.message, 'error');
+    toast('Đã tạo mã ngân sách mới', 'success');
+    closeModal(modal, onClose);
+  });
+}
+
+async function openEditBudgetCatModal(code, onClose) {
+  const modal = ensureModal();
+  const { data: cat } = await supabase.from('budget_categories').select('*').eq('code', code).single();
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Mã ngân sách: ${code}</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mã (không đổi được)</label><input type="text" class="form-input" value="${code}" disabled style="background:var(--gray1)"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Tên đầy đủ</label><input type="text" id="fName" class="form-input" value="${cat?.name || ''}"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Nhóm chi phí</label><input type="text" id="fGroup" class="form-input" value="${cat?.group_code || ''}"></div>
+    </div>
+    <div class="panel-footer">
+      <button class="btn btn-danger" id="btnDelete">🗑️ Xóa mã này</button>
+      <button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button>
+    </div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const name = modal.querySelector('#fName').value.trim();
+    const group_code = modal.querySelector('#fGroup').value.trim() || null;
+    if (!name) return toast('Điền tên', 'error');
+    loading(true);
+    const { error } = await supabase.from('budget_categories').update({ name, group_code }).eq('code', code);
+    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+    toast('Đã lưu thay đổi', 'success');
+    closeModal(modal, onClose);
+  });
+
+  modal.querySelector('#btnDelete').addEventListener('click', async () => {
+    if (!confirm(`Xóa mã ngân sách "${code}"? Chỉ xóa được nếu chưa dùng ở ngân sách/hợp đồng/bill nào.`)) return;
+    loading(true);
+    const { error } = await supabase.from('budget_categories').delete().eq('code', code);
+    if (error) return toast(error.message, 'error');
+    toast('Đã xóa mã ngân sách', 'success');
+    closeModal(modal, onClose);
+  });
+}
+
+async function openEditDeptModal(name, onClose) {
+  const modal = ensureModal();
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Phòng ban: ${name}</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Tên phòng ban</label><input type="text" id="fName" class="form-input" value="${name}"></div>
+      <div style="font-size:11.5px;color:var(--gray4)">Đổi tên ở đây sẽ tự cập nhật lại hết những chỗ đang dùng tên cũ (người dùng, mẫu hồ sơ) — không cần sửa tay từng nơi.</div>
+    </div>
+    <div class="panel-footer">
+      <button class="btn btn-danger" id="btnDelete">🗑️ Xóa phòng ban</button>
+      <button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu tên mới</button>
+    </div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const newName = modal.querySelector('#fName').value.trim();
+    if (!newName) return toast('Điền tên phòng ban', 'error');
+    if (newName === name) return closeModal(modal, onClose);
+    loading(true);
+    const { error } = await supabase.from('departments').update({ name: newName }).eq('name', name);
+    if (error) return toast('Lỗi đổi tên (có thể tên mới đã tồn tại): ' + error.message, 'error');
+    toast('Đã đổi tên phòng ban', 'success');
+    closeModal(modal, onClose);
+  });
+
+  modal.querySelector('#btnDelete').addEventListener('click', async () => {
+    if (!confirm(`Xóa phòng ban "${name}"? Chỉ xóa được nếu chưa ai/mẫu hồ sơ nào đang dùng.`)) return;
+    loading(true);
+    const { error } = await supabase.from('departments').delete().eq('name', name);
+    if (error) return toast(error.message, 'error');
+    toast('Đã xóa phòng ban', 'success');
     closeModal(modal, onClose);
   });
 }
