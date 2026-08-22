@@ -179,11 +179,19 @@ async function openCreateTemplateModal(onClose) {
 
 async function openCreateDeptModal(onClose) {
   const modal = ensureModal();
+  const { data: users } = await supabase.from('users').select('id, full_name, email').eq('is_active', true).order('full_name');
+  const userOptions = `<option value="">— Chưa gán, làm sau —</option>${(users || []).map((u) => `<option value="${u.id}">${u.full_name} (${u.email})</option>`).join('')}`;
+
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Tạo phòng ban mới</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="margin-bottom:13px"><label class="form-label">Tên phòng ban *</label><input type="text" id="fDeptName" class="form-input" placeholder="VD: Thiết bị"></div>
-      <div style="font-size:11.5px;color:var(--gray4)">Đặt tên ngắn gọn, thống nhất — tên này sẽ hiện trong danh sách chọn khi gán vai trò cho người dùng và khi tạo Mẫu hồ sơ.</div>
+      <div style="font-size:11.5px;color:var(--gray4);margin-bottom:16px">Đặt tên ngắn gọn, thống nhất — tên này sẽ hiện trong danh sách chọn khi gán vai trò cho người dùng và khi tạo Mẫu hồ sơ.</div>
+      <div style="margin-bottom:13px"><label class="form-label">Trưởng phòng (không bắt buộc — có thể gán sau)</label>
+        <select id="fTruongPhong" class="form-input">${userOptions}</select></div>
+      <div style="margin-bottom:13px"><label class="form-label">PTGD phụ trách phòng này (không bắt buộc)</label>
+        <select id="fPtgd" class="form-input">${userOptions}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chỉ áp dụng cho luồng duyệt Mẫu hồ sơ "Phòng ban" — PTGD công trường vẫn phân theo dự án như cũ.</div></div>
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu phòng ban</button></div>
   </div>`;
@@ -192,17 +200,31 @@ async function openCreateDeptModal(onClose) {
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const name = modal.querySelector('#fDeptName').value.trim();
+    const truongPhongId = modal.querySelector('#fTruongPhong').value;
+    const ptgdId = modal.querySelector('#fPtgd').value;
     if (!name) return toast('Điền tên phòng ban', 'error');
+
     loading(true);
     const { error } = await supabase.from('departments').insert({ name });
     if (error) return toast('Lỗi lưu (có thể phòng ban đã tồn tại): ' + error.message, 'error');
-    toast('Đã tạo phòng ban mới', 'success');
+
+    if (truongPhongId) {
+      await supabase.from('user_roles').insert({ user_id: truongPhongId, role_type: 'TruongPhongChucNang', department: name }).select();
+    }
+    if (ptgdId) {
+      await supabase.from('user_roles').insert({ user_id: ptgdId, role_type: 'PTGD', department: name }).select();
+    }
+
+    toast('Đã tạo phòng ban mới' + (truongPhongId || ptgdId ? ' và gán người phụ trách' : ''), 'success');
     closeModal(modal, onClose);
   });
 }
 
 async function openCreateProjectModal(onClose) {
   const modal = ensureModal();
+  const { data: users } = await supabase.from('users').select('id, full_name, email').eq('is_active', true).order('full_name');
+  const userOptions = `<option value="">— Chưa gán, làm sau —</option>${(users || []).map((u) => `<option value="${u.id}">${u.full_name} (${u.email})</option>`).join('')}`;
+
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Tạo dự án mới</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
@@ -215,6 +237,12 @@ async function openCreateProjectModal(onClose) {
         <div><label class="form-label">Số lượng căn</label><input type="number" id="fUnits" class="form-input"></div>
       </div>
       <div style="margin-bottom:13px"><label class="form-label">Ngày khởi công</label><input type="date" id="fStart" class="form-input"></div>
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Người phụ trách (không bắt buộc — có thể gán sau)</div>
+      <div class="card" style="padding:12px 14px">
+        <div style="margin-bottom:10px"><label class="form-label">Chỉ huy trưởng (CHT)</label><select id="fCht" class="form-input">${userOptions}</select></div>
+        <div style="margin-bottom:10px"><label class="form-label">Giám đốc dự án (GĐDA)</label><select id="fGdda" class="form-input">${userOptions}</select></div>
+        <div><label class="form-label">Phó Tổng Giám đốc (PTGD)</label><select id="fPtgd" class="form-input">${userOptions}</select></div>
+      </div>
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu dự án</button></div>
   </div>`;
@@ -227,7 +255,7 @@ async function openCreateProjectModal(onClose) {
     if (!code || !name) return toast('Điền đủ Mã dự án và Tên dự án', 'error');
 
     loading(true);
-    const { error } = await supabase.from('projects').insert({
+    const { data: newProject, error } = await supabase.from('projects').insert({
       code, name,
       investor: modal.querySelector('#fInvestor').value.trim() || null,
       location: modal.querySelector('#fLocation').value.trim() || null,
@@ -235,9 +263,24 @@ async function openCreateProjectModal(onClose) {
       unit_count: modal.querySelector('#fUnits').value ? Number(modal.querySelector('#fUnits').value) : null,
       start_date: modal.querySelector('#fStart').value || null,
       status: 'active',
-    });
+    }).select('id').single();
     if (error) return toast('Lỗi lưu dự án (mã có thể đã tồn tại): ' + error.message, 'error');
-    toast('Đã tạo dự án mới', 'success');
+
+    const assignments = [
+      { sel: '#fCht', role: 'CHT' },
+      { sel: '#fGdda', role: 'GDDA' },
+      { sel: '#fPtgd', role: 'PTGD' },
+    ];
+    let assignedCount = 0;
+    for (const a of assignments) {
+      const userId = modal.querySelector(a.sel).value;
+      if (userId) {
+        await supabase.from('project_role_assignments').insert({ project_id: newProject.id, user_id: userId, role_type: a.role, effective_from: new Date().toISOString().slice(0, 10) });
+        assignedCount++;
+      }
+    }
+
+    toast('Đã tạo dự án mới' + (assignedCount ? ` và gán ${assignedCount} người phụ trách` : ''), 'success');
     closeModal(modal, onClose);
   });
 }
