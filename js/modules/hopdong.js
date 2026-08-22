@@ -71,11 +71,13 @@ export async function openDetail(id, user, onClose) {
   const { assignments, logs } = await loadApprovalState('contract', id);
 
   const canEditNow = c.created_by === user.id && ['draft', 'rejected'].includes(c.status);
+  const isKscp = (user.roles || []).some((r) => ['Admin', 'QLCPHD_CV', 'QLCPHD_TP'].includes(r));
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
     <div class="panel-header"><div><div>${c.doc_number}</div><div class="meta">${c.contract_type} · ${c.partners?.name || '—'}</div></div>
       <div style="display:flex;gap:6px;align-items:center">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
+        ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditBudgetLines">🧮 Sửa mã ngân sách</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
       </div></div>
     <div class="panel-body">
@@ -98,10 +100,48 @@ export async function openDetail(id, user, onClose) {
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(c, user, onClose));
+  box.querySelector('#btnEditBudgetLines')?.addEventListener('click', () => openBudgetLinesEditor(c, user, onClose));
   const canEditAttach = canEditNow;
   renderAttachments(box.querySelector('#attachArea'), 'contract', id, user.id, canEditAttach);
   wireActions(box, 'contract', id, c.current_step, assignments, () => {
     closeModal(modal, onClose);
+  });
+}
+
+async function openBudgetLinesEditor(c, user, onClose) {
+  const modal = ensureModal();
+  const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
+  const { data: currentLines } = await supabase.from('contract_budget_lines').select('budget_code, value').eq('contract_id', c.id);
+
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Sửa mã ngân sách — ${c.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Chỉ sửa cách chia mã ngân sách để phục vụ đối chiếu báo cáo tài chính — không đụng tới nội dung/giá trị hợp đồng hay luồng duyệt.</div>
+      <div class="card" id="budgetLinesWrap" style="padding:12px 14px">
+        <div class="bl-rows">${(currentLines && currentLines.length ? currentLines : [{}]).map((l) => budgetLineRowHtml(categories || [], l.budget_code, l.value)).join('')}</div>
+        <button type="button" class="btn btn-sm btn-secondary bl-add">+ Thêm dòng</button>
+        <div class="bl-total" style="font-size:12px;margin-top:8px;font-weight:600"></div>
+      </div>
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu điều chỉnh</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => openDetail(c.id, user, onClose));
+  wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#__no_target__'); // không cần khớp tổng cụ thể
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
+    if (!lines.length) return toast('Chọn ít nhất 1 mã ngân sách có giá trị', 'error');
+
+    loading(true);
+    await supabase.from('contract_budget_lines').delete().eq('contract_id', c.id);
+    const { error } = await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: c.id, budget_code: l.budget_code, value: l.value })));
+    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+
+    await supabase.from('approval_logs').insert({ document_type: 'contract', document_id: c.id, user_id: user.id, action: 'edit_budget', comment: 'QLCP&HĐ điều chỉnh chia mã ngân sách' });
+
+    toast('Đã lưu điều chỉnh mã ngân sách', 'success');
+    openDetail(c.id, user, onClose);
   });
 }
 
