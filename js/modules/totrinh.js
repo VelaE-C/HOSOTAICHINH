@@ -73,9 +73,14 @@ export async function openDetail(id, user, onClose) {
   const { data: linkedContracts } = await supabase.from('contracts').select('id, doc_number, value, status').eq('to_trinh_id', id);
   const { assignments, logs } = await loadApprovalState('totrinh', id);
 
+  const canEditNow = t.created_by === user.id && ['draft', 'rejected'].includes(t.status);
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
-    <div class="panel-header"><div><div>${t.doc_number}</div><div class="meta">${t.projects?.name || '—'}</div></div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-header"><div><div>${t.doc_number}</div><div class="meta">${t.projects?.name || '—'}</div></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
+        <button class="panel-close" id="pClose">✕</button>
+      </div></div>
     <div class="panel-body">
       <div class="kv">
         <div class="k">Tiêu đề</div><div class="v">${t.title}</div>
@@ -95,9 +100,48 @@ export async function openDetail(id, user, onClose) {
     ${actionFooterHtml(t, 'totrinh', user, assignments)}
   `;
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
-  const canEditAttach = t.created_by === user.id && ['draft', 'rejected'].includes(t.status);
-  renderAttachments(box.querySelector('#attachArea'), 'totrinh', id, user.id, canEditAttach);
+  box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(t, user, onClose));
+  renderAttachments(box.querySelector('#attachArea'), 'totrinh', id, user.id, canEditNow);
   wireActions(box, 'totrinh', id, t.current_step, assignments, () => closeModal(modal, onClose));
+}
+
+async function openEditModal(t, user, onClose) {
+  const modal = ensureModal();
+  const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
+  const templates = await resolveDefaultTemplates(user.id, 'totrinh');
+
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Sửa tờ trình — ${t.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
+        <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}" ${p.id === t.project_id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}</select></div>
+      <div style="margin-bottom:13px"><label class="form-label">Tiêu đề tờ trình</label>
+        <input type="text" id="fTitle" class="form-input" value="${t.title}"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Nội dung / phạm vi áp dụng</label>
+        <textarea id="fContent" class="form-input" rows="4">${t.content || ''}</textarea></div>
+      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
+        <select id="fTemplate" class="form-input">${(templates || []).map((tp) => `<option value="${tp.id}" ${tp.id === t.template_id ? 'selected' : ''}>${tp.name}</option>`).join('')}</select></div>
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => openDetail(t.id, user, onClose));
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const project_id = modal.querySelector('#fProject').value;
+    const title = modal.querySelector('#fTitle').value.trim();
+    const content = modal.querySelector('#fContent').value.trim();
+    const template_id = modal.querySelector('#fTemplate').value;
+
+    if (!project_id || !title) return toast('Điền đủ Dự án và Tiêu đề', 'error');
+
+    loading(true);
+    const { error } = await supabase.from('to_trinh_chu_truong').update({ project_id, title, content, template_id: template_id || null }).eq('id', t.id);
+    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+
+    toast('Đã lưu thay đổi', 'success');
+    openDetail(t.id, user, onClose);
+  });
 }
 
 async function openCreateModal(user, onClose) {
@@ -172,7 +216,9 @@ function ensureModal() {
 }
 function showModal(modal, onClose) {
   modal.classList.add('show');
-  modal.onclick = (e) => { if (e.target === modal) closeModal(modal, onClose); };
+  modal.onclick = (e) => {
+    if (!e.target.closest('.panel-box')) closeModal(modal, onClose);
+  };
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
