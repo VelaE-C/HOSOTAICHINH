@@ -3,7 +3,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines } from '../core/approvalUI.js';
 import { renderAttachments } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -112,8 +112,10 @@ async function openEditModal(c, user, onClose) {
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const { data: templates } = await supabase.from('document_templates').select('id, name').eq('doc_type', 'contract');
   const { data: toTrinhList } = await supabase.from('to_trinh_chu_truong').select('id, doc_number, title').order('doc_number');
-  const { data: currentLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', c.id);
-  const currentBudgetCode = currentLines?.[0]?.budget_code || '';
+  const { data: currentLines } = await supabase.from('contract_budget_lines').select('budget_code, value').eq('contract_id', c.id);
+
+  const initialRows = (currentLines && currentLines.length ? currentLines : [{ budget_code: categories?.[0]?.code, value: c.value }])
+    .map((l) => budgetLineRowHtml(categories || [], l.budget_code, l.value)).join('');
 
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Sửa hợp đồng — ${c.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
@@ -133,8 +135,12 @@ async function openEditModal(c, user, onClose) {
         <div><label class="form-label">Tỉ lệ giữ lại bảo hành (%)</label><input type="number" id="fRetention" class="form-input" value="${c.retention_rate ?? 10}" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="${c.vat_rate ?? 8}" step="0.1"></div>
       </div>
-      <div style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
-        <select id="fBudgetCode" class="form-input">${(categories || []).map((cat) => `<option value="${cat.code}" ${cat.code === currentBudgetCode ? 'selected' : ''}>${cat.code} — ${cat.name}</option>`).join('')}</select></div>
+      <label class="form-label">Chia theo mã ngân sách (1 hợp đồng có thể chia nhiều hạng mục)</label>
+      <div class="card" id="budgetLinesWrap" style="padding:12px 14px;margin-bottom:13px">
+        <div class="bl-rows">${initialRows}</div>
+        <button type="button" class="btn btn-sm btn-secondary bl-add">+ Thêm dòng</button>
+        <div class="bl-total" style="font-size:12px;margin-top:8px;font-weight:600"></div>
+      </div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Tờ trình chủ trương làm căn cứ (không bắt buộc)</label>
@@ -144,6 +150,7 @@ async function openEditModal(c, user, onClose) {
   </div>`;
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(c.id, user, onClose));
+  wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const project_id = modal.querySelector('#fProject').value;
@@ -152,11 +159,13 @@ async function openEditModal(c, user, onClose) {
     const value = Number(modal.querySelector('#fValue').value);
     const retention_rate = Number(modal.querySelector('#fRetention').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
-    const budget_code = modal.querySelector('#fBudgetCode').value;
+    const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
     const template_id = modal.querySelector('#fTemplate').value;
     const to_trinh_id = modal.querySelector('#fToTrinh').value || null;
 
-    if (!project_id || !partner_id || !value || !budget_code) return toast('Điền đủ thông tin bắt buộc', 'error');
+    if (!project_id || !partner_id || !value || !lines.length) return toast('Điền đủ thông tin bắt buộc (kể cả chia mã ngân sách)', 'error');
+    const sumLines = lines.reduce((s, l) => s + l.value, 0);
+    if (Math.abs(sumLines - value) > 1) return toast(`Tổng chia mã ngân sách (${sumLines.toLocaleString('vi-VN')}) phải khớp đúng giá trị hợp đồng (${value.toLocaleString('vi-VN')})`, 'error');
 
     loading(true);
     const { error } = await supabase
@@ -166,7 +175,7 @@ async function openEditModal(c, user, onClose) {
     if (error) return toast('Lỗi lưu: ' + error.message, 'error');
 
     await supabase.from('contract_budget_lines').delete().eq('contract_id', c.id);
-    await supabase.from('contract_budget_lines').insert({ contract_id: c.id, budget_code, value });
+    await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: c.id, budget_code: l.budget_code, value: l.value })));
 
     toast('Đã lưu thay đổi', 'success');
     openDetail(c.id, user, onClose);
@@ -204,9 +213,12 @@ async function openCreateModal(user, onClose) {
         <div><label class="form-label">Tỉ lệ giữ lại bảo hành (%)</label><input type="number" id="fRetention" class="form-input" value="10" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="8" step="0.1"></div>
       </div>
-      <div style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
-        <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select>
-        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Bản đầu: chia 100% giá trị hợp đồng vào 1 mã — chia nhiều mã sẽ làm ở bản sau.</div></div>
+      <label class="form-label">Chia theo mã ngân sách (1 hợp đồng có thể chia nhiều hạng mục)</label>
+      <div class="card" id="budgetLinesWrap" style="padding:12px 14px;margin-bottom:13px">
+        <div class="bl-rows">${budgetLineRowHtml(categories || [])}</div>
+        <button type="button" class="btn btn-sm btn-secondary bl-add">+ Thêm dòng</button>
+        <div class="bl-total" style="font-size:12px;margin-top:8px;font-weight:600"></div>
+      </div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn — không hiện mẫu của phòng ban khác.'}</div></div>
@@ -222,6 +234,7 @@ async function openCreateModal(user, onClose) {
   showModal(modal, onClose);
 
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+  wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
 
   async function doSave(submitAfter) {
     const project_id = modal.querySelector('#fProject').value;
@@ -230,13 +243,15 @@ async function openCreateModal(user, onClose) {
     const value = Number(modal.querySelector('#fValue').value);
     const retention_rate = Number(modal.querySelector('#fRetention').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
-    const budget_code = modal.querySelector('#fBudgetCode').value;
+    const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
     const template_id = modal.querySelector('#fTemplate').value;
     const to_trinh_id = modal.querySelector('#fToTrinh').value || null;
 
-    if (!project_id || !partner_id || !value || !budget_code) {
-      return toast('Điền đủ thông tin bắt buộc trước khi lưu', 'error');
+    if (!project_id || !partner_id || !value || !lines.length) {
+      return toast('Điền đủ thông tin bắt buộc trước khi lưu (kể cả chia mã ngân sách)', 'error');
     }
+    const sumLines = lines.reduce((s, l) => s + l.value, 0);
+    if (Math.abs(sumLines - value) > 1) return toast(`Tổng chia mã ngân sách (${sumLines.toLocaleString('vi-VN')}) phải khớp đúng giá trị hợp đồng (${value.toLocaleString('vi-VN')})`, 'error');
     loading(true);
 
     const { data: newContract, error } = await supabase
@@ -246,7 +261,7 @@ async function openCreateModal(user, onClose) {
       .single();
     if (error) return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
 
-    await supabase.from('contract_budget_lines').insert({ contract_id: newContract.id, budget_code, value });
+    await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: newContract.id, budget_code: l.budget_code, value: l.value })));
 
     if (submitAfter) {
       const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'contract', p_doc_id: newContract.id });
@@ -279,7 +294,7 @@ function ensureModal() {
 function showModal(modal, onClose) {
   modal.classList.add('show');
   modal.onclick = (e) => {
-    if (e.target === modal) closeModal(modal, onClose);
+    if (!e.target.closest('.panel-box')) closeModal(modal, onClose);
   };
 }
 function closeModal(modal, onClose) {
