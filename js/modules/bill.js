@@ -9,13 +9,17 @@ import { renderAttachments } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
 
-function calcBill(b) {
+function calcBill(b, contract) {
+  const vatRate = (b.vat_rate ?? contract?.vat_rate ?? 8) / 100;
+  const retentionRate = (b.retention_rate ?? contract?.retention_rate ?? 10) / 100;
   const C = Number(b.val_a) + Number(b.val_b);
-  const E = -0.1 * Number(b.val_d);
+  const VAT = Number(b.val_d) * vatRate;
+  const E = -retentionRate * Number(b.val_d);
   const G = Number(b.val_f) === 0 ? 0 : -Number(b.val_f) * (Number(b.val_d) / (0.8 * Number(b.val_a)));
-  const H = Number(b.val_d) + E + Number(b.val_f) + G;
-  const J = H + Number(b.val_i);
-  return { C, E, G, H, J };
+  const H = Number(b.val_h) || 0;
+  const I = Number(b.val_d) + E + Number(b.val_f) + G + H;
+  const K = I + Number(b.val_i); // "J" trên chứng từ = val_i trong database (giữ tên cột cũ, chỉ đổi nhãn hiển thị)
+  return { C, VAT, E, G, H, I, K };
 }
 
 export async function render(container, user) {
@@ -49,13 +53,13 @@ export async function render(container, user) {
       </select>
       <button class="btn btn-primary" id="btnNew">+ Trình bill thanh toán</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Đối tác</th><th>Kỳ</th><th>Đề nghị (J)</th><th>Checklist</th><th>Trạng thái</th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Đối tác</th><th>Kỳ</th><th>Đề nghị (K)</th><th>Checklist</th><th>Trạng thái</th></tr></thead><tbody>
     ${sorted.length ? sorted.map((b) => {
-      const { J } = calcBill(b);
+      const { K } = calcBill(b);
       const req = b.checklist_required || 0;
       const done = b.checklist_done || 0;
       return `<tr class="click" data-id="${b.id}"><td class="mono">${b.doc_number}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
-      <td class="mono">${fmt(J)}</td><td>${req ? (done < req ? `<span style="color:var(--amber)">${done}/${req} ⚠️</span>` : `<span style="color:var(--green)">${done}/${req} ✓</span>`) : '—'}</td>
+      <td class="mono">${fmt(K)}</td><td>${req ? (done < req ? `<span style="color:var(--amber)">${done}/${req} ⚠️</span>` : `<span style="color:var(--green)">${done}/${req} ✓</span>`) : '—'}</td>
       <td>${statusBadge(b.status)}</td></tr>`;
     }).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--gray4);padding:20px">Chưa có bill nào</td></tr>`}
     </tbody></table></div>`;
@@ -84,18 +88,30 @@ export async function openDetail(id, user, onClose) {
 
   const { data: b } = await supabase
     .from('bills')
-    .select('*, partners(name), projects(name), contracts(doc_number, value), bill_budget_lines(budget_code, value)')
+    .select('*, partners(name), projects(name), contracts(doc_number, value, retention_rate, vat_rate), bill_budget_lines(budget_code, value)')
     .eq('id', id)
     .single();
   if (!b) {
     modal.querySelector('.panel-box').innerHTML = `<div class="empty-note">Không tải được hồ sơ.</div>`;
     return;
   }
-  const r = calcBill(b);
+  const r = calcBill(b, b.contracts);
   const { assignments, logs } = await loadApprovalState('bill', id);
   const req = b.checklist_required || 0;
   const { count: attachCount } = await supabase.from('attachments').select('id', { count: 'exact', head: true }).eq('owner_type', 'bill').eq('owner_id', id);
   const done = attachCount || 0;
+
+  // "Dự trù tài chính (chưa thuế)" = chính là Ngân sách phân bổ (phiên bản hiện hành)
+  // theo đúng mã ngân sách của bill này — tính động, không nhập tay
+  let budgetForecast = null;
+  const billBudgetCode = b.bill_budget_lines?.[0]?.budget_code;
+  if (billBudgetCode) {
+    const { data: latestRev } = await supabase.from('budget_revisions').select('id, revision_code').eq('project_id', b.project_id).order('effective_date', { ascending: false }).limit(1).maybeSingle();
+    if (latestRev) {
+      const { data: line } = await supabase.from('budget_revision_lines').select('allocated_value').eq('revision_id', latestRev.id).eq('budget_code', billBudgetCode).maybeSingle();
+      if (line) budgetForecast = { value: line.allocated_value, revision: latestRev.revision_code };
+    }
+  }
 
   const canEditNow = b.created_by === user.id && ['draft', 'rejected'].includes(b.status);
   const box = modal.querySelector('.panel-box');
@@ -113,21 +129,28 @@ export async function openDetail(id, user, onClose) {
         <div class="k">Hợp đồng liên kết</div><div class="v">${b.contracts ? `<span class="code-chip">${b.contracts.doc_number}</span>` : '<span style="color:var(--amber)">⚠️ Chưa gắn hợp đồng</span>'}</div>
         <div class="k">Chia mã ngân sách</div><div class="v">${(b.bill_budget_lines || []).map((l) => `<div class="budget-line"><span class="code-chip">${l.budget_code}</span><span class="mono">${fmt(l.value)} ₫</span></div>`).join('') || '—'}</div>
       </div>
+      <div class="card" style="background:var(--gray1);border:1px solid var(--gray2)">
+        ${finRow(`Dự trù tài chính (chưa thuế)${budgetForecast ? ' — theo ngân sách ' + budgetForecast.revision : ''}`, budgetForecast?.value ?? 0, '')}
+        ${!budgetForecast ? `<div style="font-size:11px;color:var(--gray4);margin-top:4px">Chưa chia mã ngân sách, hoặc dự án chưa có phiên bản ngân sách — không lấy được số này.</div>` : ''}
+      </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Chi tiết hợp đồng</div>
       <div class="card" style="padding:4px 14px">
-        ${finRow('Giá trị hợp đồng ban đầu', b.val_a, 'A')}
-        ${finRow('Điều chỉnh hợp đồng', b.val_b, 'B')}
-        ${finRow('Giá trị hợp đồng điều chỉnh', r.C, 'C = A+B', true)}
+        ${finRow('Giá trị hợp đồng ban đầu (có VAT)', b.val_a, 'A')}
+        ${finRow('Điều chỉnh hợp đồng (có VAT)', b.val_b, 'B')}
+        ${finRow('Giá trị hợp đồng điều chỉnh (có VAT)', r.C, 'C = A+B', true)}
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Chi tiết thanh toán</div>
       <div class="card" style="padding:4px 14px">
-        ${finRow('Giá trị thực hiện lũy kế đến kỳ này', b.val_d, 'D')}
-        ${finRow('Tổng giá trị tiền giữ lại', r.E, 'E = -10%×D')}
+        ${finRow('Giá trị thực hiện lũy kế đến kỳ này (chưa VAT)', b.val_d, 'D')}
+        ${finRow(`VAT (${b.vat_rate}%)`, r.VAT, '= D×VAT%')}
+        ${finRow(`Tổng giá trị tiền giữ lại (${b.retention_rate}%)`, r.E, 'E')}
         ${finRow('Giá trị tạm ứng', b.val_f, 'F')}
         ${finRow('Hoàn trả tạm ứng đến kỳ này', r.G, 'G')}
-        ${finRow('Tổng giá trị thanh toán bao gồm tạm ứng', r.H, 'H = D+E+F+G', true)}
-        ${finRow('Trừ các đợt thanh toán trước', b.val_i, 'I')}
-        ${finRow('Số tiền phải thanh toán đợt này', r.J, 'J = H+I', true)}
+        ${finRow('Giá trị khấu trừ', r.H, 'H', false)}
+        ${b.val_h ? `<div style="font-size:11.5px;color:var(--gray5);margin:-4px 0 6px;padding-left:2px">Lý do: ${b.deduction_note || '(chưa ghi lý do)'}</div>` : ''}
+        ${finRow('Tổng giá trị thanh toán bao gồm tạm ứng', r.I, 'I = D+E+F+G+H', true)}
+        ${finRow('Trừ các đợt thanh toán trước', b.val_i, 'J')}
+        ${finRow('Số tiền phải thanh toán đợt này', r.K, 'K = I+J', true)}
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
       <div class="card" id="attachArea"></div>
@@ -150,7 +173,7 @@ async function openEditModal(bill, user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id').eq('status', 'active').order('doc_number');
+  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, retention_rate, vat_rate').eq('status', 'active').order('doc_number');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const { data: currentLines } = await supabase.from('bill_budget_lines').select('budget_code').eq('bill_id', bill.id);
   const currentBudgetCode = currentLines?.[0]?.budget_code || '';
@@ -161,7 +184,7 @@ async function openEditModal(bill, user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}" ${p.id === bill.project_id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
-        <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" ${c.id === bill.contract_id ? 'selected' : ''} data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}">${c.doc_number}</option>`).join('')}</select></div>
+        <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" ${c.id === bill.contract_id ? 'selected' : ''} data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}" data-retention="${c.retention_rate}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
         <select id="fPartner" class="form-input">${(partners || []).map((p) => `<option value="${p.id}" ${p.id === bill.partner_id ? 'selected' : ''}>${p.name} (MST ${p.mst})</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
@@ -169,12 +192,17 @@ async function openEditModal(bill, user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
         <input type="text" id="fScope" class="form-input" value="${bill.scope || ''}"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
-        <div><label class="form-label">A — Giá trị HĐ ban đầu</label><input type="number" id="fA" class="form-input" value="${bill.val_a}"></div>
-        <div><label class="form-label">B — Điều chỉnh HĐ</label><input type="number" id="fB" class="form-input" value="${bill.val_b}"></div>
-        <div><label class="form-label">D — Lũy kế thực hiện kỳ này</label><input type="number" id="fD" class="form-input" value="${bill.val_d}"></div>
+        <div><label class="form-label">A — Giá trị HĐ ban đầu (có VAT)</label><input type="number" id="fA" class="form-input" value="${bill.val_a}"></div>
+        <div><label class="form-label">B — Điều chỉnh HĐ (có VAT)</label><input type="number" id="fB" class="form-input" value="${bill.val_b}"></div>
+        <div><label class="form-label">D — Lũy kế thực hiện kỳ này (chưa VAT)</label><input type="number" id="fD" class="form-input" value="${bill.val_d}"></div>
         <div><label class="form-label">F — Giá trị tạm ứng</label><input type="number" id="fF" class="form-input" value="${bill.val_f}"></div>
-        <div style="grid-column:1/-1"><label class="form-label">I — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="${bill.val_i}"></div>
+        <div><label class="form-label">Tỉ lệ giữ lại (%)</label><input type="number" id="fRetention" class="form-input" value="${bill.retention_rate}" step="0.1"></div>
+        <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="${bill.vat_rate}" step="0.1"></div>
+        <div><label class="form-label">H — Giá trị khấu trừ</label><input type="number" id="fH" class="form-input" value="${bill.val_h || 0}"></div>
+        <div><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="${bill.val_i}"></div>
       </div>
+      <div style="margin-bottom:13px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label>
+        <input type="text" id="fDeductNote" class="form-input" value="${bill.deduction_note || ''}"></div>
       <div style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
         <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}" ${c.code === currentBudgetCode ? 'selected' : ''}>${c.code} — ${c.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ đính kèm bắt buộc (checklist)</label>
@@ -191,6 +219,8 @@ async function openEditModal(bill, user, onClose) {
       modal.querySelector('#fA').value = opt.dataset.value || '';
       modal.querySelector('#fB').value = opt.dataset.adj || 0;
       if (opt.dataset.partner) modal.querySelector('#fPartner').value = opt.dataset.partner;
+      if (opt.dataset.retention) modal.querySelector('#fRetention').value = opt.dataset.retention;
+      if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
     }
   });
 
@@ -205,20 +235,25 @@ async function openEditModal(bill, user, onClose) {
     const val_d = Number(modal.querySelector('#fD').value);
     const val_f = Number(modal.querySelector('#fF').value);
     const val_i = Number(modal.querySelector('#fI').value);
+    const val_h = Number(modal.querySelector('#fH').value);
+    const deduction_note = modal.querySelector('#fDeductNote').value.trim();
+    const retention_rate = Number(modal.querySelector('#fRetention').value);
+    const vat_rate = Number(modal.querySelector('#fVat').value);
     const budget_code = modal.querySelector('#fBudgetCode').value;
     const checklist_required = Number(modal.querySelector('#fChecklist').value);
 
     if (!project_id || !partner_id || !val_a || !budget_code) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
+    if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
     loading(true);
     const { error } = await supabase
       .from('bills')
-      .update({ project_id, contract_id, partner_id, period_no, scope, val_a, val_b, val_d, val_f, val_i, checklist_required })
+      .update({ project_id, contract_id, partner_id, period_no, scope, val_a, val_b, val_d, val_f, val_i, val_h, deduction_note: deduction_note || null, retention_rate, vat_rate, checklist_required })
       .eq('id', bill.id);
     if (error) return toast('Lỗi lưu: ' + error.message, 'error');
 
     await supabase.from('bill_budget_lines').delete().eq('bill_id', bill.id);
-    await supabase.from('bill_budget_lines').insert({ bill_id: bill.id, budget_code, value: calcBill({ val_a, val_b, val_d, val_f, val_i }).J });
+    await supabase.from('bill_budget_lines').insert({ bill_id: bill.id, budget_code, value: calcBill({ val_a, val_b, val_d, val_f, val_i, val_h, retention_rate, vat_rate }).K });
 
     toast('Đã lưu thay đổi', 'success');
     openDetail(bill.id, user, onClose);
@@ -229,7 +264,7 @@ async function openCreateModal(user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id').eq('status', 'active').order('doc_number');
+  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, retention_rate, vat_rate').eq('status', 'active').order('doc_number');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const templates = await resolveDefaultTemplates(user.id, 'bill');
 
@@ -239,23 +274,29 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
-        <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}">${c.doc_number}</option>`).join('')}</select></div>
+        <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}" data-retention="${c.retention_rate}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chọn hợp đồng sẽ tự điền A, B, Đối tác, % giữ lại, % VAT theo đúng hợp đồng đó.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
-        <select id="fPartner" class="form-input">${(partners || []).map((p) => `<option value="${p.id}">${p.name} (MST ${p.mst})</option>`).join('')}</select>
-        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Tự điền theo hợp đồng liên kết nếu có chọn ở trên.</div></div>
+        <select id="fPartner" class="form-input">${(partners || []).map((p) => `<option value="${p.id}">${p.name} (MST ${p.mst})</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
         <input type="number" id="fPeriod" class="form-input" value="1" min="1"></div>
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
         <input type="text" id="fScope" class="form-input" placeholder="VD: Cung cấp bê tông tươi mác 300"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
-        <div><label class="form-label">A — Giá trị HĐ ban đầu</label><input type="number" id="fA" class="form-input"></div>
-        <div><label class="form-label">B — Điều chỉnh HĐ</label><input type="number" id="fB" class="form-input" value="0"></div>
-        <div><label class="form-label">D — Lũy kế thực hiện kỳ này</label><input type="number" id="fD" class="form-input"></div>
+        <div><label class="form-label">A — Giá trị HĐ ban đầu (có VAT)</label><input type="number" id="fA" class="form-input"></div>
+        <div><label class="form-label">B — Điều chỉnh HĐ (có VAT)</label><input type="number" id="fB" class="form-input" value="0"></div>
+        <div><label class="form-label">D — Lũy kế thực hiện kỳ này (chưa VAT)</label><input type="number" id="fD" class="form-input"></div>
         <div><label class="form-label">F — Giá trị tạm ứng</label><input type="number" id="fF" class="form-input" value="0"></div>
-        <div style="grid-column:1/-1"><label class="form-label">I — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="0"></div>
+        <div><label class="form-label">Tỉ lệ giữ lại (%)</label><input type="number" id="fRetention" class="form-input" value="10" step="0.1"></div>
+        <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="8" step="0.1"></div>
+        <div><label class="form-label">H — Giá trị khấu trừ</label><input type="number" id="fH" class="form-input" value="0"></div>
+        <div><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="0"></div>
       </div>
+      <div style="margin-bottom:13px" id="deductNoteWrap"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label>
+        <input type="text" id="fDeductNote" class="form-input" placeholder="VD: Phạt chậm tiến độ 5 ngày"></div>
       <div style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
-        <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select></div>
+        <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">"Dự trù tài chính" sẽ tự lấy theo đúng Ngân sách phân bổ của mã này, không cần nhập tay.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ đính kèm bắt buộc (checklist)</label>
         <input type="number" id="fChecklist" class="form-input" value="5" min="0"></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
@@ -270,13 +311,15 @@ async function openCreateModal(user, onClose) {
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
 
-  // Khi chọn hợp đồng liên kết, tự điền A, B, và Đối tác theo đúng hợp đồng đó
+  // Khi chọn hợp đồng liên kết, tự điền A, B, Đối tác, % giữ lại, % VAT theo đúng hợp đồng đó
   modal.querySelector('#fContract').addEventListener('change', (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
       modal.querySelector('#fA').value = opt.dataset.value || '';
       modal.querySelector('#fB').value = opt.dataset.adj || 0;
       if (opt.dataset.partner) modal.querySelector('#fPartner').value = opt.dataset.partner;
+      if (opt.dataset.retention) modal.querySelector('#fRetention').value = opt.dataset.retention;
+      if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
     }
   });
 
@@ -291,11 +334,16 @@ async function openCreateModal(user, onClose) {
     const val_d = Number(modal.querySelector('#fD').value);
     const val_f = Number(modal.querySelector('#fF').value);
     const val_i = Number(modal.querySelector('#fI').value);
+    const val_h = Number(modal.querySelector('#fH').value);
+    const deduction_note = modal.querySelector('#fDeductNote').value.trim();
+    const retention_rate = Number(modal.querySelector('#fRetention').value);
+    const vat_rate = Number(modal.querySelector('#fVat').value);
     const budget_code = modal.querySelector('#fBudgetCode').value;
     const checklist_required = Number(modal.querySelector('#fChecklist').value);
     const template_id = modal.querySelector('#fTemplate').value;
 
     if (!project_id || !partner_id || !val_a || !budget_code) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
+    if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
     // Quy tắc: kỳ N+1 chỉ tạo được khi kỳ N đã qua tối thiểu bước 2
     if (contract_id && period_no > 1) {
@@ -314,12 +362,12 @@ async function openCreateModal(user, onClose) {
     loading(true);
     const { data: newBill, error } = await supabase
       .from('bills')
-      .insert({ project_id, contract_id, partner_id, period_no, scope, val_a, val_b, val_d, val_f, val_i, checklist_required, template_id: template_id || null, created_by: user.id, status: 'draft' })
+      .insert({ project_id, contract_id, partner_id, period_no, scope, val_a, val_b, val_d, val_f, val_i, val_h, deduction_note: deduction_note || null, retention_rate, vat_rate, checklist_required, template_id: template_id || null, created_by: user.id, status: 'draft' })
       .select('id')
       .single();
     if (error) return toast('Lỗi tạo bill: ' + error.message, 'error');
 
-    await supabase.from('bill_budget_lines').insert({ bill_id: newBill.id, budget_code, value: calcBill({ val_a, val_b, val_d, val_f, val_i }).J });
+    await supabase.from('bill_budget_lines').insert({ bill_id: newBill.id, budget_code, value: calcBill({ val_a, val_b, val_d, val_f, val_i, val_h, retention_rate, vat_rate }).K });
 
     if (submitAfter) {
       const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'bill', p_doc_id: newBill.id });
