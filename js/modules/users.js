@@ -343,11 +343,12 @@ async function openEditDeptModal(name, onClose) {
 
 async function openProjectAssignModal(projectId, projectName, currentUser, onClose) {
   const modal = ensureModal();
-  const { data: assignments } = await supabase
+  const { data: assignments, error: assignErr } = await supabase
     .from('project_role_assignments')
-    .select('id, role_type, user_id, effective_from, users(full_name, email)')
+    .select('id, role_type, user_id, effective_from, users!user_id(full_name, email)')
     .eq('project_id', projectId)
     .is('effective_to', null);
+  if (assignErr) console.error('Lỗi tải người phụ trách:', assignErr);
   const { data: users } = await supabase.from('users').select('id, full_name, email').eq('is_active', true).order('full_name');
   const userOptions = `<option value="">— Chọn người —</option>${(users || []).map((u) => `<option value="${u.id}">${u.full_name} (${u.email})</option>`).join('')}`;
 
