@@ -133,9 +133,8 @@ function ensureModal() {
 }
 function showModal(modal, onClose) {
   modal.classList.add('show');
-  modal.onclick = (e) => {
-    if (!e.target.closest('.panel-box')) closeModal(modal, onClose);
-  };
+  // Cố tình KHÔNG đóng khi bấm ra ngoài — tránh mất dữ liệu đang nhập nếu lỡ tay bấm trượt.
+  // Chỉ đóng bằng nút X (hoặc nút Hủy/nút quay lại chi tiết).
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
