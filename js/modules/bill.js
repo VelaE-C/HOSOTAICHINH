@@ -66,18 +66,34 @@ function readDValue(wrapEl) {
 }
 
 // Kỳ số khóa theo đúng thứ tự lũy kế, J tự = -D của kỳ liền trước (trừ Kỳ 1 vẫn tự nhập tay)
-async function updateKyAndJ(modal, contractId) {
+// Nếu CHƯA có hợp đồng liên kết (đi bill trước, làm hợp đồng bù sau) — vẫn theo dõi được,
+// tạm dùng cặp Dự án + Đối tác làm "chuỗi tạm" cho tới khi có hợp đồng thật
+async function updateKyAndJ(modal, contractId, projectId, partnerId) {
   const periodInput = modal.querySelector('#fPeriod');
   const jInput = modal.querySelector('#fI');
-  if (!contractId) {
+
+  let existingBills = [];
+  if (contractId) {
+    const { data } = await supabase.from('bills').select('period_no, val_d').eq('contract_id', contractId).order('period_no', { ascending: false });
+    existingBills = data || [];
+  } else if (projectId && partnerId) {
+    const { data } = await supabase
+      .from('bills')
+      .select('period_no, val_d')
+      .is('contract_id', null)
+      .eq('project_id', projectId)
+      .eq('partner_id', partnerId)
+      .order('period_no', { ascending: false });
+    existingBills = data || [];
+  } else {
     periodInput.readOnly = false;
     periodInput.style.background = '';
     jInput.readOnly = false;
     jInput.style.background = '';
     return;
   }
-  const { data: existingBills } = await supabase.from('bills').select('period_no, val_d').eq('contract_id', contractId).order('period_no', { ascending: false });
-  const maxPeriod = existingBills && existingBills.length ? existingBills[0].period_no : 0;
+
+  const maxPeriod = existingBills.length ? existingBills[0].period_no : 0;
   const nextPeriod = maxPeriod + 1;
 
   periodInput.value = nextPeriod;
@@ -89,7 +105,7 @@ async function updateKyAndJ(modal, contractId) {
     jInput.readOnly = false;
     jInput.style.background = '';
   } else {
-    const prevBill = (existingBills || []).find((b) => b.period_no === nextPeriod - 1);
+    const prevBill = existingBills.find((b) => b.period_no === nextPeriod - 1);
     jInput.value = prevBill ? -Number(prevBill.val_d) : 0;
     jInput.readOnly = true;
     jInput.style.background = 'var(--gray1)';
@@ -350,11 +366,23 @@ async function openEditModal(bill, user, onClose) {
       const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
       renderDSection(dWrap, cLines, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
-      await updateKyAndJ(modal, opt.value);
+      await updateKyAndJ(modal, opt.value, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     } else {
       renderDSection(dWrap, null, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = '';
-      await updateKyAndJ(modal, null);
+      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+    }
+  });
+
+  // Chưa chọn hợp đồng (đi bill trước) — đổi Dự án/Đối tác cũng cần tính lại Kỳ/J theo đúng cặp đó
+  modal.querySelector('#fProject').addEventListener('change', () => {
+    if (!modal.querySelector('#fContract').value) {
+      updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+    }
+  });
+  modal.querySelector('#fPartner').addEventListener('change', () => {
+    if (!modal.querySelector('#fContract').value) {
+      updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     }
   });
 
@@ -463,11 +491,23 @@ async function openCreateModal(user, onClose) {
       const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
       renderDSection(dWrap, cLines, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
-      await updateKyAndJ(modal, opt.value);
+      await updateKyAndJ(modal, opt.value, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     } else {
       renderDSection(dWrap, null, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = '';
-      await updateKyAndJ(modal, null);
+      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+    }
+  });
+
+  // Chưa chọn hợp đồng (đi bill trước) — đổi Dự án/Đối tác cũng cần tính lại Kỳ/J theo đúng cặp đó
+  modal.querySelector('#fProject').addEventListener('change', () => {
+    if (!modal.querySelector('#fContract').value) {
+      updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+    }
+  });
+  modal.querySelector('#fPartner').addEventListener('change', () => {
+    if (!modal.querySelector('#fContract').value) {
+      updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     }
   });
 
