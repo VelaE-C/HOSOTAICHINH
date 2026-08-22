@@ -14,7 +14,7 @@ button{font-family:inherit;cursor:pointer;}
 /* ===== Màn hình đăng nhập ===== */
 .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
 .login-card{background:#fff;border:1px solid var(--gray2);border-radius:12px;padding:36px 32px;max-width:360px;width:100%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.06);}
-.login-card .brand-mark{width:48px;height:48px;border-radius:10px;background:var(--orange);color:#fff;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;}
+.login-card .brand-mark{width:56px;height:56px;border-radius:10px;object-fit:cover;margin:0 auto 16px;display:block;}
 .login-card h1{font-size:18px;margin:0 0 8px;color:var(--navy);}
 .login-card p{font-size:13.5px;color:var(--gray7);margin:0 0 20px;line-height:1.5;}
 
@@ -50,7 +50,7 @@ button{font-family:inherit;cursor:pointer;}
    ============================================================ */
 .topbar{position:sticky;top:0;z-index:100;height:52px;background:var(--navy);display:flex;align-items:center;gap:14px;padding:0 18px;color:#fff;}
 .topbar .hamburger{display:none;background:none;border:none;color:#fff;font-size:20px;cursor:pointer;}
-.topbar .logo{width:32px;height:32px;border-radius:7px;background:var(--orange);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex:none;}
+.topbar .logo{width:32px;height:32px;border-radius:7px;object-fit:cover;flex:none;background:#fff;}
 .topbar .appname{font-weight:700;font-size:14.5px;white-space:nowrap;}
 .topbar .spacer{flex:1;}
 .topbar .user-info{font-size:12px;color:#CBD5E1;display:flex;align-items:center;gap:8px;}
@@ -119,14 +119,14 @@ tr.click:hover td{background:var(--lblue);}
 /* ============================================================
    MODAL / PANEL CHI TIẾT
    ============================================================ */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;align-items:stretch;justify-content:flex-end;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;align-items:center;justify-content:center;padding:24px;}
 .overlay.show{display:flex;}
-.panel-box{background:#fff;width:min(600px,94vw);height:100%;overflow-y:auto;margin-left:auto;}
-.panel-header{font-size:16px;font-weight:700;padding:16px 20px;border-bottom:1px solid var(--gray2);display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+.panel-box{background:#fff;width:min(600px,94vw);max-height:90vh;overflow-y:auto;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.35);}
+.panel-header{font-size:16px;font-weight:700;padding:16px 20px;border-bottom:1px solid var(--gray2);display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-radius:14px 14px 0 0;}
 .panel-header .meta{font-size:12px;font-weight:400;color:var(--gray5);margin-top:3px;}
 .panel-close{border:none;background:var(--gray1);width:28px;height:28px;border-radius:50%;cursor:pointer;color:var(--gray5);flex:none;}
 .panel-body{padding:16px 20px;}
-.panel-footer{padding:12px 20px;border-top:1px solid var(--gray2);display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;}
+.panel-footer{padding:12px 20px;border-top:1px solid var(--gray2);display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;border-radius:0 0 14px 14px;}
 .kv{display:grid;grid-template-columns:150px 1fr;gap:9px 12px;font-size:13px;margin-bottom:18px;}
 .kv .k{color:var(--gray5);}
 .kv .v{font-weight:600;color:var(--gray8);}
@@ -163,5 +163,8 @@ tr.click:hover td{background:var(--lblue);}
 .tl-comment{margin-top:5px;font-size:12.5px;background:var(--gray1);padding:8px 10px;border-radius:7px;}
 
 @media (max-width:1023px){
-  .panel-box{width:100vw;}
+  .overlay{padding:0;align-items:flex-end;}
+  .panel-box{width:100vw;max-height:100vh;height:100vh;border-radius:0;}
+  .panel-header{border-radius:0;}
+  .panel-footer{border-radius:0;}
 }
