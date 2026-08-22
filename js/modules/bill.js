@@ -65,6 +65,37 @@ function readDValue(wrapEl) {
   return { val_d: Number(single?.value) || 0, perCode: null };
 }
 
+// Kỳ số khóa theo đúng thứ tự lũy kế, J tự = -D của kỳ liền trước (trừ Kỳ 1 vẫn tự nhập tay)
+async function updateKyAndJ(modal, contractId) {
+  const periodInput = modal.querySelector('#fPeriod');
+  const jInput = modal.querySelector('#fI');
+  if (!contractId) {
+    periodInput.readOnly = false;
+    periodInput.style.background = '';
+    jInput.readOnly = false;
+    jInput.style.background = '';
+    return;
+  }
+  const { data: existingBills } = await supabase.from('bills').select('period_no, val_d').eq('contract_id', contractId).order('period_no', { ascending: false });
+  const maxPeriod = existingBills && existingBills.length ? existingBills[0].period_no : 0;
+  const nextPeriod = maxPeriod + 1;
+
+  periodInput.value = nextPeriod;
+  periodInput.readOnly = true;
+  periodInput.style.background = 'var(--gray1)';
+
+  if (nextPeriod === 1) {
+    jInput.value = 0;
+    jInput.readOnly = false;
+    jInput.style.background = '';
+  } else {
+    const prevBill = (existingBills || []).find((b) => b.period_no === nextPeriod - 1);
+    jInput.value = prevBill ? -Number(prevBill.val_d) : 0;
+    jInput.readOnly = true;
+    jInput.style.background = 'var(--gray1)';
+  }
+}
+
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
@@ -319,9 +350,11 @@ async function openEditModal(bill, user, onClose) {
       const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
       renderDSection(dWrap, cLines, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
+      await updateKyAndJ(modal, opt.value);
     } else {
       renderDSection(dWrap, null, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = '';
+      await updateKyAndJ(modal, null);
     }
   });
 
@@ -391,7 +424,8 @@ async function openCreateModal(user, onClose) {
         <div><label class="form-label">Tỉ lệ giữ lại (%)</label><input type="number" id="fRetention" class="form-input" value="10" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="8" step="0.1"></div>
         <div><label class="form-label">H — Giá trị khấu trừ</label><input type="number" id="fH" class="form-input" value="0"></div>
-        <div style="grid-column:1/-1"><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="0"></div>
+        <div style="grid-column:1/-1"><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="0">
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Kỳ 1: tự nhập tay. Từ kỳ 2: tự khóa, lấy đúng -D của kỳ liền trước.</div></div>
       </div>
       <div id="dSectionWrap" style="margin-bottom:13px"></div>
       <div style="margin-bottom:13px" id="deductNoteWrap"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label>
@@ -429,9 +463,11 @@ async function openCreateModal(user, onClose) {
       const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
       renderDSection(dWrap, cLines, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
+      await updateKyAndJ(modal, opt.value);
     } else {
       renderDSection(dWrap, null, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = '';
+      await updateKyAndJ(modal, null);
     }
   });
 
