@@ -38,7 +38,7 @@ function renderLoginScreen() {
   document.getElementById('app-root').innerHTML = `
     <div class="login-screen">
       <div class="login-card">
-        <div class="brand-mark">V</div>
+        <img class="brand-mark" src="https://raw.githubusercontent.com/VelaE-C/HOSOTAICHINH/refs/heads/main/LOGO%20DUNG.JPEG.png" alt="VELA">
         <h1>VELA Hồ sơ Tài chính</h1>
         <p>Đăng nhập bằng tài khoản Outlook công ty — không dùng mật khẩu riêng.</p>
         <button id="btnMsLogin" class="btn btn-primary" style="width:100%">Đăng nhập bằng Microsoft</button>
