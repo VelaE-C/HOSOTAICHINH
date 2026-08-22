@@ -147,7 +147,9 @@ function ensureModal() {
 }
 function showModal(modal, onClose) {
   modal.classList.add('show');
-  modal.onclick = (e) => { if (e.target === modal) closeModal(modal, onClose); };
+  modal.onclick = (e) => {
+    if (!e.target.closest('.panel-box')) closeModal(modal, onClose);
+  };
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
