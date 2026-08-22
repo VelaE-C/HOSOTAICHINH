@@ -44,6 +44,7 @@ export function accessibleTabs(roles) {
 
 const moduleCache = {};
 let CURRENT_USER = null;
+let CURRENT_VIEW = null;
 
 export function renderShell(user) {
   CURRENT_USER = user;
@@ -84,8 +85,17 @@ export function renderShell(user) {
     document.getElementById('sidebar').classList.toggle('open');
   });
 
-  const initial = visibleNav[0]?.id || 'dashboard';
+  // Đọc tab đang xem từ URL (#hopdong, #bill...) — để F5 không bị mất chỗ đang xem.
+  // Nếu URL không có hash, hoặc hash không phải tab hợp lệ với vai trò hiện tại, mới về tab đầu tiên.
+  const hashId = window.location.hash.replace('#', '');
+  const initial = visibleNav.find((n) => n.id === hashId) ? hashId : visibleNav[0]?.id || 'dashboard';
   switchView(initial);
+
+  // Hỗ trợ nút Back/Forward của trình duyệt
+  window.onhashchange = () => {
+    const id = window.location.hash.replace('#', '');
+    if (visibleNav.find((n) => n.id === id) && id !== CURRENT_VIEW) switchView(id);
+  };
 }
 
 function buildSidebar(visibleNav) {
@@ -136,6 +146,9 @@ async function loadModule(id) {
 }
 
 export async function switchView(id) {
+  CURRENT_VIEW = id;
+  if (window.location.hash.replace('#', '') !== id) window.location.hash = id;
+
   document.querySelectorAll('.sb-item').forEach((b) => b.classList.toggle('active', b.dataset.nav === id));
   document.querySelectorAll('.bn-item[data-nav]').forEach((b) => b.classList.toggle('active', b.dataset.nav === id));
   const n = NAV.find((x) => x.id === id);
