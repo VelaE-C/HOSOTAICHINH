@@ -6,7 +6,7 @@
 import { supabase } from '../core/config.js';
 import { toast, loading, statusBadge, pushModalHistory, popModalHistory } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates } from '../core/approvalUI.js';
-import { renderAttachments } from '../core/attachments.js';
+import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -162,6 +162,8 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
+      <label class="form-label">Hồ sơ đính kèm</label>
+      <div class="card" id="filePickerWrap" style="padding:12px 14px;margin-bottom:13px"></div>
     </div>
     <div class="panel-footer">
       <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu nháp</button>
@@ -170,6 +172,7 @@ async function openCreateModal(user, onClose) {
   </div>`;
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+  const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
 
   async function doSave(submitAfter) {
     const project_id = modal.querySelector('#fProject').value;
@@ -186,6 +189,8 @@ async function openCreateModal(user, onClose) {
       .select('id')
       .single();
     if (error) return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
+
+    await uploadStagedFiles(filePicker.getFiles(), 'totrinh', newDoc.id, user.id);
 
     if (submitAfter) {
       const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'totrinh', p_doc_id: newDoc.id });
