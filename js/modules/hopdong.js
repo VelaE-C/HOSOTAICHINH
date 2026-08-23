@@ -4,7 +4,7 @@
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines } from '../core/approvalUI.js';
-import { renderAttachments } from '../core/attachments.js';
+import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -267,6 +267,8 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Tờ trình chủ trương làm căn cứ (không bắt buộc)</label>
         <select id="fToTrinh" class="form-input"><option value="">— Chưa gắn —</option>${(toTrinhList || []).map((t) => `<option value="${t.id}">${t.doc_number} — ${t.title}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Không có trong danh sách? Vào tab Tờ trình chủ trương tạo trước — hợp đồng vẫn trình được nếu chưa gắn, chỉ hiện cảnh báo nhẹ.</div></div>
+      <label class="form-label">Hồ sơ đính kèm</label>
+      <div class="card" id="filePickerWrap" style="padding:12px 14px;margin-bottom:13px"></div>
     </div>
     <div class="panel-footer">
       <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu nháp</button>
@@ -278,6 +280,7 @@ async function openCreateModal(user, onClose) {
 
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
+  const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
 
   async function doSave(submitAfter) {
     const project_id = modal.querySelector('#fProject').value;
@@ -305,6 +308,7 @@ async function openCreateModal(user, onClose) {
     if (error) return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
 
     await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: newContract.id, budget_code: l.budget_code, value: l.value })));
+    await uploadStagedFiles(filePicker.getFiles(), 'contract', newContract.id, user.id);
 
     if (submitAfter) {
       const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'contract', p_doc_id: newContract.id });
