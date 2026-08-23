@@ -2,7 +2,7 @@
 // hopdong.js — Module Hợp đồng đầu vào (NTP/NCC)
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines } from '../core/approvalUI.js';
 import { renderAttachments } from '../core/attachments.js';
 
@@ -126,6 +126,7 @@ async function openBudgetLinesEditor(c, user, onClose) {
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu điều chỉnh</button></div>
   </div>`;
   showModal(modal, onClose);
+  wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(c.id, user, onClose));
   wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#__no_target__'); // không cần khớp tổng cụ thể
 
@@ -170,7 +171,7 @@ async function openEditModal(c, user, onClose) {
             .map((t) => `<option ${t === c.contract_type ? 'selected' : ''}>${t}</option>`).join('')}
         </select></div>
       <div style="margin-bottom:13px"><label class="form-label">Giá trị hợp đồng (₫, có VAT)</label>
-        <input type="number" id="fValue" class="form-input" value="${c.value}"></div>
+        <input type="text" inputmode="numeric" id="fValue" class="form-input money-input" value="${formatMoneyInput(c.value)}"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
         <div><label class="form-label">Tỉ lệ giữ lại bảo hành (%)</label><input type="number" id="fRetention" class="form-input" value="${c.retention_rate ?? 10}" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="${c.vat_rate ?? 8}" step="0.1"></div>
@@ -189,6 +190,7 @@ async function openEditModal(c, user, onClose) {
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
   </div>`;
   showModal(modal, onClose);
+  wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(c.id, user, onClose));
   wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
 
@@ -196,7 +198,7 @@ async function openEditModal(c, user, onClose) {
     const project_id = modal.querySelector('#fProject').value;
     const partner_id = modal.querySelector('#fPartner').value;
     const contract_type = modal.querySelector('#fType').value;
-    const value = Number(modal.querySelector('#fValue').value);
+    const value = parseMoneyInput(modal.querySelector('#fValue').value);
     const retention_rate = Number(modal.querySelector('#fRetention').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
     const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
@@ -248,7 +250,7 @@ async function openCreateModal(user, onClose) {
           <option>Dịch vụ khác</option>
         </select></div>
       <div style="margin-bottom:13px"><label class="form-label">Giá trị hợp đồng (₫, có VAT)</label>
-        <input type="number" id="fValue" class="form-input" placeholder="VD: 2800000000"></div>
+        <input type="text" inputmode="numeric" id="fValue" class="form-input money-input" placeholder="VD: 2.800.000.000"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
         <div><label class="form-label">Tỉ lệ giữ lại bảo hành (%)</label><input type="number" id="fRetention" class="form-input" value="10" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="8" step="0.1"></div>
@@ -272,6 +274,7 @@ async function openCreateModal(user, onClose) {
     </div>
   </div>`;
   showModal(modal, onClose);
+  wireMoneyInputs(modal);
 
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
@@ -280,7 +283,7 @@ async function openCreateModal(user, onClose) {
     const project_id = modal.querySelector('#fProject').value;
     const partner_id = modal.querySelector('#fPartner').value;
     const contract_type = modal.querySelector('#fType').value;
-    const value = Number(modal.querySelector('#fValue').value);
+    const value = parseMoneyInput(modal.querySelector('#fValue').value);
     const retention_rate = Number(modal.querySelector('#fRetention').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
     const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
