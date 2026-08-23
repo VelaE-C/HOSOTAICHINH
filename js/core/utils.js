@@ -80,3 +80,37 @@ export function wireMoneyInputs(container) {
     el.setSelectionRange(pos, pos);
   });
 }
+
+// ============================================================
+// TÍCH HỢP NÚT BACK / VUỐT LÙI (ĐIỆN THOẠI) VỚI MODAL ĐANG MỞ
+// Không có cơ chế này, Back sẽ chỉ đổi URL tab phía sau mà không đóng form
+// đang che phía trên — trông như bị "kẹt màn hình".
+// Cách dùng: gọi pushModalHistory() trong showModal(), popModalHistory()
+// trong closeModal(); gọi initModalBackHandler() đúng 1 lần lúc khởi động app.
+// ============================================================
+export function pushModalHistory(hashOverride) {
+  if (!window.__velaModalOpen) {
+    window.__velaModalOpen = true;
+    if (hashOverride) {
+      history.pushState({ velaModal: true }, '', '#' + hashOverride);
+    } else {
+      history.pushState({ velaModal: true }, '');
+    }
+  }
+}
+
+export function popModalHistory() {
+  if (window.__velaModalOpen) {
+    window.__velaModalOpen = false;
+    history.back();
+  }
+}
+
+export function initModalBackHandler() {
+  window.addEventListener('popstate', () => {
+    if (window.__velaModalOpen) {
+      window.__velaModalOpen = false;
+      document.querySelectorAll('.overlay.show').forEach((el) => el.classList.remove('show'));
+    }
+  });
+}
