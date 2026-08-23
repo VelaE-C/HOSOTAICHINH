@@ -118,3 +118,82 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
     toast(`Đã thêm "${file.name}"`, 'success');
   }
 }
+
+// ============================================================
+// DÀNH RIÊNG CHO FORM TẠO MỚI — chọn file giữ tạm trên trình duyệt
+// (CHƯA upload), rồi gọi uploadStagedFiles() upload hàng loạt SAU KHI
+// hồ sơ đã được tạo thật (có ownerId), cùng lúc với "Lưu nháp"/"Trình duyệt"
+// ============================================================
+
+// Gọi vào 1 khung <div> trong form Tạo mới. Trả về { getFiles() } để đọc lại
+// danh sách File đã chọn lúc lưu.
+export function renderFilePicker(wrapEl) {
+  let staged = [];
+
+  function refresh() {
+    wrapEl.innerHTML = `
+      <div class="staged-file-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        ${staged.length ? staged.map((f, i) => `
+          <span class="linked-chip" style="background:var(--gray1);color:var(--gray7)">
+            ${fileIcon(f.name)} ${f.name}
+            <span style="color:var(--gray4);font-weight:400;font-size:11px">(${fmtSize(Math.round(f.size / 1024))})</span>
+            <span data-rm-staged="${i}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:2px">✕</span>
+          </span>`).join('') : '<span style="color:var(--gray4);font-size:12px">Chưa chọn file nào</span>'}
+      </div>
+      <input type="file" id="filePickerInput" style="display:none" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg">
+      <button type="button" class="btn btn-sm btn-secondary" id="btnPickFiles" ${staged.length >= MAX_FILES ? 'disabled' : ''}>+ Chọn file (PDF, Word, Excel, ảnh)</button>
+      <div style="font-size:11px;color:var(--gray4);margin-top:5px">${staged.length}/${MAX_FILES} file đã chọn — sẽ tải lên khi bấm Lưu nháp/Trình duyệt, không phải ngay bây giờ.</div>
+    `;
+
+    wrapEl.querySelector('#btnPickFiles').addEventListener('click', () => wrapEl.querySelector('#filePickerInput').click());
+    wrapEl.querySelector('#filePickerInput').addEventListener('change', (e) => {
+      const chosen = [...e.target.files];
+      for (const f of chosen) {
+        if (staged.length >= MAX_FILES) {
+          toast(`Chỉ được tối đa ${MAX_FILES} file`, 'error');
+          break;
+        }
+        if (f.size > 20 * 1024 * 1024) {
+          toast(`File "${f.name}" vượt quá 20MB, bỏ qua`, 'error');
+          continue;
+        }
+        staged.push(f);
+      }
+      e.target.value = '';
+      refresh();
+    });
+    wrapEl.querySelectorAll('[data-rm-staged]').forEach((el) =>
+      el.addEventListener('click', () => {
+        staged.splice(Number(el.dataset.rmStaged), 1);
+        refresh();
+      }),
+    );
+  }
+
+  refresh();
+  return { getFiles: () => staged };
+}
+
+// Gọi SAU KHI hồ sơ đã tạo thành công (có ownerId thật) — upload hàng loạt
+// các file đã chọn tạm ở trên. Lỗi từng file không chặn các file còn lại.
+export async function uploadStagedFiles(files, ownerType, ownerId, uploaderId) {
+  if (!files || !files.length) return;
+  loading(true, `Đang tải lên ${files.length} file đính kèm…`);
+  for (const file of files) {
+    const path = `${ownerType}/${ownerId}/${Date.now()}_${file.name.replace(/[^\w.\-]/g, '_')}`;
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file);
+    if (upErr) {
+      toast(`Lỗi tải file "${file.name}": ${upErr.message}`, 'error');
+      continue;
+    }
+    const { error: insErr } = await supabase.from('attachments').insert({
+      owner_type: ownerType,
+      owner_id: ownerId,
+      file_name: file.name,
+      file_url: path,
+      file_size_kb: Math.round(file.size / 1024),
+      uploaded_by: uploaderId,
+    });
+    if (insErr) toast(`Đã tải "${file.name}" lên nhưng lỗi ghi nhận: ${insErr.message}`, 'error');
+  }
+}
