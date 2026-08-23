@@ -5,7 +5,7 @@
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines } from '../core/approvalUI.js';
-import { renderAttachments } from '../core/attachments.js';
+import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -468,6 +468,8 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
+      <label class="form-label">Hồ sơ đính kèm</label>
+      <div class="card" id="filePickerWrap" style="padding:12px 14px;margin-bottom:13px"></div>
     </div>
     <div class="panel-footer">
       <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu nháp</button>
@@ -478,6 +480,7 @@ async function openCreateModal(user, onClose) {
   wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
 
+  const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
   const dWrap = modal.querySelector('#dSectionWrap');
   renderDSection(dWrap, null, null); // mặc định: chưa chọn hợp đồng -> D đơn giản
 
@@ -563,6 +566,7 @@ async function openCreateModal(user, onClose) {
     // nếu chỉ 1 mã, lưu D của mã đó
     const linesToSave = perCode && perCode.length ? perCode : [{ budget_code, value: val_d }];
     await supabase.from('bill_budget_lines').insert(linesToSave.map((l) => ({ bill_id: newBill.id, budget_code: l.budget_code, value: l.value })));
+    await uploadStagedFiles(filePicker.getFiles(), 'bill', newBill.id, user.id);
 
     if (submitAfter) {
       const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'bill', p_doc_id: newBill.id });
