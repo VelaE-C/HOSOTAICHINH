@@ -42,3 +42,41 @@ export function statusBadge(status) {
   if (status === danger) return `<span class="badge danger">● Từ chối</span>`;
   return `<span class="badge idle">${status}</span>`;
 }
+
+// ============================================================
+// Ô NHẬP TIỀN CÓ DẤU CHẤM NGĂN CÁCH (VD gõ 250000000 -> tự hiện 250.000.000)
+// Cách dùng: đặt input type="text" class="form-input money-input", rồi gọi
+// wireMoneyInputs(modal) đúng 1 lần sau khi showModal — áp dụng luôn cho cả
+// những dòng thêm động sau này (chia mã ngân sách...) nhờ dùng event delegation.
+// Khi đọc giá trị để tính/lưu, dùng parseMoneyInput(el.value) thay vì Number(el.value).
+// ============================================================
+
+export function formatMoneyInput(raw) {
+  const str = String(raw ?? '');
+  const isNegative = str.trim().startsWith('-');
+  const digits = str.replace(/[^\d]/g, '');
+  if (!digits) return isNegative ? '-' : '';
+  const formatted = Number(digits).toLocaleString('vi-VN');
+  return isNegative ? '-' + formatted : formatted;
+}
+
+export function parseMoneyInput(raw) {
+  const str = String(raw ?? '');
+  const isNegative = str.trim().startsWith('-');
+  const digits = str.replace(/[^\d]/g, '');
+  const num = Number(digits) || 0;
+  return isNegative ? -num : num;
+}
+
+export function wireMoneyInputs(container) {
+  if (container.dataset.moneyWired) return; // tránh gắn trùng nếu lỡ gọi 2 lần
+  container.dataset.moneyWired = '1';
+  container.addEventListener('input', (e) => {
+    if (!e.target.classList || !e.target.classList.contains('money-input')) return;
+    const el = e.target;
+    const cursorFromEnd = el.value.length - el.selectionStart;
+    el.value = formatMoneyInput(el.value);
+    const pos = Math.max(0, el.value.length - cursorFromEnd);
+    el.setSelectionRange(pos, pos);
+  });
+}
