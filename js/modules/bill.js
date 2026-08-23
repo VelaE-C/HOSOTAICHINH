@@ -3,7 +3,7 @@
 // Công thức: C=A+B | E=-10%×D | G = F==0 ? 0 : -F×(D/(0.8×A)) | H=D+E+F+G | J=H+I
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines } from '../core/approvalUI.js';
 import { renderAttachments } from '../core/attachments.js';
 
@@ -174,7 +174,7 @@ function finRow(label, value, code, bold) {
 export async function openDetail(id, user, onClose) {
   const modal = ensureModal();
   modal.innerHTML = `<div class="panel-box"><div class="empty-note">Đang tải…</div></div>`;
-  showModal(modal, onClose);
+  showModal(modal, onClose, `bill/${id}`);
 
   const { data: b } = await supabase
     .from('bills')
@@ -591,12 +591,14 @@ function ensureModal() {
   }
   return modal;
 }
-function showModal(modal, onClose) {
+function showModal(modal, onClose, hashOverride) {
   modal.classList.add('show');
+  pushModalHistory(hashOverride);
   // Cố tình KHÔNG đóng khi bấm ra ngoài — tránh mất dữ liệu đang nhập nếu lỡ tay bấm trượt.
   // Chỉ đóng bằng nút X (hoặc nút Hủy/nút quay lại chi tiết).
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
+  popModalHistory();
   if (onClose) onClose();
 }
