@@ -3,7 +3,7 @@
 // Chỉ Admin (IT) và Trưởng phòng QLCP&HĐ thấy tab này.
 // ============================================================
 import { supabase } from '../core/config.js';
-import { toast, loading, fmtDate } from '../core/utils.js';
+import { toast, loading, fmtDate, pushModalHistory, popModalHistory } from '../core/utils.js';
 
 const ALL_ROLES = ['QS', 'CHT', 'GDDA', 'ChuyenVienPhongBan', 'TruongPhongChucNang', 'PhapChe_CV', 'PhapChe_TP', 'KeToan_Vien', 'KeToan_Truong', 'QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'];
 // Bất kỳ vai trò nào cũng có thể được chỉ đích danh theo dự án (trừ Admin — thuần kỹ thuật, không tham gia duyệt)
@@ -354,7 +354,11 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
 
   const roleLabel = { CHT: 'Chỉ huy trưởng', GDDA: 'Giám đốc dự án', PTGD: 'Phó Tổng Giám đốc' };
   const currentByRole = {};
-  (assignments || []).forEach((a) => (currentByRole[a.role_type] = a));
+  const qsAssignments = [];
+  (assignments || []).forEach((a) => {
+    if (a.role_type === 'QS') qsAssignments.push(a);
+    else currentByRole[a.role_type] = a;
+  });
 
   const rows = Object.keys(roleLabel)
     .map((role) => {
@@ -373,8 +377,22 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Người phụ trách dự án — ${projectName}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
-      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:16px">ℹ️ Đổi người sẽ tự động chuyển giao hồ sơ đang chờ duyệt của dự án này sang người mới (nếu có), không bị treo.</div>
+      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:16px">ℹ️ Đổi người (CHT/GĐDA/PTGD) sẽ tự động chuyển giao hồ sơ đang chờ duyệt của dự án này sang người mới (nếu có), không bị treo.</div>
       ${rows}
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">QS — có thể nhiều người cùng lúc</div>
+      <div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">Bắt buộc phải gán mới trình được hợp đồng/bill/tờ trình cho dự án này (trừ các vai trò cấp cao hơn).</div>
+      <div class="card" style="padding:12px 14px">
+        <div id="qsList" style="margin-bottom:10px">
+          ${qsAssignments.length ? qsAssignments.map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray1);font-size:13px">
+            <span>${a.users?.full_name} <span style="color:var(--gray4)">(${a.users?.email})</span></span>
+            <span data-rm-qs="${a.id}" style="cursor:pointer;color:var(--red);font-size:12px">Gỡ</span>
+          </div>`).join('') : '<div style="color:var(--gray4);font-size:12px">Chưa có QS nào — chưa ai trình được hồ sơ cho dự án này.</div>'}
+        </div>
+        <div style="display:flex;gap:8px">
+          <select id="fAddQs" class="form-input">${userOptions}</select>
+          <button class="btn btn-sm btn-secondary" id="btnAddQs">+ Thêm QS</button>
+        </div>
+      </div>
     </div>
   </div>`;
   showModal(modal, onClose);
@@ -397,6 +415,27 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
       } else {
         toast(`Đã gán ${roleLabel[role]}`, 'success');
       }
+      openProjectAssignModal(projectId, projectName, currentUser, onClose);
+    }),
+  );
+
+  modal.querySelector('#btnAddQs').addEventListener('click', async () => {
+    const userId = modal.querySelector('#fAddQs').value;
+    if (!userId) return toast('Chọn người trước', 'error');
+    loading(true);
+    const { error } = await supabase.from('project_role_assignments').insert({
+      project_id: projectId, user_id: userId, role_type: 'QS', effective_from: new Date().toISOString().slice(0, 10),
+    });
+    if (error) return toast('Lỗi (có thể đã gán rồi): ' + error.message, 'error');
+    toast('Đã thêm QS', 'success');
+    openProjectAssignModal(projectId, projectName, currentUser, onClose);
+  });
+
+  modal.querySelectorAll('[data-rm-qs]').forEach((el) =>
+    el.addEventListener('click', async () => {
+      loading(true);
+      await supabase.from('project_role_assignments').update({ effective_to: new Date().toISOString().slice(0, 10) }).eq('id', el.dataset.rmQs);
+      toast('Đã gỡ QS', 'success');
       openProjectAssignModal(projectId, projectName, currentUser, onClose);
     }),
   );
@@ -682,10 +721,12 @@ function ensureModal() {
 }
 function showModal(modal, onClose) {
   modal.classList.add('show');
+  pushModalHistory();
   // Cố tình KHÔNG đóng khi bấm ra ngoài — tránh mất dữ liệu đang nhập nếu lỡ tay bấm trượt.
   // Chỉ đóng bằng nút X (hoặc nút Hủy/nút quay lại chi tiết).
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
+  popModalHistory();
   if (onClose) onClose();
 }
