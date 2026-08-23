@@ -3,7 +3,7 @@
 // Công thức: C=A+B | E=-10%×D | G = F==0 ? 0 : -F×(D/(0.8×A)) | H=D+E+F+G | J=H+I
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines } from '../core/approvalUI.js';
 import { renderAttachments } from '../core/attachments.js';
 
@@ -29,7 +29,7 @@ function renderDSection(wrapEl, contractLines, prefillLines) {
   if (!isMulti) {
     const prefill = prefillLines?.[0]?.value ?? '';
     wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện kỳ này (chưa VAT)</label>
-      <input type="number" id="fD" class="form-input" value="${prefill}">`;
+      <input type="text" inputmode="numeric" id="fD" class="form-input money-input" value="${prefill ? formatMoneyInput(prefill) : ''}">`;
     return;
   }
   wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện theo từng mã ngân sách (chưa VAT)</label>
@@ -39,14 +39,14 @@ function renderDSection(wrapEl, contractLines, prefillLines) {
           const prefill = prefillLines?.find((p) => p.budget_code === l.budget_code)?.value ?? '';
           return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           <span class="code-chip" style="width:140px;flex:none">${l.budget_code}</span>
-          <input type="number" class="d-per-code form-input" data-code="${l.budget_code}" placeholder="Lũy kế theo mã này" value="${prefill}" style="flex:1">
+          <input type="text" inputmode="numeric" class="d-per-code form-input money-input" data-code="${l.budget_code}" placeholder="Lũy kế theo mã này" value="${prefill ? formatMoneyInput(prefill) : ''}" style="flex:1">
         </div>`;
         })
         .join('')}
       <div class="d-total" style="font-size:12px;font-weight:600;margin-top:6px;color:var(--navy)"></div>
     </div>`;
   const updateTotal = () => {
-    const total = [...wrapEl.querySelectorAll('.d-per-code')].reduce((s, i) => s + (Number(i.value) || 0), 0);
+    const total = [...wrapEl.querySelectorAll('.d-per-code')].reduce((s, i) => s + parseMoneyInput(i.value), 0);
     wrapEl.querySelector('.d-total').textContent = `Tổng D: ${total.toLocaleString('vi-VN')} ₫`;
   };
   wrapEl.addEventListener('input', (e) => {
@@ -58,11 +58,11 @@ function renderDSection(wrapEl, contractLines, prefillLines) {
 function readDValue(wrapEl) {
   const multiInputs = wrapEl.querySelectorAll('.d-per-code');
   if (multiInputs.length) {
-    const perCode = [...multiInputs].map((i) => ({ budget_code: i.dataset.code, value: Number(i.value) || 0 })).filter((l) => l.value > 0);
+    const perCode = [...multiInputs].map((i) => ({ budget_code: i.dataset.code, value: parseMoneyInput(i.value) })).filter((l) => l.value > 0);
     return { val_d: perCode.reduce((s, l) => s + l.value, 0), perCode };
   }
   const single = wrapEl.querySelector('#fD');
-  return { val_d: Number(single?.value) || 0, perCode: null };
+  return { val_d: parseMoneyInput(single?.value), perCode: null };
 }
 
 // Kỳ số khóa theo đúng thứ tự lũy kế, J tự = -D của kỳ liền trước (trừ Kỳ 1 vẫn tự nhập tay)
@@ -101,12 +101,12 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId) {
   periodInput.style.background = 'var(--gray1)';
 
   if (nextPeriod === 1) {
-    jInput.value = 0;
+    jInput.value = '0';
     jInput.readOnly = false;
     jInput.style.background = '';
   } else {
     const prevBill = existingBills.find((b) => b.period_no === nextPeriod - 1);
-    jInput.value = prevBill ? -Number(prevBill.val_d) : 0;
+    jInput.value = formatMoneyInput(prevBill ? -Number(prevBill.val_d) : 0);
     jInput.readOnly = true;
     jInput.style.background = 'var(--gray1)';
   }
@@ -280,6 +280,7 @@ async function openBudgetLinesEditor(bill, user, onClose) {
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu điều chỉnh</button></div>
   </div>`;
   showModal(modal, onClose);
+  wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(bill.id, user, onClose));
   wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#__no_target__');
 
@@ -329,13 +330,13 @@ async function openEditModal(bill, user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
         <input type="text" id="fScope" class="form-input" value="${bill.scope || ''}"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
-        <div><label class="form-label">A — Giá trị HĐ ban đầu (có VAT)</label><input type="number" id="fA" class="form-input" value="${bill.val_a}"></div>
-        <div><label class="form-label">B — Điều chỉnh HĐ (có VAT)</label><input type="number" id="fB" class="form-input" value="${bill.val_b}"></div>
-        <div><label class="form-label">F — Giá trị tạm ứng</label><input type="number" id="fF" class="form-input" value="${bill.val_f}"></div>
+        <div><label class="form-label">A — Giá trị HĐ ban đầu (có VAT)</label><input type="text" inputmode="numeric" id="fA" class="form-input money-input" value="${formatMoneyInput(bill.val_a)}"></div>
+        <div><label class="form-label">B — Điều chỉnh HĐ (có VAT)</label><input type="text" inputmode="numeric" id="fB" class="form-input money-input" value="${formatMoneyInput(bill.val_b)}"></div>
+        <div><label class="form-label">F — Giá trị tạm ứng</label><input type="text" inputmode="numeric" id="fF" class="form-input money-input" value="${formatMoneyInput(bill.val_f)}"></div>
         <div><label class="form-label">Tỉ lệ giữ lại (%)</label><input type="number" id="fRetention" class="form-input" value="${bill.retention_rate}" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="${bill.vat_rate}" step="0.1"></div>
-        <div><label class="form-label">H — Giá trị khấu trừ</label><input type="number" id="fH" class="form-input" value="${bill.val_h || 0}"></div>
-        <div style="grid-column:1/-1"><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="${bill.val_i}"></div>
+        <div><label class="form-label">H — Giá trị khấu trừ</label><input type="text" inputmode="numeric" id="fH" class="form-input money-input" value="${formatMoneyInput(bill.val_h || 0)}"></div>
+        <div style="grid-column:1/-1"><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="text" inputmode="numeric" id="fI" class="form-input money-input" value="${formatMoneyInput(bill.val_i)}"></div>
       </div>
       <div id="dSectionWrap" style="margin-bottom:13px"></div>
       <div style="margin-bottom:13px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label>
@@ -348,6 +349,7 @@ async function openEditModal(bill, user, onClose) {
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
   </div>`;
   showModal(modal, onClose);
+  wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(bill.id, user, onClose));
 
   const dWrap = modal.querySelector('#dSectionWrap');
@@ -392,12 +394,12 @@ async function openEditModal(bill, user, onClose) {
     const partner_id = modal.querySelector('#fPartner').value;
     const period_no = Number(modal.querySelector('#fPeriod').value);
     const scope = modal.querySelector('#fScope').value;
-    const val_a = Number(modal.querySelector('#fA').value);
-    const val_b = Number(modal.querySelector('#fB').value);
+    const val_a = parseMoneyInput(modal.querySelector('#fA').value);
+    const val_b = parseMoneyInput(modal.querySelector('#fB').value);
     const { val_d, perCode } = readDValue(dWrap);
-    const val_f = Number(modal.querySelector('#fF').value);
-    const val_i = Number(modal.querySelector('#fI').value);
-    const val_h = Number(modal.querySelector('#fH').value);
+    const val_f = parseMoneyInput(modal.querySelector('#fF').value);
+    const val_i = parseMoneyInput(modal.querySelector('#fI').value);
+    const val_h = parseMoneyInput(modal.querySelector('#fH').value);
     const deduction_note = modal.querySelector('#fDeductNote').value.trim();
     const retention_rate = Number(modal.querySelector('#fRetention').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
@@ -446,13 +448,13 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
         <input type="text" id="fScope" class="form-input" placeholder="VD: Cung cấp bê tông tươi mác 300"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
-        <div><label class="form-label">A — Giá trị HĐ ban đầu (có VAT)</label><input type="number" id="fA" class="form-input"></div>
-        <div><label class="form-label">B — Điều chỉnh HĐ (có VAT)</label><input type="number" id="fB" class="form-input" value="0"></div>
-        <div><label class="form-label">F — Giá trị tạm ứng</label><input type="number" id="fF" class="form-input" value="0"></div>
+        <div><label class="form-label">A — Giá trị HĐ ban đầu (có VAT)</label><input type="text" inputmode="numeric" id="fA" class="form-input money-input"></div>
+        <div><label class="form-label">B — Điều chỉnh HĐ (có VAT)</label><input type="text" inputmode="numeric" id="fB" class="form-input money-input" value="0"></div>
+        <div><label class="form-label">F — Giá trị tạm ứng</label><input type="text" inputmode="numeric" id="fF" class="form-input money-input" value="0"></div>
         <div><label class="form-label">Tỉ lệ giữ lại (%)</label><input type="number" id="fRetention" class="form-input" value="10" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="8" step="0.1"></div>
-        <div><label class="form-label">H — Giá trị khấu trừ</label><input type="number" id="fH" class="form-input" value="0"></div>
-        <div style="grid-column:1/-1"><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="number" id="fI" class="form-input" value="0">
+        <div><label class="form-label">H — Giá trị khấu trừ</label><input type="text" inputmode="numeric" id="fH" class="form-input money-input" value="0"></div>
+        <div style="grid-column:1/-1"><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="text" inputmode="numeric" id="fI" class="form-input money-input" value="0">
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Kỳ 1: tự nhập tay. Từ kỳ 2: tự khóa, lấy đúng -D của kỳ liền trước.</div></div>
       </div>
       <div id="dSectionWrap" style="margin-bottom:13px"></div>
@@ -473,6 +475,7 @@ async function openCreateModal(user, onClose) {
     </div>
   </div>`;
   showModal(modal, onClose);
+  wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
 
   const dWrap = modal.querySelector('#dSectionWrap');
@@ -517,12 +520,12 @@ async function openCreateModal(user, onClose) {
     const partner_id = modal.querySelector('#fPartner').value;
     const period_no = Number(modal.querySelector('#fPeriod').value);
     const scope = modal.querySelector('#fScope').value;
-    const val_a = Number(modal.querySelector('#fA').value);
-    const val_b = Number(modal.querySelector('#fB').value);
+    const val_a = parseMoneyInput(modal.querySelector('#fA').value);
+    const val_b = parseMoneyInput(modal.querySelector('#fB').value);
     const { val_d, perCode } = readDValue(dWrap);
-    const val_f = Number(modal.querySelector('#fF').value);
-    const val_i = Number(modal.querySelector('#fI').value);
-    const val_h = Number(modal.querySelector('#fH').value);
+    const val_f = parseMoneyInput(modal.querySelector('#fF').value);
+    const val_i = parseMoneyInput(modal.querySelector('#fI').value);
+    const val_h = parseMoneyInput(modal.querySelector('#fH').value);
     const deduction_note = modal.querySelector('#fDeductNote').value.trim();
     const retention_rate = Number(modal.querySelector('#fRetention').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
