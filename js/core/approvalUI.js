@@ -4,7 +4,7 @@
 // Dùng chung cho hopdong.js, bill.js, totrinh.js — không viết lại mỗi module.
 // ============================================================
 import { supabase } from './config.js';
-import { toast, loading, fmtDateTime } from './utils.js';
+import { toast, loading, fmtDateTime, formatMoneyInput, parseMoneyInput } from './utils.js';
 
 const STEP_LABEL = { 1: 'Bước 1', 2: 'Bước 2', 3: 'Bước 3', 4: 'Bước 4' };
 
@@ -109,7 +109,7 @@ export async function resolveDefaultTemplates(userId, docType) {
 export function budgetLineRowHtml(categories, code = '', value = '') {
   return `<div class="budget-line-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
     <select class="bl-code form-input" style="flex:1.3">${categories.map((c) => `<option value="${c.code}" ${c.code === code ? 'selected' : ''}>${c.code} — ${c.name}</option>`).join('')}</select>
-    <input type="number" class="bl-value form-input" style="flex:1" placeholder="Giá trị" value="${value}">
+    <input type="text" inputmode="numeric" class="bl-value form-input money-input" style="flex:1" placeholder="Giá trị" value="${value ? formatMoneyInput(value) : ''}">
     <button type="button" class="bl-remove btn btn-sm btn-secondary" style="flex:none">✕</button>
   </div>`;
 }
@@ -118,7 +118,7 @@ export function budgetLineRowHtml(categories, code = '', value = '') {
 export function wireBudgetLines(wrapEl, categories, targetValueSelector) {
   function updateTotal() {
     const rows = [...wrapEl.querySelectorAll('.budget-line-row')];
-    const total = rows.reduce((s, r) => s + (Number(r.querySelector('.bl-value').value) || 0), 0);
+    const total = rows.reduce((s, r) => s + parseMoneyInput(r.querySelector('.bl-value').value), 0);
     const targetEl = document.querySelector(targetValueSelector);
     const target = targetEl ? Number(targetEl.value) || 0 : 0;
     const totalEl = wrapEl.querySelector('.bl-total');
@@ -149,7 +149,7 @@ export function wireBudgetLines(wrapEl, categories, targetValueSelector) {
 
 export function readBudgetLines(wrapEl) {
   return [...wrapEl.querySelectorAll('.budget-line-row')]
-    .map((r) => ({ budget_code: r.querySelector('.bl-code').value, value: Number(r.querySelector('.bl-value').value) || 0 }))
+    .map((r) => ({ budget_code: r.querySelector('.bl-code').value, value: parseMoneyInput(r.querySelector('.bl-value').value) }))
     .filter((l) => l.value > 0);
 }
 
