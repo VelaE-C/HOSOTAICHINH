@@ -85,17 +85,32 @@ export function renderShell(user) {
     document.getElementById('sidebar').classList.toggle('open');
   });
 
-  // Đọc tab đang xem từ URL (#hopdong, #bill...) — để F5 không bị mất chỗ đang xem.
-  // Nếu URL không có hash, hoặc hash không phải tab hợp lệ với vai trò hiện tại, mới về tab đầu tiên.
-  const hashId = window.location.hash.replace('#', '');
-  const initial = visibleNav.find((n) => n.id === hashId) ? hashId : visibleNav[0]?.id || 'dashboard';
-  switchView(initial);
+  // Đọc tab (+ id hồ sơ nếu có, VD #hopdong/eeef68b9...) từ URL — để F5 hoặc mở link
+  // email không bị mất chỗ đang xem, kể cả đúng hồ sơ cụ thể đang mở.
+  const [hashTab, hashSubId] = window.location.hash.replace('#', '').split('/');
+  const initial = visibleNav.find((n) => n.id === hashTab) ? hashTab : visibleNav[0]?.id || 'dashboard';
+  switchView(initial).then(() => openDeepLinkIfAny(initial, hashSubId));
 
-  // Hỗ trợ nút Back/Forward của trình duyệt
+  // Hỗ trợ nút Back/Forward của trình duyệt + đường dẫn dạng tab/id
   window.onhashchange = () => {
-    const id = window.location.hash.replace('#', '');
-    if (visibleNav.find((n) => n.id === id) && id !== CURRENT_VIEW) switchView(id);
+    const [tab, subId] = window.location.hash.replace('#', '').split('/');
+    if (visibleNav.find((n) => n.id === tab) && tab !== CURRENT_VIEW) {
+      switchView(tab).then(() => openDeepLinkIfAny(tab, subId));
+    }
+    // Nếu tab không đổi (chỉ mất /id do bấm Back đóng chi tiết) — đã có initModalBackHandler()
+    // (trong utils.js) tự đóng modal đang mở, không cần xử lý thêm ở đây.
   };
+}
+
+// Nếu URL có kèm id hồ sơ (VD #hopdong/eeef68b9...), tự mở đúng chi tiết đó ngay sau khi vào tab
+async function openDeepLinkIfAny(tab, subId) {
+  if (!subId || !['hopdong', 'bill', 'totrinh'].includes(tab)) return;
+  try {
+    const mod = await loadModule(tab);
+    if (mod.openDetail) await mod.openDetail(subId, CURRENT_USER, () => {});
+  } catch (e) {
+    console.error('Không mở được hồ sơ từ link:', e);
+  }
 }
 
 function buildSidebar(visibleNav) {
@@ -147,7 +162,10 @@ async function loadModule(id) {
 
 export async function switchView(id) {
   CURRENT_VIEW = id;
-  if (window.location.hash.replace('#', '') !== id) window.location.hash = id;
+  // Chỉ so sánh đúng phần tab — nếu đang có sẵn /id (VD từ link email) và tab không đổi,
+  // giữ nguyên để phần mở chi tiết bên dưới hoạt động, không xóa mất trước khi kịp mở
+  const currentHashTab = window.location.hash.replace('#', '').split('/')[0];
+  if (currentHashTab !== id) window.location.hash = id;
 
   document.querySelectorAll('.sb-item').forEach((b) => b.classList.toggle('active', b.dataset.nav === id));
   document.querySelectorAll('.bn-item[data-nav]').forEach((b) => b.classList.toggle('active', b.dataset.nav === id));
