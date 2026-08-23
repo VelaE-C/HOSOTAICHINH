@@ -3,7 +3,7 @@
 // theo TAB_BY_ROLE, và ở tầng RLS database — module này không cần tự kiểm tra quyền).
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, budgetColor } from '../core/utils.js';
+import { fmt, toast, loading, budgetColor, wireMoneyInputs } from '../core/utils.js';
 import { budgetLineRowHtml, readBudgetLines } from '../core/approvalUI.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -104,6 +104,7 @@ async function openCreateRevisionModal(projectId, user, onClose) {
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Ban hành phiên bản</button></div>
   </div>`;
   showModal(modal, onClose);
+  wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
 
   const wrap = modal.querySelector('#budgetLinesWrap');
