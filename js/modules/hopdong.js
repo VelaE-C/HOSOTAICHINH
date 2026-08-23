@@ -2,7 +2,7 @@
 // hopdong.js — Module Hợp đồng đầu vào (NTP/NCC)
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines } from '../core/approvalUI.js';
 import { renderAttachments } from '../core/attachments.js';
 
@@ -57,7 +57,7 @@ export async function render(container, user) {
 export async function openDetail(id, user, onClose) {
   const modal = ensureModal();
   modal.innerHTML = `<div class="panel-box"><div class="empty-note">Đang tải…</div></div>`;
-  showModal(modal, onClose);
+  showModal(modal, onClose, `hopdong/${id}`);
 
   const { data: c } = await supabase
     .from('contracts')
@@ -334,12 +334,14 @@ function ensureModal() {
   }
   return modal;
 }
-function showModal(modal, onClose) {
+function showModal(modal, onClose, hashOverride) {
   modal.classList.add('show');
+  pushModalHistory(hashOverride);
   // Cố tình KHÔNG đóng khi bấm ra ngoài — tránh mất dữ liệu đang nhập nếu lỡ tay bấm trượt.
   // Chỉ đóng bằng nút X (hoặc nút Hủy/nút quay lại chi tiết).
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
+  popModalHistory();
   if (onClose) onClose();
 }
