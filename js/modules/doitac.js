@@ -4,7 +4,7 @@
 // (đã có trigger chặn ở tầng database, module này chỉ ẩn nút xóa cho gọn).
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading } from '../core/utils.js';
+import { fmt, toast, loading, pushModalHistory, popModalHistory } from '../core/utils.js';
 
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
@@ -147,10 +147,13 @@ function ensureModal() {
 }
 function showModal(modal, onClose) {
   modal.classList.add('show');
+  modal.scrollTop = 0; // đưa về đúng đầu trang — phòng trình duyệt di động giữ vị trí cuộn cũ
+  pushModalHistory();
   // Cố tình KHÔNG đóng khi bấm ra ngoài — tránh mất dữ liệu đang nhập nếu lỡ tay bấm trượt.
   // Chỉ đóng bằng nút X (hoặc nút Hủy/nút quay lại chi tiết).
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
+  popModalHistory();
   if (onClose) onClose();
 }
