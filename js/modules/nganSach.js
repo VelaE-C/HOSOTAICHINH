@@ -3,7 +3,7 @@
 // theo TAB_BY_ROLE, và ở tầng RLS database — module này không cần tự kiểm tra quyền).
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, budgetColor, wireMoneyInputs } from '../core/utils.js';
+import { fmt, toast, loading, budgetColor, wireMoneyInputs, pushModalHistory, popModalHistory } from '../core/utils.js';
 import { budgetLineRowHtml, readBudgetLines } from '../core/approvalUI.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -153,10 +153,13 @@ function ensureModal() {
 }
 function showModal(modal, onClose) {
   modal.classList.add('show');
+  modal.scrollTop = 0; // đưa về đúng đầu trang — phòng trình duyệt di động giữ vị trí cuộn cũ
+  pushModalHistory();
   // Cố tình KHÔNG đóng khi bấm ra ngoài — tránh mất dữ liệu đang nhập nếu lỡ tay bấm trượt.
   // Chỉ đóng bằng nút X (hoặc nút Hủy/nút quay lại chi tiết).
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
+  popModalHistory();
   if (onClose) onClose();
 }
