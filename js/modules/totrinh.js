@@ -221,6 +221,7 @@ function ensureModal() {
 }
 function showModal(modal, onClose, hashOverride) {
   modal.classList.add('show');
+  modal.scrollTop = 0; // đưa về đúng đầu trang — phòng trình duyệt di động giữ vị trí cuộn cũ
   pushModalHistory(hashOverride);
   // Cố tình KHÔNG đóng khi bấm ra ngoài — tránh mất dữ liệu đang nhập nếu lỡ tay bấm trượt.
   // Chỉ đóng bằng nút X (hoặc nút Hủy/nút quay lại chi tiết).
