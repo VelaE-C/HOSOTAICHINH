@@ -7,7 +7,7 @@ import { toast, loading, fmtDate, pushModalHistory, popModalHistory } from '../c
 
 const ALL_ROLES = ['QS', 'CHT', 'GDDA', 'ChuyenVienPhongBan', 'TruongPhongChucNang', 'PhapChe_CV', 'PhapChe_TP', 'KeToan_Vien', 'KeToan_Truong', 'QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'];
 // Bất kỳ vai trò nào cũng có thể được chỉ đích danh theo dự án (trừ Admin — thuần kỹ thuật, không tham gia duyệt)
-const PROJECT_ROLES = ALL_ROLES.filter((r) => r !== 'Admin');
+// (PROJECT_ROLES cũ đã bỏ — nay dùng OTHER_PROJECT_ROLES bên dưới, gộp chung màn Dự án)
 const DOC_TYPE_LABEL = { contract: 'Hợp đồng', bill: 'Bill thanh toán', totrinh: 'Tờ trình chủ trương' };
 
 export async function render(container, user) {
@@ -341,6 +341,10 @@ async function openEditDeptModal(name, onClose) {
   });
 }
 
+// Các vai trò còn lại ngoài CHT/GĐDA/PTGD (những vai trò này đích danh theo kiểu
+// "danh sách nhiều người", không phải "1 người thay 1 người")
+const OTHER_PROJECT_ROLES = ['QS', 'TGD', 'ChuyenVienPhongBan', 'TruongPhongChucNang', 'PhapChe_CV', 'PhapChe_TP', 'KeToan_Vien', 'KeToan_Truong', 'QLCPHD_CV', 'QLCPHD_TP'];
+
 async function openProjectAssignModal(projectId, projectName, currentUser, onClose) {
   const modal = ensureModal();
   const { data: assignments, error: assignErr } = await supabase
@@ -354,10 +358,10 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
 
   const roleLabel = { CHT: 'Chỉ huy trưởng', GDDA: 'Giám đốc dự án', PTGD: 'Phó Tổng Giám đốc' };
   const currentByRole = {};
-  const qsAssignments = [];
+  const otherAssignments = [];
   (assignments || []).forEach((a) => {
-    if (a.role_type === 'QS') qsAssignments.push(a);
-    else currentByRole[a.role_type] = a;
+    if (a.role_type in roleLabel) currentByRole[a.role_type] = a;
+    else otherAssignments.push(a);
   });
 
   const rows = Object.keys(roleLabel)
@@ -379,18 +383,19 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
     <div class="panel-body">
       <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:16px">ℹ️ Đổi người (CHT/GĐDA/PTGD) sẽ tự động chuyển giao hồ sơ đang chờ duyệt của dự án này sang người mới (nếu có), không bị treo.</div>
       ${rows}
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">QS — có thể nhiều người cùng lúc</div>
-      <div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">Bắt buộc phải gán mới trình được hợp đồng/bill/tờ trình cho dự án này (trừ các vai trò cấp cao hơn).</div>
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Các vai trò khác — đích danh theo dự án (nhiều người/vai trò cùng lúc)</div>
+      <div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">QS bắt buộc phải gán mới trình được hồ sơ cho dự án này. Các vai trò khác (Pháp chế, Kế toán, QLCP&HĐ...) không bắt buộc — nếu không chỉ đích danh ở đây, hồ sơ dự án đó tự động gửi cho cả nhóm giữ vai trò đó.</div>
       <div class="card" style="padding:12px 14px">
-        <div id="qsList" style="margin-bottom:10px">
-          ${qsAssignments.length ? qsAssignments.map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray1);font-size:13px">
-            <span>${a.users?.full_name} <span style="color:var(--gray4)">(${a.users?.email})</span></span>
-            <span data-rm-qs="${a.id}" style="cursor:pointer;color:var(--red);font-size:12px">Gỡ</span>
-          </div>`).join('') : '<div style="color:var(--gray4);font-size:12px">Chưa có QS nào — chưa ai trình được hồ sơ cho dự án này.</div>'}
+        <div id="otherRolesList" style="margin-bottom:10px">
+          ${otherAssignments.length ? otherAssignments.map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray1);font-size:13px">
+            <span><span class="code-chip">${a.role_type}</span> ${a.users?.full_name} <span style="color:var(--gray4)">(${a.users?.email})</span></span>
+            <span data-rm-other="${a.id}" style="cursor:pointer;color:var(--red);font-size:12px">Gỡ</span>
+          </div>`).join('') : '<div style="color:var(--gray4);font-size:12px">Chưa đích danh thêm ai.</div>'}
         </div>
-        <div style="display:flex;gap:8px">
-          <select id="fAddQs" class="form-input">${userOptions}</select>
-          <button class="btn btn-sm btn-secondary" id="btnAddQs">+ Thêm QS</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px">
+          <select id="fOtherRole" class="form-input">${OTHER_PROJECT_ROLES.map((r) => `<option value="${r}">${r}</option>`).join('')}</select>
+          <select id="fOtherUser" class="form-input">${userOptions}</select>
+          <button class="btn btn-sm btn-secondary" id="btnAddOther">+ Thêm</button>
         </div>
       </div>
     </div>
@@ -419,23 +424,24 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
     }),
   );
 
-  modal.querySelector('#btnAddQs').addEventListener('click', async () => {
-    const userId = modal.querySelector('#fAddQs').value;
+  modal.querySelector('#btnAddOther').addEventListener('click', async () => {
+    const userId = modal.querySelector('#fOtherUser').value;
+    const role_type = modal.querySelector('#fOtherRole').value;
     if (!userId) return toast('Chọn người trước', 'error');
     loading(true);
     const { error } = await supabase.from('project_role_assignments').insert({
-      project_id: projectId, user_id: userId, role_type: 'QS', effective_from: new Date().toISOString().slice(0, 10),
+      project_id: projectId, user_id: userId, role_type, effective_from: new Date().toISOString().slice(0, 10),
     });
     if (error) return toast('Lỗi (có thể đã gán rồi): ' + error.message, 'error');
-    toast('Đã thêm QS', 'success');
+    toast('Đã thêm', 'success');
     openProjectAssignModal(projectId, projectName, currentUser, onClose);
   });
 
-  modal.querySelectorAll('[data-rm-qs]').forEach((el) =>
+  modal.querySelectorAll('[data-rm-other]').forEach((el) =>
     el.addEventListener('click', async () => {
       loading(true);
-      await supabase.from('project_role_assignments').update({ effective_to: new Date().toISOString().slice(0, 10) }).eq('id', el.dataset.rmQs);
-      toast('Đã gỡ QS', 'success');
+      await supabase.from('project_role_assignments').update({ effective_to: new Date().toISOString().slice(0, 10) }).eq('id', el.dataset.rmOther);
+      toast('Đã gỡ', 'success');
       openProjectAssignModal(projectId, projectName, currentUser, onClose);
     }),
   );
@@ -556,13 +562,6 @@ async function openUserDetail(id, currentUser, onClose) {
 
   const { data: u } = await supabase.from('users').select('*').eq('id', id).single();
   const { data: myRoles } = await supabase.from('user_roles').select('id, role_type, department').eq('user_id', id);
-  const { data: myAssignments } = await supabase
-    .from('project_role_assignments')
-    .select('id, role_type, project_id, effective_from, effective_to, projects(code, name)')
-    .eq('user_id', id)
-    .is('effective_to', null)
-    .order('role_type');
-  const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: departments } = await supabase.from('departments').select('name').order('name');
 
   const box = modal.querySelector('.panel-box');
@@ -596,21 +595,6 @@ async function openUserDetail(id, currentUser, onClose) {
         </div>
       </div>
 
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Phân công đích danh theo dự án</div>
-      <div style="font-size:11.5px;color:var(--gray4);margin-bottom:6px">QS/CHT/GĐDA/PTGD-công trường bắt buộc chỉ đích danh mới có người xử lý. Các vai trò khác (Pháp chế, Kế toán, QLCP&HĐ...) không bắt buộc — nếu không chỉ đích danh ở đây, hồ sơ dự án đó tự động gửi cho cả nhóm giữ vai trò đó.</div>
-      <div class="card">
-        <div id="assignList" style="margin-bottom:10px">
-          ${(myAssignments || []).length ? myAssignments.map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray1);font-size:13px">
-            <span><span class="code-chip">${a.role_type}</span> ${a.projects?.code} — ${a.projects?.name} <span style="color:var(--gray4)">(từ ${fmtDate(a.effective_from)})</span></span>
-            <span data-end-assign="${a.id}" style="cursor:pointer;color:var(--red);font-size:12px">Kết thúc</span>
-          </div>`).join('') : '<div style="color:var(--gray4);font-size:12px">Chưa phân công dự án nào</div>'}
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px">
-          <select id="fAssignProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code}</option>`).join('')}</select>
-          <select id="fAssignRole" class="form-input">${PROJECT_ROLES.map((r) => `<option value="${r}">${r}</option>`).join('')}</select>
-          <button class="btn btn-sm btn-secondary" id="btnAddAssign">+ Phân công</button>
-        </div>
-      </div>
     </div>`;
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
@@ -645,51 +629,6 @@ async function openUserDetail(id, currentUser, onClose) {
     el.addEventListener('click', async () => {
       await supabase.from('user_roles').delete().eq('id', el.dataset.rmRole);
       toast('Đã xóa vai trò', 'success');
-      openUserDetail(id, currentUser, onClose);
-    }),
-  );
-
-  box.querySelector('#btnAddAssign').addEventListener('click', async () => {
-    const project_id = box.querySelector('#fAssignProject').value;
-    const role_type = box.querySelector('#fAssignRole').value;
-    loading(true);
-    const { data, error } = await supabase.rpc('fn_reassign_project_role', {
-      p_project_id: project_id, p_role_type: role_type, p_new_user_id: id, p_actor_id: currentUser.id,
-    });
-    if (error) return toast('Lỗi: ' + error.message, 'error');
-    if (data.old_user_id) {
-      toast(`Đã thay người phụ trách — chuyển giao ${data.transferred_count} hồ sơ đang chờ duyệt sang người mới`, 'success');
-    } else {
-      toast('Đã phân công dự án', 'success');
-    }
-    openUserDetail(id, currentUser, onClose);
-  });
-
-  box.querySelectorAll('[data-end-assign]').forEach((el) =>
-    el.addEventListener('click', async () => {
-      const assignId = el.dataset.endAssign;
-      const assignInfo = (myAssignments || []).find((a) => a.id === assignId);
-      let pendingCount = 0;
-      if (assignInfo) {
-        const [{ data: cIds }, { data: bIds }, { data: tIds }] = await Promise.all([
-          supabase.from('contracts').select('id').eq('project_id', assignInfo.project_id),
-          supabase.from('bills').select('id').eq('project_id', assignInfo.project_id),
-          supabase.from('to_trinh_chu_truong').select('id').eq('project_id', assignInfo.project_id),
-        ]);
-        const idsByType = { contract: (cIds || []).map((r) => r.id), bill: (bIds || []).map((r) => r.id), totrinh: (tIds || []).map((r) => r.id) };
-        const counts = await Promise.all(
-          Object.entries(idsByType).map(([docType, ids]) =>
-            ids.length
-              ? supabase.from('approval_assignments').select('id', { count: 'exact', head: true }).eq('user_id', id).eq('status', 'pending').eq('role_type', assignInfo.role_type).eq('document_type', docType).in('document_id', ids)
-              : Promise.resolve({ count: 0 }),
-          ),
-        );
-        pendingCount = counts.reduce((s, r) => s + (r.count || 0), 0);
-      }
-      const warn = pendingCount > 0 ? `\n\n⚠️ Người này còn ${pendingCount} hồ sơ đang chờ duyệt ở dự án này — nếu kết thúc mà KHÔNG gán người thay ngay, các hồ sơ đó sẽ bị treo, không ai duyệt được. Nên dùng khung "Phân công theo dự án" bên dưới để gán người mới thay vì chỉ bấm Kết thúc.` : '';
-      if (!confirm('Kết thúc phân công này?' + warn)) return;
-      await supabase.from('project_role_assignments').update({ effective_to: new Date().toISOString().slice(0, 10) }).eq('id', assignId);
-      toast('Đã kết thúc phân công', 'success');
       openUserDetail(id, currentUser, onClose);
     }),
   );
