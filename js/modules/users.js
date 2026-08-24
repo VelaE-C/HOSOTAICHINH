@@ -567,11 +567,18 @@ async function openUserDetail(id, currentUser, onClose) {
 
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
-    <div class="panel-header"><div><div>${u.full_name}</div><div class="meta">${u.email}</div></div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-header"><div><div>${u.full_name}</div><div class="meta">${u.email}${u.job_title ? ' · ' + u.job_title : ''}</div></div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="margin-bottom:16px">
         <label class="form-label">Trạng thái tài khoản</label>
         <button class="btn btn-sm ${u.is_active ? 'btn-danger' : 'btn-secondary'}" id="btnToggleActive">${u.is_active ? '🔒 Khóa tài khoản' : '✓ Kích hoạt lại'}</button>
+      </div>
+
+      <div style="margin-bottom:16px"><label class="form-label">Chức danh (không bắt buộc — chỉ để tham khảo, không ảnh hưởng luồng duyệt)</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="fJobTitle" class="form-input" value="${u.job_title || ''}" placeholder="VD: Phó phòng Vật tư">
+          <button class="btn btn-sm btn-secondary" id="btnSaveJobTitle">Lưu</button>
+        </div>
       </div>
 
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Vai trò hệ thống</div>
@@ -607,6 +614,15 @@ async function openUserDetail(id, currentUser, onClose) {
     </div>`;
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  box.querySelector('#btnSaveJobTitle').addEventListener('click', async () => {
+    const job_title = box.querySelector('#fJobTitle').value.trim() || null;
+    loading(true);
+    const { error } = await supabase.from('users').update({ job_title }).eq('id', id);
+    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+    toast('Đã lưu chức danh', 'success');
+    openUserDetail(id, currentUser, onClose);
+  });
 
   box.querySelector('#btnToggleActive').addEventListener('click', async () => {
     loading(true);
@@ -687,6 +703,7 @@ async function openCreateUserModal(currentUser, onClose) {
       <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Nhập đúng email Outlook công ty — người này đăng nhập bằng chính email đó, không có mật khẩu riêng.</div>
       <div style="margin-bottom:13px"><label class="form-label">Email Outlook công ty *</label><input type="email" id="fEmail" class="form-input" placeholder="ten.nhanvien@velaec.vn"></div>
       <div style="margin-bottom:13px"><label class="form-label">Họ tên *</label><input type="text" id="fName" class="form-input"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Chức danh (không bắt buộc — chỉ để tham khảo, không ảnh hưởng luồng duyệt)</label><input type="text" id="fJobTitle" class="form-input" placeholder="VD: Phó phòng Vật tư"></div>
       <div style="margin-bottom:13px"><label class="form-label">Điện thoại</label><input type="text" id="fPhone" class="form-input"></div>
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu — gán vai trò ở bước sau</button></div>
@@ -697,11 +714,12 @@ async function openCreateUserModal(currentUser, onClose) {
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const email = modal.querySelector('#fEmail').value.trim();
     const full_name = modal.querySelector('#fName').value.trim();
+    const job_title = modal.querySelector('#fJobTitle').value.trim() || null;
     const phone = modal.querySelector('#fPhone').value.trim() || null;
     if (!email || !full_name) return toast('Điền đủ email và họ tên', 'error');
 
     loading(true);
-    const { error } = await supabase.from('users').insert({ email, full_name, phone });
+    const { error } = await supabase.from('users').insert({ email, full_name, job_title, phone });
     if (error) return toast('Lỗi (có thể email đã tồn tại): ' + error.message, 'error');
     toast('Đã thêm người dùng — bấm vào tên họ để gán vai trò', 'success');
     closeModal(modal, onClose);
