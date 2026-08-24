@@ -3,7 +3,7 @@
 // Chỉ nhập liệu, không qua luồng phê duyệt. Chỉ QLCP&HĐ/PTGD/TGD/Admin thấy tab này.
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, fmtDateTime, toast, loading } from '../core/utils.js';
+import { fmt, fmtDateTime, toast, loading, pushModalHistory, popModalHistory } from '../core/utils.js';
 
 let VIEW_PROJECT = 'ALL';
 
@@ -110,10 +110,13 @@ function ensureModal() {
 }
 function showModal(modal, onClose) {
   modal.classList.add('show');
+  modal.scrollTop = 0; // đưa về đúng đầu trang — phòng trình duyệt di động giữ vị trí cuộn cũ
+  pushModalHistory();
   // Cố tình KHÔNG đóng khi bấm ra ngoài — tránh mất dữ liệu đang nhập nếu lỡ tay bấm trượt.
   // Chỉ đóng bằng nút X (hoặc nút Hủy/nút quay lại chi tiết).
 }
 function closeModal(modal, onClose) {
   modal.classList.remove('show');
+  popModalHistory();
   if (onClose) onClose();
 }
