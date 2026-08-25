@@ -18,7 +18,7 @@ export async function render(container, user) {
       supabase.from('v_flagged_documents').select('*'),
       supabase.from('contracts').select('id, doc_number, value, project_id, partners(name)'),
       supabase.from('bills').select('contract_id, val_d'),
-      supabase.from('project_role_assignments').select('role_type, projects(code)').eq('user_id', user.id).is('effective_to', null),
+      supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
     ]);
 
   // Khối "Vai trò của tôi" — tra cứu nhanh đang giữ vị trí gì, ở đâu, không cần lật từng hồ sơ
@@ -37,11 +37,22 @@ export async function render(container, user) {
     return;
   }
 
-  // Tổng hợp ngân sách 3 lớp (RLS đã tự giới hạn: chỉ QLCP&HĐ/PTGD/TGD/Admin mới có dữ liệu ở đây)
-  const totBudget = (budgetRows || []).reduce((s, r) => s + Number(r.allocated_value || 0), 0);
-  const totCommit = (budgetRows || []).reduce((s, r) => s + Number(r.committed || 0), 0);
-  const totActual = (budgetRows || []).reduce((s, r) => s + Number(r.actual_spend || 0), 0);
-  const totRevenue = (revenueRows || []).reduce((s, r) => s + Number(r.value || 0), 0);
+  // Ngân sách/HĐ đầu ra giờ ai cũng xem được, nhưng nếu người này CÓ gắn với
+  // (các) dự án cụ thể (CHT/GĐDA/QS/PTGD-công trường...) thì chỉ hiện đúng
+  // dự án đó — vai trò văn phòng thuần (Kế toán/Pháp chế/QLCP&HĐ không gắn dự án
+  // cụ thể) vẫn thấy toàn bộ như trước, đúng vai trò xuyên suốt của họ.
+  const myProjectIds = new Set((myAssignments || []).map((a) => a.project_id).filter(Boolean));
+  const isSiteLimited = myProjectIds.size > 0 && !(user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
+
+  const budgetRowsFiltered = isSiteLimited ? (budgetRows || []).filter((r) => myProjectIds.has(r.project_id)) : budgetRows;
+  const revenueRowsFiltered = isSiteLimited ? (revenueRows || []).filter((r) => myProjectIds.has(r.project_id)) : revenueRows;
+  const contractsFiltered = isSiteLimited ? (contracts || []).filter((c) => myProjectIds.has(c.project_id)) : contracts;
+
+  // Tổng hợp ngân sách 3 lớp — giờ ai cũng xem được (đã mở RLS), lọc theo dự án nếu cần
+  const totBudget = (budgetRowsFiltered || []).reduce((s, r) => s + Number(r.allocated_value || 0), 0);
+  const totCommit = (budgetRowsFiltered || []).reduce((s, r) => s + Number(r.committed || 0), 0);
+  const totActual = (budgetRowsFiltered || []).reduce((s, r) => s + Number(r.actual_spend || 0), 0);
+  const totRevenue = (revenueRowsFiltered || []).reduce((s, r) => s + Number(r.value || 0), 0);
   const delta = totRevenue - totBudget;
 
   // Danh sách đơn vị đã ký hợp đồng — so với lũy kế bill (Case 1 ngay trong tầm mắt)
@@ -50,13 +61,13 @@ export async function render(container, user) {
     if (!b.contract_id) return;
     lũyKeByContract[b.contract_id] = Math.max(lũyKeByContract[b.contract_id] || 0, Number(b.val_d || 0));
   });
-  const unitRows = (contracts || []).map((c) => {
+  const unitRows = (contractsFiltered || []).map((c) => {
     const lũyKe = lũyKeByContract[c.id] || 0;
     return { partner: c.partners?.name || '—', docNumber: c.doc_number, value: c.value, lũyKe, left: c.value - lũyKe, over: lũyKe > c.value };
   });
 
   container.innerHTML = myRolesHtml + `
-    ${budgetRows && budgetRows.length ? `
+    ${budgetRowsFiltered && budgetRowsFiltered.length ? `
     <div class="card"><div class="stat-row" style="grid-template-columns:repeat(3,1fr)">
       <div><div class="card-sub" style="margin:0">Ngân sách phân bổ</div><div class="stat-num">${tyi(totBudget)}</div></div>
       <div><div class="card-sub" style="margin:0">Cam kết (Hợp đồng)</div><div class="stat-num" style="color:var(--blue)">${tyi(totCommit)}</div><div class="stat-delta">${totBudget ? (totCommit / totBudget * 100).toFixed(0) : 0}% ngân sách</div></div>
@@ -69,7 +80,7 @@ export async function render(container, user) {
         <div><div class="card-sub" style="margin:0">Giá trị HĐ CĐT</div><div class="stat-num">${tyi(totRevenue)}</div></div>
         <div><div class="card-sub" style="margin:0">Ngân sách phân bổ</div><div class="stat-num">${tyi(totBudget)}</div></div>
         <div><div class="card-sub" style="margin:0">Lợi nhuận đã bóc tách</div><div class="stat-num" style="color:${delta >= 0 ? 'var(--green)' : 'var(--red)'}">${delta >= 0 ? '+' : ''}${tyi(delta)}</div></div>
-      </div></div>` : `<div class="empty-note">Không có quyền xem số liệu ngân sách tổng hợp (chỉ QLCP&HĐ / PTGD / TGD mới xem được mục này).</div>`}
+      </div></div>` : `<div class="empty-note">Chưa có phiên bản ngân sách nào${isSiteLimited ? ' cho (các) dự án bạn phụ trách' : ''}.</div>`}
 
     ${flagged && flagged.length ? `
     <div class="card"><div class="card-title">⚠️ Hồ sơ đang có cảnh báo</div>
