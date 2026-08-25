@@ -149,9 +149,10 @@ export async function openDetail(id, user, onClose) {
   const canExportPdf = c.current_step >= 3 || c.status === 'active'; // từ khi TỚI Bước 3 (không cần đợi duyệt xong), hoặc đã hoàn tất
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
-    <div class="panel-header"><div><div>${c.doc_number}</div><div class="meta">${c.contract_type} · ${c.partners?.name || '—'}</div></div>
+    <div class="panel-header"><div><div id="docNumberDisplay">${c.doc_number}</div><div class="meta">${c.contract_type} · ${c.partners?.name || '—'}</div></div>
       <div style="display:flex;gap:6px;align-items:center">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
+        ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditDocNumber">🔢 Sửa số hồ sơ</button>` : ''}
         ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditBudgetLines">🧮 Sửa mã ngân sách</button>` : ''}
         ${canExportPdf ? `<button class="btn btn-sm btn-secondary" id="btnExportPdf">🖨️ Xuất PDF (tờ cover)</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
@@ -179,6 +180,22 @@ export async function openDetail(id, user, onClose) {
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(c, user, onClose));
   box.querySelector('#btnEditBudgetLines')?.addEventListener('click', () => openBudgetLinesEditor(c, user, onClose));
+  box.querySelector('#btnEditDocNumber')?.addEventListener('click', async () => {
+    const newNumber = prompt('Sửa số hồ sơ (dùng khi nhập dữ liệu cũ — cần khớp đúng số hợp đồng thật đã ký):', c.doc_number);
+    if (newNumber === null) return; // bấm Hủy
+    const trimmed = newNumber.trim();
+    if (!trimmed || trimmed === c.doc_number) return;
+
+    loading(true);
+    const { error } = await supabase.from('contracts').update({ doc_number: trimmed }).eq('id', c.id);
+    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+    await supabase.from('approval_logs').insert({
+      document_type: 'contract', document_id: c.id, step_no: c.current_step, action: 'edit_doc_number',
+      comment: `Đổi số hồ sơ: "${c.doc_number}" → "${trimmed}"`, user_id: user.id,
+    });
+    toast('Đã sửa số hồ sơ', 'success');
+    openDetail(c.id, user, onClose);
+  });
   box.querySelector('#btnExportPdf')?.addEventListener('click', () => openPrintCoverSheet(c, assignments, logs));
   const canEditAttach = canEditNow;
   renderAttachments(box.querySelector('#attachArea'), 'contract', id, user.id, canEditAttach);
