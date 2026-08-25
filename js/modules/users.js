@@ -403,7 +403,7 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
         <div id="otherRolesList" style="margin-bottom:10px">
           ${otherAssignments.length ? otherAssignments.map((a) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray1);font-size:13px">
             <span><span class="code-chip">${a.role_type}</span> ${a.users?.full_name} <span style="color:var(--gray4)">(${a.users?.email})</span></span>
-            <span data-rm-other="${a.id}" style="cursor:pointer;color:var(--red);font-size:12px">Gỡ</span>
+            <span data-rm-other="${a.id}" data-role-type="${a.role_type}" style="cursor:pointer;color:var(--red);font-size:12px">Gỡ</span>
           </div>`).join('') : '<div style="color:var(--gray4);font-size:12px">Chưa đích danh thêm ai.</div>'}
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px">
@@ -447,15 +447,26 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
       project_id: projectId, user_id: userId, role_type, effective_from: new Date().toISOString().slice(0, 10),
     });
     if (error) return toast('Lỗi (có thể đã gán rồi): ' + error.message, 'error');
-    toast('Đã thêm', 'success');
+
+    // Hồ sơ nào đang chờ đúng vai trò này ở bước hiện tại (chưa ai duyệt) sẽ tự cập
+    // nhật sang đúng người mới nhất — hồ sơ đã duyệt rồi giữ nguyên, không đụng tới
+    const { data: resyncCount } = await supabase.rpc('fn_resync_pending_assignments', { p_project_id: projectId, p_role_type: role_type });
+    toast(`Đã thêm${resyncCount ? ` — cập nhật lại ${resyncCount} hồ sơ đang chờ duyệt` : ''}`, 'success');
     openProjectAssignModal(projectId, projectName, currentUser, onClose);
   });
 
   modal.querySelectorAll('[data-rm-other]').forEach((el) =>
     el.addEventListener('click', async () => {
       loading(true);
+      const roleType = el.dataset.roleType;
       await supabase.from('project_role_assignments').update({ effective_to: new Date().toISOString().slice(0, 10) }).eq('id', el.dataset.rmOther);
-      toast('Đã gỡ', 'success');
+
+      let resyncCount = 0;
+      if (roleType) {
+        const { data } = await supabase.rpc('fn_resync_pending_assignments', { p_project_id: projectId, p_role_type: roleType });
+        resyncCount = data || 0;
+      }
+      toast(`Đã gỡ${resyncCount ? ` — cập nhật lại ${resyncCount} hồ sơ đang chờ duyệt (rơi về cả nhóm nếu chưa ai đích danh khác)` : ''}`, 'success');
       openProjectAssignModal(projectId, projectName, currentUser, onClose);
     }),
   );
