@@ -9,14 +9,17 @@ import { initModalBackHandler } from './core/utils.js';
 initModalBackHandler(); // 1 lần duy nhất — để nút Back/vuốt lùi trên điện thoại đóng đúng form đang mở thay vì kẹt màn hình
 
 let currentUser = null;
+let lastUserId = null; // để phân biệt "đăng nhập thật" với "làm mới phiên ngầm" — Supabase báo cả 2 cùng tên sự kiện SIGNED_IN
 
 async function boot() {
   const { data } = await supabase.auth.getSession();
 
   if (!data.session) {
+    lastUserId = null;
     renderLoginScreen();
     return;
   }
+  lastUserId = data.session.user.id;
 
   currentUser = await getCurrentAppUser();
 
@@ -78,11 +81,19 @@ function renderApp(user) {
   renderShell(user);
 }
 
-onAuthStateChange((event) => {
-  // CHỈ load lại toàn bộ app khi thật sự đăng nhập/đăng xuất — Supabase còn bắn ra
-  // nhiều sự kiện "vô hại" khác (làm mới phiên ngầm, cập nhật thông tin...) không
-  // nên render lại từ đầu, đây chính là nguyên nhân gây giật/tự load lại liên tục.
-  if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') boot();
+onAuthStateChange((event, session) => {
+  // CHỈ load lại toàn bộ app khi thật sự đăng nhập/đăng xuất — Supabase còn báo
+  // sự kiện "SIGNED_IN" cả cho những lần làm mới phiên ngầm (không phải đăng nhập
+  // mới thật sự), đây chính là nguyên nhân gây giật/tự load lại liên tục. So sánh
+  // đúng người dùng để phân biệt 2 trường hợp này.
+  if (event === 'SIGNED_OUT') {
+    boot();
+    return;
+  }
+  if (event === 'SIGNED_IN') {
+    if (session?.user?.id === lastUserId) return; // chỉ là làm mới phiên ngầm, cùng người — bỏ qua
+    boot();
+  }
 });
 
 boot();
