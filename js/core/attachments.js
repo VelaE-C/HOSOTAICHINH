@@ -22,11 +22,18 @@ function fmtSize(kb) {
   return kb < 1024 ? `${kb} KB` : `${(kb / 1024).toFixed(1)} MB`;
 }
 
-// PDF/ảnh: trình duyệt tự xem được ngay, mở thẳng link. Word/Excel/CSV: trình duyệt
-// (đặc biệt trên điện thoại) không có trình xem sẵn -> tự động tải về máy thay vì
-// xem trực tiếp. Bọc qua Google Docs Viewer để xem ngay trong tab, không cần tải về.
+// PDF/ảnh: trình duyệt tự xem được ngay, mở thẳng link mọi nền tảng.
+// Word/Excel/CSV trên MÁY TÍNH: không có trình xem sẵn, mở trực tiếp sẽ chỉ tải về
+// máy -> bọc qua Google Docs Viewer để xem ngay trong tab.
+// Word/Excel/CSV trên ĐIỆN THOẠI: hệ điều hành (VD "Xem" trên iOS, Quick Look) đã
+// có sẵn trình xem tốt hơn, mở link gốc để dùng đúng tính năng đó — Google Docs
+// Viewer trên di động (đặc biệt qua trình duyệt trong app như Outlook) hay bị lỗi
+// ngắt giữa chừng, không ổn định bằng.
+const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 function viewableUrl(path, signedUrl) {
   if (/\.(pdf|png|jpe?g|gif|webp)$/i.test(path)) return signedUrl;
+  if (IS_MOBILE) return signedUrl;
   return `https://docs.google.com/gview?url=${encodeURIComponent(signedUrl)}&embedded=true`;
 }
 
