@@ -115,13 +115,13 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId) {
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
-  const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
-  let q = supabase
-    .from('bills')
-    .select('id, doc_number, period_no, val_a, val_b, val_d, val_f, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)')
-    .order('created_at', { ascending: false });
-  if (VIEW_PROJECT !== 'ALL') q = q.eq('project_id', VIEW_PROJECT);
-  const { data: bills, error } = await q;
+  const [{ data: projects }, { data: bills, error }] = await Promise.all([
+    supabase.from('projects').select('id, code, name').order('code'),
+    (VIEW_PROJECT !== 'ALL'
+      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_f, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_f, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)')
+    ).order('created_at', { ascending: false }),
+  ]);
 
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Lỗi tải dữ liệu: ${error.message}</div>`;
