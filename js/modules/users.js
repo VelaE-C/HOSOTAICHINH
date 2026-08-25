@@ -361,11 +361,12 @@ const OTHER_PROJECT_ROLES = ['QS', 'TGD', 'ChuyenVienPhongBan', 'TruongPhongChuc
 
 async function openProjectAssignModal(projectId, projectName, currentUser, onClose) {
   const modal = ensureModal();
+  const today = new Date().toISOString().slice(0, 10);
   const { data: assignments, error: assignErr } = await supabase
     .from('project_role_assignments')
     .select('id, role_type, user_id, effective_from, users!user_id(full_name, email)')
     .eq('project_id', projectId)
-    .is('effective_to', null);
+    .or(`effective_to.is.null,effective_to.gte.${today}`); // khớp đúng logic "còn hiệu lực" đang dùng để định tuyến — không chỉ mỗi effective_to để trống
   if (assignErr) console.error('Lỗi tải người phụ trách:', assignErr);
   const { data: users } = await supabase.from('users').select('id, full_name, email').eq('is_active', true).order('full_name');
   const userOptions = `<option value="">— Chọn người —</option>${(users || []).map((u) => `<option value="${u.id}">${u.full_name} (${u.email})</option>`).join('')}`;
@@ -459,7 +460,7 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
     el.addEventListener('click', async () => {
       loading(true);
       const roleType = el.dataset.roleType;
-      await supabase.from('project_role_assignments').update({ effective_to: new Date().toISOString().slice(0, 10) }).eq('id', el.dataset.rmOther);
+      await supabase.from('project_role_assignments').update({ effective_to: new Date(Date.now() - 86400000).toISOString().slice(0, 10) }).eq('id', el.dataset.rmOther);
 
       let resyncCount = 0;
       if (roleType) {
