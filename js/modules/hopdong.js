@@ -3,7 +3,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -139,6 +139,7 @@ export async function openDetail(id, user, onClose) {
     return;
   }
   const { assignments, logs } = await loadApprovalState('contract', id);
+  const preview = c.status === 'pending' ? await loadStepPreview(c.project_id, c.template_id, c.current_step) : {};
 
   const canEditNow = c.created_by === user.id && ['draft', 'rejected'].includes(c.status);
   const isKscp = (user.roles || []).some((r) => ['Admin', 'QLCPHD_CV', 'QLCPHD_TP'].includes(r));
@@ -166,7 +167,7 @@ export async function openDetail(id, user, onClose) {
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
       <div class="card" id="attachArea"></div>
-      ${c.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, c.current_step)}
+      ${c.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, c.current_step, preview)}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
     </div>
     ${actionFooterHtml(c, 'contract', user, assignments)}
