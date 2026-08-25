@@ -143,7 +143,7 @@ export async function openDetail(id, user, onClose) {
 
   const canEditNow = c.created_by === user.id && ['draft', 'rejected'].includes(c.status);
   const isKscp = (user.roles || []).some((r) => ['Admin', 'QLCPHD_CV', 'QLCPHD_TP'].includes(r));
-  const canExportPdf = c.current_step >= 4 || c.status === 'active'; // từ khi qua Bước 3, hoặc đã hoàn tất
+  const canExportPdf = c.current_step >= 3 || c.status === 'active'; // từ khi TỚI Bước 3 (không cần đợi duyệt xong), hoặc đã hoàn tất
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
     <div class="panel-header"><div><div>${c.doc_number}</div><div class="meta">${c.contract_type} · ${c.partners?.name || '—'}</div></div>
