@@ -10,7 +10,9 @@ import { fmt, tyi, budgetColor } from '../core/utils.js';
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải dữ liệu…</div>`;
 
-  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }] =
+  const isTopLevel = (user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
+
+  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: overdueRaw }] =
     await Promise.all([
       supabase.from('projects').select('id, code, name').order('code'),
       supabase.from('v_budget_summary').select('*'),
@@ -19,6 +21,9 @@ export async function render(container, user) {
       supabase.from('contracts').select('id, doc_number, value, project_id, partners(name)'),
       supabase.from('bills').select('contract_id, val_d'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
+      isTopLevel
+        ? supabase.from('approval_assignments').select('document_type, document_id, step_no, created_at, users(full_name)').eq('status', 'pending')
+        : Promise.resolve({ data: [] }),
     ]);
 
   // Khối "Vai trò của tôi" — tra cứu nhanh đang giữ vị trí gì, ở đâu, không cần lật từng hồ sơ
@@ -66,7 +71,37 @@ export async function render(container, user) {
     return { partner: c.partners?.name || '—', docNumber: c.doc_number, value: c.value, lũyKe, left: c.value - lũyKe, over: lũyKe > c.value };
   });
 
+  // Danh sách trễ hạn toàn công ty (chỉ QLCP&HĐ/PTGD/TGD/Admin mới thấy) — Bước 1-2
+  // hạn 2 ngày, Bước 3-4 hạn 1 ngày, khớp đúng quy tắc SLA đang dùng ở từng hồ sơ.
+  const overdueAssignments = (overdueRaw || []).filter((a) => {
+    const slaHours = a.step_no <= 2 ? 48 : 24;
+    return a.created_at && (Date.now() - new Date(a.created_at).getTime()) / 3600000 > slaHours;
+  });
+  const overdueIdsByType = { contract: [], bill: [], totrinh: [] };
+  overdueAssignments.forEach((a) => overdueIdsByType[a.document_type]?.push(a.document_id));
+  const [{ data: odContracts }, { data: odBills }, { data: odTotrinh }] = overdueAssignments.length
+    ? await Promise.all([
+        overdueIdsByType.contract.length ? supabase.from('contracts').select('id, doc_number').in('id', overdueIdsByType.contract) : { data: [] },
+        overdueIdsByType.bill.length ? supabase.from('bills').select('id, doc_number').in('id', overdueIdsByType.bill) : { data: [] },
+        overdueIdsByType.totrinh.length ? supabase.from('to_trinh_chu_truong').select('id, doc_number').in('id', overdueIdsByType.totrinh) : { data: [] },
+      ])
+    : [{ data: [] }, { data: [] }, { data: [] }];
+  const docNumMap = Object.fromEntries([...(odContracts || []), ...(odBills || []), ...(odTotrinh || [])].map((d) => [d.id, d.doc_number]));
+  const typeLabel = { contract: 'Hợp đồng', bill: 'Bill', totrinh: 'Tờ trình' };
+  const overdueRows = overdueAssignments.map((a) => ({
+    label: typeLabel[a.document_type],
+    docNumber: docNumMap[a.document_id] || '—',
+    step: a.step_no,
+    name: a.users?.full_name || '—',
+    days: Math.floor((Date.now() - new Date(a.created_at).getTime()) / 86400000),
+  }));
+
   container.innerHTML = myRolesHtml + `
+    ${overdueRows.length ? `
+    <div class="card"><div class="card-title">⏰ Hồ sơ đang trễ hạn duyệt (toàn công ty)</div>
+      <table><thead><tr><th>Loại</th><th>Số hồ sơ</th><th>Bước</th><th>Người đang chờ</th><th>Trễ</th></tr></thead><tbody>
+      ${overdueRows.map((o) => `<tr><td>${o.label}</td><td class="mono">${o.docNumber}</td><td>Bước ${o.step}</td><td>${o.name}</td><td style="color:var(--red);font-weight:700">${o.days} ngày</td></tr>`).join('')}
+      </tbody></table></div>` : ''}
     ${budgetRowsFiltered && budgetRowsFiltered.length ? `
     <div class="card"><div class="stat-row" style="grid-template-columns:repeat(3,1fr)">
       <div><div class="card-sub" style="margin:0">Ngân sách phân bổ</div><div class="stat-num">${tyi(totBudget)}</div></div>
