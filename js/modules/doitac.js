@@ -81,7 +81,7 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Mã số thuế (MST) *</label>
         <input type="text" id="fMst" class="form-input" placeholder="VD: 0301234567">
         <div id="mstCheckMsg" style="font-size:12px;margin-top:5px"></div></div>
-      <div style="margin-bottom:13px"><label class="form-label">Tên đối tác *</label><input type="text" id="fName" class="form-input"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Tên đối tác * (tự động in hoa)</label><input type="text" id="fName" class="form-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Mã viết tắt * (dùng trong số hợp đồng)</label><input type="text" id="fAbbr" class="form-input" placeholder="VD: DongA"></div>
       <div style="margin-bottom:13px"><label class="form-label">Loại *</label>
         <select id="fType" class="form-input"><option value="NCC">NCC — Nhà cung cấp</option><option value="NTP">NTP — Nhà thầu phụ</option></select></div>
@@ -94,6 +94,14 @@ async function openCreateModal(user, onClose) {
   </div>`;
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  // Tự động in hoa NGAY LÚC GÕ (không phải chỉ hiển thị) — giữ đúng vị trí con trỏ
+  // để không bị nhảy lung tung khi đang gõ dở giữa chừng.
+  modal.querySelector('#fName').addEventListener('input', (e) => {
+    const pos = e.target.selectionStart;
+    e.target.value = e.target.value.toUpperCase();
+    e.target.setSelectionRange(pos, pos);
+  });
 
   let existingMatch = null;
   modal.querySelector('#fMst').addEventListener('blur', async (e) => {
