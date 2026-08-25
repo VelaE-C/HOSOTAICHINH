@@ -109,10 +109,11 @@ export async function resolveDefaultTemplates(userId, docType) {
   if (depts.length) {
     const { data: matchSteps } = await supabase
       .from('template_steps')
-      .select('template_id, document_templates!inner(id, name, doc_type)')
+      .select('template_id, document_templates!inner(id, name, doc_type, is_active)')
       .eq('role_type', 'ChuyenVienPhongBan')
       .in('department', depts)
-      .eq('document_templates.doc_type', docType);
+      .eq('document_templates.doc_type', docType)
+      .eq('document_templates.is_active', true);
     const ids = [...new Set((matchSteps || []).map((s) => s.template_id))];
     if (ids.length) {
       const { data } = await supabase.from('document_templates').select('id, name').in('id', ids);
@@ -120,11 +121,11 @@ export async function resolveDefaultTemplates(userId, docType) {
     }
   }
   if (!templates.length) {
-    const { data } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType).eq('origin_scope', 'site');
+    const { data } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType).eq('origin_scope', 'site').eq('is_active', true);
     templates = data || [];
   }
   if (!templates.length) {
-    const { data } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType);
+    const { data } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType).eq('is_active', true);
     templates = data || [];
   }
   return templates;
