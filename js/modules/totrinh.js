@@ -5,7 +5,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { toast, loading, statusBadge, pushModalHistory, popModalHistory } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -72,6 +72,7 @@ export async function openDetail(id, user, onClose) {
   }
   const { data: linkedContracts } = await supabase.from('contracts').select('id, doc_number, value, status').eq('to_trinh_id', id);
   const { assignments, logs } = await loadApprovalState('totrinh', id);
+  const preview = t.status === 'pending' ? await loadStepPreview(t.project_id, t.template_id, t.current_step) : {};
 
   const canEditNow = t.created_by === user.id && ['draft', 'rejected'].includes(t.status);
   const box = modal.querySelector('.panel-box');
@@ -94,7 +95,7 @@ export async function openDetail(id, user, onClose) {
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
       <div class="card" id="attachArea"></div>
-      ${t.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, t.current_step)}
+      ${t.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, t.current_step, preview)}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
     </div>
     ${actionFooterHtml(t, 'totrinh', user, assignments)}
