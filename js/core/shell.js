@@ -46,6 +46,21 @@ const moduleCache = {};
 let CURRENT_USER = null;
 let CURRENT_VIEW = null;
 
+// Đếm số hồ sơ đang chờ đúng người này duyệt — cập nhật huy hiệu đỏ cạnh "Duyệt hồ sơ"
+async function refreshPendingBadge() {
+  if (!CURRENT_USER) return;
+  const { count } = await supabase
+    .from('approval_assignments')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', CURRENT_USER.id)
+    .eq('status', 'pending');
+  const n = count || 0;
+  document.querySelectorAll('[data-badge="duyet"]').forEach((el) => {
+    el.textContent = n > 99 ? '99+' : n;
+    el.style.display = n > 0 ? 'inline-flex' : 'none';
+  });
+}
+
 export function renderShell(user) {
   CURRENT_USER = user;
   const visibleNav = accessibleTabs(user.roles);
@@ -76,6 +91,7 @@ export function renderShell(user) {
 
   buildSidebar(visibleNav);
   buildBottomNav(visibleNav);
+  refreshPendingBadge();
 
   document.getElementById('btnLogout').addEventListener('click', async () => {
     await supabase.auth.signOut();
@@ -121,7 +137,7 @@ function buildSidebar(visibleNav) {
       html += `<div class="sb-group">${n.group}</div>`;
       lastGroup = n.group;
     }
-    html += `<button class="sb-item" data-nav="${n.id}"><span class="sb-icon">${n.icon}</span>${n.label}</button>`;
+    html += `<button class="sb-item" data-nav="${n.id}"><span class="sb-icon">${n.icon}</span>${n.label}${n.id === 'duyet' ? `<span class="sb-badge" data-badge="duyet" style="display:none"></span>` : ''}</button>`;
   });
   document.getElementById('sidebar').innerHTML = html;
   document.querySelectorAll('.sb-item').forEach((b) =>
@@ -136,7 +152,7 @@ function buildBottomNav(visibleNav) {
   const bnItems = visibleNav.filter((n) => n.bn);
   const moreItems = visibleNav.filter((n) => n.more);
   let html = bnItems
-    .map((n) => `<button class="bn-item" data-nav="${n.id}"><span class="bn-icon">${n.icon}</span>${n.label.split(' ')[0]}</button>`)
+    .map((n) => `<button class="bn-item" data-nav="${n.id}"><span class="bn-icon">${n.icon}${n.id === 'duyet' ? `<span class="sb-badge bn-badge" data-badge="duyet" style="display:none"></span>` : ''}</span>${n.label.split(' ')[0]}</button>`)
     .join('');
   if (moreItems.length) html += `<button class="bn-item" id="bnMore"><span class="bn-icon">⋯</span>Thêm</button>`;
   document.getElementById('bnInner').innerHTML = html;
@@ -175,6 +191,7 @@ export async function switchView(id) {
 
   const container = document.getElementById('view-content');
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
+  refreshPendingBadge(); // cập nhật lại mỗi lần chuyển tab — bắt kịp ngay sau khi vừa duyệt/từ chối xong 1 hồ sơ
   try {
     const mod = await loadModule(id);
     await mod.render(container, CURRENT_USER);
