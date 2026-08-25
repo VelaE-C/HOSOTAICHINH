@@ -22,6 +22,14 @@ function fmtSize(kb) {
   return kb < 1024 ? `${kb} KB` : `${(kb / 1024).toFixed(1)} MB`;
 }
 
+// PDF/ảnh: trình duyệt tự xem được ngay, mở thẳng link. Word/Excel/CSV: trình duyệt
+// (đặc biệt trên điện thoại) không có trình xem sẵn -> tự động tải về máy thay vì
+// xem trực tiếp. Bọc qua Google Docs Viewer để xem ngay trong tab, không cần tải về.
+function viewableUrl(path, signedUrl) {
+  if (/\.(pdf|png|jpe?g|gif|webp)$/i.test(path)) return signedUrl;
+  return `https://docs.google.com/gview?url=${encodeURIComponent(signedUrl)}&embedded=true`;
+}
+
 // Gọi hàm này để vẽ + gắn toàn bộ chức năng vào 1 khung <div>
 // canEdit = false -> chỉ xem/tải file, ẩn hẳn nút Thêm/Xóa (hồ sơ đang duyệt hoặc đã hoàn tất)
 export async function renderAttachments(container, ownerType, ownerId, currentUserId, canEdit = true) {
@@ -75,7 +83,7 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
         if (e.target.closest('[data-del-file]')) return; // bấm nút xóa thì không mở file
         const { data, error: signErr } = await supabase.storage.from(BUCKET).createSignedUrl(el.dataset.path, 3600);
         if (signErr) return toast('Không mở được file: ' + signErr.message, 'error');
-        window.open(data.signedUrl, '_blank');
+        window.open(viewableUrl(el.dataset.path, data.signedUrl), '_blank');
       }),
     );
 
