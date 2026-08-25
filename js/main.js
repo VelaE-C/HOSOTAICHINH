@@ -4,9 +4,11 @@
 import { supabase } from './core/config.js';
 import { signInWithMicrosoft, signOut, getCurrentAppUser, onAuthStateChange } from './core/auth.js';
 import { renderShell } from './core/shell.js';
+import { initModalBackHandler } from './core/utils.js';
+
+initModalBackHandler(); // 1 lần duy nhất — để nút Back/vuốt lùi trên điện thoại đóng đúng form đang mở thay vì kẹt màn hình
 
 let currentUser = null;
-let booted = false; // tránh render trùng khi Supabase bắn nhiều sự kiện auth liên tiếp lúc khởi động
 
 async function boot() {
   const { data } = await supabase.auth.getSession();
@@ -76,9 +78,11 @@ function renderApp(user) {
   renderShell(user);
 }
 
-onAuthStateChange(() => {
-  if (booted) boot();
+onAuthStateChange((event) => {
+  // CHỈ load lại toàn bộ app khi thật sự đăng nhập/đăng xuất — Supabase còn bắn ra
+  // nhiều sự kiện "vô hại" khác (làm mới phiên ngầm, cập nhật thông tin...) không
+  // nên render lại từ đầu, đây chính là nguyên nhân gây giật/tự load lại liên tục.
+  if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') boot();
 });
 
-booted = true;
 boot();
