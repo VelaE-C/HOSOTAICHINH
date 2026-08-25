@@ -13,13 +13,14 @@ let VIEW_PROJECT = 'ALL';
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
-  const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
-  let q = supabase
-    .from('to_trinh_chu_truong')
-    .select('id, doc_number, title, status, current_step, project_id, created_at')
-    .order('created_at', { ascending: false });
-  if (VIEW_PROJECT !== 'ALL') q = q.eq('project_id', VIEW_PROJECT);
-  const { data: rows, error } = await q;
+  const [{ data: projects }, { data: rows, error }, { data: linkCounts }] = await Promise.all([
+    supabase.from('projects').select('id, code, name').order('code'),
+    (VIEW_PROJECT !== 'ALL'
+      ? supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at').eq('project_id', VIEW_PROJECT)
+      : supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at')
+    ).order('created_at', { ascending: false }),
+    supabase.from('contracts').select('to_trinh_id').not('to_trinh_id', 'is', null),
+  ]);
 
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Lỗi tải dữ liệu: ${error.message}</div>`;
@@ -34,7 +35,6 @@ export async function render(container, user) {
   });
 
   // Đếm số hợp đồng đã chọn từng tờ trình làm căn cứ, hiện luôn trong bảng cho tiện nhìn
-  const { data: linkCounts } = await supabase.from('contracts').select('to_trinh_id').not('to_trinh_id', 'is', null);
   const countMap = {};
   (linkCounts || []).forEach((c) => (countMap[c.to_trinh_id] = (countMap[c.to_trinh_id] || 0) + 1));
 
