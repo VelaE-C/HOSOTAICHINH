@@ -11,13 +11,13 @@ let VIEW_PROJECT = 'ALL';
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
-  const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
-  let q = supabase
-    .from('contracts')
-    .select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name)')
-    .order('created_at', { ascending: false });
-  if (VIEW_PROJECT !== 'ALL') q = q.eq('project_id', VIEW_PROJECT);
-  const { data: contracts, error } = await q;
+  const [{ data: projects }, { data: contracts, error }] = await Promise.all([
+    supabase.from('projects').select('id, code, name').order('code'),
+    (VIEW_PROJECT !== 'ALL'
+      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name)')
+    ).order('created_at', { ascending: false }),
+  ]);
 
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Lỗi tải dữ liệu: ${error.message}</div>`;
