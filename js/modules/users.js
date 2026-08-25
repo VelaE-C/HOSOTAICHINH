@@ -13,20 +13,34 @@ const DOC_TYPE_LABEL = { contract: 'Hợp đồng', bill: 'Bill thanh toán', to
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
-  const { data: templates } = await supabase.from('document_templates').select('id, name, doc_type, origin_scope, is_active');
-  const { data: allSteps } = await supabase.from('template_steps').select('template_id, step_no');
+  // Gọi TẤT CẢ cùng lúc (song song) thay vì tuần tự — trước đây mỗi dòng đợi
+  // xong mới gọi dòng tiếp theo, cộng dồn lại mất vài giây; giờ chỉ mất đúng
+  // bằng thời gian của lần gọi chậm nhất.
+  const [
+    { data: templates },
+    { data: allSteps },
+    { data: projects, error: projErr },
+    { data: departments, error: deptErr },
+    { data: budgetCats, error: bcErr },
+    { data: users, error },
+    { data: roles },
+  ] = await Promise.all([
+    supabase.from('document_templates').select('id, name, doc_type, origin_scope, is_active'),
+    supabase.from('template_steps').select('template_id, step_no'),
+    supabase.from('projects').select('id, code, name, investor, location, project_type, unit_count, status').order('code'),
+    supabase.from('departments').select('name').order('name'),
+    supabase.from('budget_categories').select('code, name, group_code').order('code'),
+    supabase.from('users').select('id, email, full_name, is_active').order('full_name'),
+    supabase.from('user_roles').select('user_id, role_type'),
+  ]);
+
   const stepCountMap = {};
   (allSteps || []).forEach((s) => (stepCountMap[s.template_id] = (stepCountMap[s.template_id] || 0) + 1));
 
-  const { data: projects, error: projErr } = await supabase.from('projects').select('id, code, name, investor, location, project_type, unit_count, status').order('code');
-  const { data: departments, error: deptErr } = await supabase.from('departments').select('name').order('name');
-  const { data: budgetCats, error: bcErr } = await supabase.from('budget_categories').select('code, name, group_code').order('code');
-  const { data: users, error } = await supabase.from('users').select('id, email, full_name, is_active').order('full_name');
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${error.message}</div>`;
     return;
   }
-  const { data: roles } = await supabase.from('user_roles').select('user_id, role_type');
   const roleMap = {};
   (roles || []).forEach((r) => (roleMap[r.user_id] = [...(roleMap[r.user_id] || []), r.role_type]));
 
