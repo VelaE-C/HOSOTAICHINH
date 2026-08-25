@@ -5,12 +5,18 @@
 import { supabase } from '../core/config.js';
 import { fmt } from '../core/utils.js';
 
+// Bước 1-2: hạn 2 ngày (48h). Bước 3-4: hạn 1 ngày (24h) — khớp đúng quy tắc SLA đang dùng.
+function isOverdue(m) {
+  const slaHours = m.step_no <= 2 ? 48 : 24;
+  return m.created_at && (Date.now() - new Date(m.created_at).getTime()) / 3600000 > slaHours;
+}
+
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
   const { data: mine, error } = await supabase
     .from('approval_assignments')
-    .select('document_type, document_id, step_no, role_type')
+    .select('document_type, document_id, step_no, role_type, created_at')
     .eq('user_id', user.id)
     .eq('status', 'pending');
 
@@ -60,14 +66,19 @@ export async function render(container, user) {
       if (!t) return null;
       return { ...m, docNumber: t.doc_number, projectCode: t.projects?.code, partner: '—', value: null, label: 'Tờ trình chủ trương' };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => (isOverdue(b) ? 1 : 0) - (isOverdue(a) ? 1 : 0)); // trễ lên đầu
+
+  const overdueCount = rows.filter(isOverdue).length;
 
   container.innerHTML = `
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Loại</th><th>Số hồ sơ</th><th>Đối tác</th><th>Giá trị</th><th>Bước</th><th></th></tr></thead><tbody>
+    ${overdueCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang trễ hạn duyệt — xem các dòng có nhãn đỏ bên dưới.</div>` : ''}
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Loại</th><th>Số hồ sơ</th><th>Đối tác</th><th>Giá trị</th><th>Bước</th><th></th><th></th></tr></thead><tbody>
     ${rows
       .map(
         (r) => `<tr><td><span class="badge idle">${r.projectCode || '—'}</span></td><td>${r.label}</td><td class="mono">${r.docNumber}</td><td>${r.partner}</td>
       <td class="mono">${r.value != null ? fmt(r.value) : '—'}</td><td>Bước ${r.step_no}</td>
+      <td>${isOverdue(r) ? '<span style="color:var(--red);font-weight:700;font-size:12px">⚠️ Trễ</span>' : ''}</td>
       <td style="text-align:right"><button class="btn btn-sm btn-secondary" data-type="${r.document_type}" data-id="${r.document_id}">Xem &amp; duyệt</button></td></tr>`,
       )
       .join('')}
