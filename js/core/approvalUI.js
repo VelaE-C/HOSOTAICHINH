@@ -13,7 +13,7 @@ export async function loadApprovalState(docType, docId) {
   const [{ data: assignments, error: e1 }, { data: logs, error: e2 }] = await Promise.all([
     supabase
       .from('approval_assignments')
-      .select('step_no, role_type, status, user_id, created_at, acted_at, users(full_name)')
+      .select('step_no, role_type, status, user_id, created_at, acted_at, users(full_name, job_title)')
       .eq('document_type', docType)
       .eq('document_id', docId)
       .order('step_no'),
