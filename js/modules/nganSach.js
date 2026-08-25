@@ -17,9 +17,10 @@ export async function render(container, user) {
     return;
   }
 
-  let q = supabase.from('v_budget_summary').select('*');
-  if (VIEW_PROJECT !== 'ALL') q = q.eq('project_id', VIEW_PROJECT);
-  const { data: rows, error } = await q;
+  const [{ data: rows, error }, { data: revisions }] = await Promise.all([
+    (VIEW_PROJECT !== 'ALL' ? supabase.from('v_budget_summary').select('*').eq('project_id', VIEW_PROJECT) : supabase.from('v_budget_summary').select('*')),
+    supabase.from('budget_revisions').select('revision_code, effective_date, project_id').in('project_id', VIEW_PROJECT === 'ALL' ? projects.map((p) => p.id) : [VIEW_PROJECT]).order('effective_date', { ascending: false }),
+  ]);
 
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${error.message}</div>`;
@@ -35,12 +36,6 @@ export async function render(container, user) {
     merged[r.budget_code].actual_spend += Number(r.actual_spend || 0);
   });
   const list = Object.values(merged);
-
-  const { data: revisions } = await supabase
-    .from('budget_revisions')
-    .select('revision_code, effective_date, project_id')
-    .in('project_id', VIEW_PROJECT === 'ALL' ? projects.map((p) => p.id) : [VIEW_PROJECT])
-    .order('effective_date', { ascending: false });
 
   container.innerHTML = `
     <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
