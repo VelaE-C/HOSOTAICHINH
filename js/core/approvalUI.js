@@ -10,7 +10,7 @@ const STEP_LABEL = { 1: 'Bước 1', 2: 'Bước 2', 3: 'Bước 3', 4: 'Bước
 
 // Lấy trạng thái duyệt hiện tại (theo từng người) + lịch sử thao tác của 1 hồ sơ
 export async function loadApprovalState(docType, docId) {
-  const [{ data: assignments }, { data: logs }] = await Promise.all([
+  const [{ data: assignments, error: e1 }, { data: logs, error: e2 }] = await Promise.all([
     supabase
       .from('approval_assignments')
       .select('step_no, role_type, status, user_id, created_at, acted_at, users(full_name)')
@@ -24,6 +24,8 @@ export async function loadApprovalState(docType, docId) {
       .eq('document_id', docId)
       .order('created_at'),
   ]);
+  if (e1) console.error('Lỗi tải luồng phê duyệt (approval_assignments):', e1);
+  if (e2) console.error('Lỗi tải lịch sử (approval_logs):', e2);
   return { assignments: assignments || [], logs: logs || [] };
 }
 
