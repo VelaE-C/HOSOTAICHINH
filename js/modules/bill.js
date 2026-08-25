@@ -93,23 +93,32 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId) {
     return;
   }
 
-  const maxPeriod = existingBills.length ? existingBills[0].period_no : 0;
-  const nextPeriod = maxPeriod + 1;
+  if (existingBills.length === 0) {
+    // Chưa có bill nào trong hệ thống cho đúng hợp đồng/cặp này — có thể đây là bill
+    // ĐẦU TIÊN nhập vào hệ thống của 1 hồ sơ đã có sẵn ngoài đời (VD thực tế đang ở
+    // Kỳ 4) -> mở cho nhập tay tự do, không ép về Kỳ 1. Bill tiếp theo sau đó sẽ tự
+    // động nối tiếp đúng từ số vừa nhập (n+1), như bình thường.
+    if (!periodInput.value) periodInput.value = '1';
+    periodInput.readOnly = false;
+    periodInput.style.background = '';
+    periodInput.title = 'Chưa có bill nào trong hệ thống cho hồ sơ này — nhập đúng kỳ thực tế (VD nếu đã tới Kỳ 4 ngoài đời, nhập 4).';
+    if (!jInput.value) jInput.value = '0';
+    jInput.readOnly = false;
+    jInput.style.background = '';
+    return;
+  }
+
+  const nextPeriod = existingBills[0].period_no + 1;
 
   periodInput.value = nextPeriod;
   periodInput.readOnly = true;
   periodInput.style.background = 'var(--gray1)';
+  periodInput.title = '';
 
-  if (nextPeriod === 1) {
-    jInput.value = '0';
-    jInput.readOnly = false;
-    jInput.style.background = '';
-  } else {
-    const prevBill = existingBills.find((b) => b.period_no === nextPeriod - 1);
-    jInput.value = formatMoneyInput(prevBill ? -Number(prevBill.val_d) : 0);
-    jInput.readOnly = true;
-    jInput.style.background = 'var(--gray1)';
-  }
+  const prevBill = existingBills.find((b) => b.period_no === nextPeriod - 1);
+  jInput.value = formatMoneyInput(prevBill ? -Number(prevBill.val_d) : 0);
+  jInput.readOnly = true;
+  jInput.style.background = 'var(--gray1)';
 }
 
 export async function render(container, user) {
