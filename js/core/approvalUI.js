@@ -13,7 +13,7 @@ export async function loadApprovalState(docType, docId) {
   const [{ data: assignments }, { data: logs }] = await Promise.all([
     supabase
       .from('approval_assignments')
-      .select('step_no, role_type, status, user_id, acted_at, users(full_name)')
+      .select('step_no, role_type, status, user_id, created_at, acted_at, users(full_name)')
       .eq('document_type', docType)
       .eq('document_id', docId)
       .order('step_no'),
@@ -39,6 +39,10 @@ export function railHtml(assignments, currentStep) {
     doneAll: (byStep[s] || []).length > 0 && (byStep[s] || []).every((p) => p.status === 'approved'),
   }));
 
+  // Bước 1-2: hạn 2 ngày (48h). Bước 3-4: hạn 1 ngày (24h). Tính trên chính bước đang chờ.
+  const slaHours = (stepNo) => (stepNo <= 2 ? 48 : 24);
+  const isOverdue = (p) => p.status === 'pending' && p.created_at && (Date.now() - new Date(p.created_at).getTime()) / 3600000 > slaHours(p.step_no);
+
   return `<div class="rail">${steps
     .map((s) => {
       const cls = s.doneAll ? 'done' : s.step === currentStep ? 'active' : '';
@@ -48,7 +52,7 @@ export function railHtml(assignments, currentStep) {
         <div class="rail-people">${s.people
           .map(
             (p) =>
-              `<div class="pp ${p.status}"><span class="tick">${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : ''}</span>${p.users?.full_name || '—'} <span style="opacity:.6">(${p.role_type})</span></div>`,
+              `<div class="pp ${p.status}"><span class="tick">${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : ''}</span>${p.users?.full_name || '—'} <span style="opacity:.6">(${p.role_type})</span>${isOverdue(p) ? ' <span style="color:var(--red);font-weight:700">⚠️ Trễ</span>' : ''}</div>`,
           )
           .join('') || '<div class="pp" style="opacity:.5">—</div>'}</div>
       </div>`;
@@ -164,10 +168,13 @@ export function actionFooterHtml(doc, docType, user, assignments) {
     return `<div class="panel-footer"><button class="btn btn-primary" id="btnResubmit" style="flex:1">Trình lại</button></div>`;
   }
   if (doc.status === 'pending' && myPending) {
-    return `<div class="panel-footer">
-      <button class="btn btn-secondary" id="btnRemind">Nhắc duyệt</button>
-      <button class="btn btn-danger" id="btnReject" style="flex:1">Từ chối</button>
-      <button class="btn btn-primary" id="btnApprove" style="flex:1">Duyệt</button>
+    return `<div class="panel-footer" style="flex-direction:column;align-items:stretch;gap:8px">
+      <textarea id="approveNote" class="form-input" rows="2" placeholder="Ghi chú khi duyệt (không bắt buộc) — để trống nếu không có ý kiến gì thêm"></textarea>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" id="btnRemind">Nhắc duyệt</button>
+        <button class="btn btn-danger" id="btnReject" style="flex:1">Từ chối</button>
+        <button class="btn btn-primary" id="btnApprove" style="flex:1">Duyệt</button>
+      </div>
     </div>`;
   }
   return `<div class="panel-footer"><span style="font-size:12.5px;color:var(--gray5)">Không có hành động nào khả dụng cho bạn ở hồ sơ này.</span></div>`;
@@ -192,8 +199,9 @@ export function wireActions(container, docType, docId, currentStep, assignments,
   });
 
   container.querySelector('#btnApprove')?.addEventListener('click', async () => {
+    const note = container.querySelector('#approveNote')?.value.trim() || null;
     loading(true);
-    const { error } = await supabase.rpc('fn_approve_document', { p_doc_type: docType, p_doc_id: docId, p_comment: null });
+    const { error } = await supabase.rpc('fn_approve_document', { p_doc_type: docType, p_doc_id: docId, p_comment: note });
     if (error) return toast('Lỗi: ' + error.message, 'error');
     toast('Đã duyệt', 'success');
     onDone();
