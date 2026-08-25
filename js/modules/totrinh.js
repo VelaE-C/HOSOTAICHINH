@@ -60,12 +60,79 @@ export async function render(container, user) {
   container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
 }
 
+// Xuất tờ cover để kẹp hồ sơ cứng — giống hệt cách làm ở Hợp đồng, chỉ đổi nội dung
+async function openPrintCoverSheet(t, assignments, logs) {
+  const { data: files } = await supabase.from('attachments').select('file_name').eq('owner_type', 'totrinh').eq('owner_id', t.id);
+
+  const submitLog = logs.find((l) => l.action === 'submit');
+  const commentLogs = logs.filter((l) => l.comment);
+  const vnDate = (d) => (d ? new Date(d).toLocaleDateString('vi-VN') : '—');
+
+  const workflowRows = assignments
+    .map((a) => ({
+      step: a.step_no,
+      name: a.users?.full_name || '—',
+      status: a.status === 'approved' ? 'Duyệt' : a.status === 'rejected' ? 'Từ chối' : 'Đang chờ',
+      doneDate: vnDate(a.acted_at),
+    }))
+    .sort((x, y) => x.step - y.step);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${t.doc_number}</title>
+    <style>
+      body{font-family:Arial,sans-serif;font-size:12.5px;padding:24px;color:#111}
+      table{width:100%;border-collapse:collapse;margin-bottom:10px}
+      td,th{border:1px solid #333;padding:6px 9px;text-align:left;vertical-align:top}
+      th{background:#f0ece3}
+      .title{font-size:16px;font-weight:700;text-align:center;padding:10px}
+      .label{font-weight:600;width:190px;background:#f7f5f0}
+      .no-print{margin-bottom:14px}
+      @media print{.no-print{display:none}}
+    </style></head>
+    <body>
+      <div class="no-print"><button onclick="window.print()" style="padding:8px 16px;font-size:13px">🖨️ In / Lưu thành PDF</button></div>
+      <table>
+        <tr><td colspan="2" class="title">WORKFLOW TỜ TRÌNH PHÊ DUYỆT CHỦ TRƯƠNG</td></tr>
+        <tr><td class="label">Số tờ trình</td><td>${t.doc_number}</td></tr>
+        <tr><td class="label">Ngày lập</td><td>${vnDate(t.signed_date)}</td></tr>
+        <tr><td class="label">Quy trình duyệt</td><td>${t.document_templates?.name || '—'}</td></tr>
+        <tr><td class="label">Dự án</td><td>${t.projects?.name || '—'}</td></tr>
+        <tr><td class="label">Tiêu đề</td><td>${t.title}</td></tr>
+        <tr><td class="label">Nội dung</td><td>${t.content || '—'}</td></tr>
+        <tr><td class="label">Ngày gửi</td><td>${submitLog ? vnDate(submitLog.created_at) : '—'}</td></tr>
+        <tr><td class="label">Người lập / Người gửi duyệt</td><td>${t.users?.full_name || '—'}</td></tr>
+      </table>
+
+      <table><tr><th colspan="2">Tài liệu đính kèm</th></tr>
+        ${(files || []).length ? files.map((f, i) => `<tr><td style="width:40px">${i + 1}</td><td>${f.file_name}</td></tr>`).join('') : '<tr><td colspan="2" style="color:#888">Không có file đính kèm</td></tr>'}
+      </table>
+
+      <table><tr><th colspan="2">Ý kiến</th></tr>
+        ${commentLogs.length ? commentLogs.map((l) => `<tr><td style="width:170px;font-weight:600">${l.users?.full_name || '—'}</td><td>${l.comment}</td></tr>`).join('') : '<tr><td colspan="2" style="color:#888">Không có ý kiến bổ sung</td></tr>'}
+      </table>
+
+      <table>
+        <tr><th>Thứ tự duyệt</th><th>Người thực hiện</th><th>Trạng thái</th><th>Ngày hoàn thành</th></tr>
+        ${workflowRows.map((r) => `<tr><td>${r.step}</td><td>${r.name}</td><td>${r.status}</td><td>${r.doneDate}</td></tr>`).join('')}
+        <tr><td colspan="3" style="text-align:right;font-weight:700">Hoàn thành duyệt</td><td>${vnDate(t.completed_at)}</td></tr>
+      </table>
+    </body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) {
+    toast('Trình duyệt đang chặn cửa sổ bật lên — cho phép popup rồi thử lại.', 'error');
+    return;
+  }
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 400);
+}
+
 export async function openDetail(id, user, onClose) {
   const modal = ensureModal();
   modal.innerHTML = `<div class="panel-box"><div class="empty-note">Đang tải…</div></div>`;
   showModal(modal, onClose, `totrinh/${id}`);
 
-  const { data: t } = await supabase.from('to_trinh_chu_truong').select('*, projects(name)').eq('id', id).single();
+  const { data: t } = await supabase.from('to_trinh_chu_truong').select('*, projects(name), document_templates(name), users!created_by(full_name)').eq('id', id).single();
   if (!t) {
     modal.querySelector('.panel-box').innerHTML = `<div class="empty-note">Không tải được hồ sơ.</div>`;
     return;
@@ -75,17 +142,21 @@ export async function openDetail(id, user, onClose) {
   const preview = t.status === 'pending' ? await loadStepPreview(t.project_id, t.template_id, t.current_step) : {};
 
   const canEditNow = t.created_by === user.id && ['draft', 'rejected'].includes(t.status);
+  const canExportPdf = t.current_step >= 3 || t.status === 'active';
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
     <div class="panel-header"><div><div>${t.doc_number}</div><div class="meta">${t.projects?.name || '—'}</div></div>
       <div style="display:flex;gap:6px;align-items:center">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
+        ${canExportPdf ? `<button class="btn btn-sm btn-secondary" id="btnExportPdf">🖨️ Xuất PDF (tờ cover)</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
       </div></div>
     <div class="panel-body">
       <div class="kv">
         <div class="k">Tiêu đề</div><div class="v">${t.title}</div>
         <div class="k">Nội dung</div><div class="v" style="font-weight:400">${t.content || '—'}</div>
+        <div class="k">Ngày ký hồ sơ</div><div class="v">${t.signed_date ? new Date(t.signed_date).toLocaleDateString('vi-VN') : '<span style="color:var(--gray4)">Chưa ghi</span>'}</div>
+        ${t.completed_at ? `<div class="k">Ngày hoàn thành</div><div class="v">${new Date(t.completed_at).toLocaleDateString('vi-VN')}</div>` : ''}
         <div class="k">Trạng thái</div><div class="v">${statusBadge(t.status)}</div>
         <div class="k">Hợp đồng liên kết</div><div class="v">${
           linkedContracts && linkedContracts.length
@@ -102,6 +173,7 @@ export async function openDetail(id, user, onClose) {
   `;
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(t, user, onClose));
+  box.querySelector('#btnExportPdf')?.addEventListener('click', () => openPrintCoverSheet(t, assignments, logs));
   renderAttachments(box.querySelector('#attachArea'), 'totrinh', id, user.id, canEditNow);
   wireActions(box, 'totrinh', id, t.current_step, assignments, () => closeModal(modal, onClose));
 }
@@ -120,6 +192,8 @@ async function openEditModal(t, user, onClose) {
         <input type="text" id="fTitle" class="form-input" value="${t.title}"></div>
       <div style="margin-bottom:13px"><label class="form-label">Nội dung / phạm vi áp dụng</label>
         <textarea id="fContent" class="form-input" rows="4">${t.content || ''}</textarea></div>
+      <div style="margin-bottom:13px"><label class="form-label">Ngày ký hồ sơ (không bắt buộc)</label>
+        <input type="date" id="fSignedDate" class="form-input" value="${t.signed_date || ''}"></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((tp) => `<option value="${tp.id}" ${tp.id === t.template_id ? 'selected' : ''}>${tp.name}</option>`).join('')}</select></div>
     </div>
@@ -132,12 +206,13 @@ async function openEditModal(t, user, onClose) {
     const project_id = modal.querySelector('#fProject').value;
     const title = modal.querySelector('#fTitle').value.trim();
     const content = modal.querySelector('#fContent').value.trim();
+    const signed_date = modal.querySelector('#fSignedDate').value || null;
     const template_id = modal.querySelector('#fTemplate').value;
 
     if (!project_id || !title) return toast('Điền đủ Dự án và Tiêu đề', 'error');
 
     loading(true);
-    const { error } = await supabase.from('to_trinh_chu_truong').update({ project_id, title, content, template_id: template_id || null }).eq('id', t.id);
+    const { error } = await supabase.from('to_trinh_chu_truong').update({ project_id, title, content, signed_date, template_id: template_id || null }).eq('id', t.id);
     if (error) return toast('Lỗi lưu: ' + error.message, 'error');
 
     toast('Đã lưu thay đổi', 'success');
@@ -160,6 +235,8 @@ async function openCreateModal(user, onClose) {
         <input type="text" id="fTitle" class="form-input" placeholder="VD: Chủ trương phê duyệt giá bê tông toàn dự án"></div>
       <div style="margin-bottom:13px"><label class="form-label">Nội dung / phạm vi áp dụng</label>
         <textarea id="fContent" class="form-input" rows="4" placeholder="Mô tả ngắn gọn nội dung, phạm vi áp dụng của tờ trình"></textarea></div>
+      <div style="margin-bottom:13px"><label class="form-label">Ngày ký hồ sơ (không bắt buộc)</label>
+        <input type="date" id="fSignedDate" class="form-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
@@ -179,6 +256,7 @@ async function openCreateModal(user, onClose) {
     const project_id = modal.querySelector('#fProject').value;
     const title = modal.querySelector('#fTitle').value.trim();
     const content = modal.querySelector('#fContent').value.trim();
+    const signed_date = modal.querySelector('#fSignedDate').value || null;
     const template_id = modal.querySelector('#fTemplate').value;
 
     if (!project_id || !title) return toast('Điền đủ Dự án và Tiêu đề trước khi lưu', 'error');
@@ -186,7 +264,7 @@ async function openCreateModal(user, onClose) {
 
     const { data: newDoc, error } = await supabase
       .from('to_trinh_chu_truong')
-      .insert({ project_id, title, content, template_id: template_id || null, created_by: user.id, status: 'draft' })
+      .insert({ project_id, title, content, signed_date, template_id: template_id || null, created_by: user.id, status: 'draft' })
       .select('id')
       .single();
     if (error) return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
