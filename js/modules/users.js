@@ -88,7 +88,7 @@ export async function render(container, user) {
     </div>
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
       <table><thead><tr><th>Tên mẫu</th><th>Áp dụng cho loại hồ sơ</th><th>Đơn vị trình</th><th>Số bước</th></tr></thead><tbody>
-      ${templates && templates.length ? templates.map((t) => `<tr><td>${t.name}</td><td><span class="badge info">${DOC_TYPE_LABEL[t.doc_type] || t.doc_type}</span></td><td>${t.origin_scope === 'site' ? 'Công trường' : 'Phòng ban'}</td><td>${stepCountMap[t.id] || 0} vai trò / ${new Set((allSteps || []).filter((s) => s.template_id === t.id).map((s) => s.step_no)).size} bước</td></tr>`).join('') :
+      ${templates && templates.length ? templates.map((t) => `<tr class="clickable-row" data-template-id="${t.id}"><td>${t.name}</td><td><span class="badge info">${DOC_TYPE_LABEL[t.doc_type] || t.doc_type}</span></td><td>${t.origin_scope === 'site' ? 'Công trường' : 'Phòng ban'}</td><td>${stepCountMap[t.id] || 0} vai trò / ${new Set((allSteps || []).filter((s) => s.template_id === t.id).map((s) => s.step_no)).size} bước</td></tr>`).join('') :
       `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Chưa có mẫu hồ sơ nào</td></tr>`}
       </tbody></table>
     </div>
@@ -111,6 +111,7 @@ export async function render(container, user) {
   container.querySelector('#btnNewBudgetCat').addEventListener('click', () => openCreateBudgetCatModal(() => render(container, user)));
   container.querySelectorAll('.bc-row').forEach((row) => row.addEventListener('click', () => openEditBudgetCatModal(row.dataset.code, () => render(container, user))));
   container.querySelector('#btnNewTemplate').addEventListener('click', () => openCreateTemplateModal(() => render(container, user)));
+  container.querySelectorAll('[data-template-id]').forEach((row) => row.addEventListener('click', () => openEditTemplateModal(row.dataset.templateId, () => render(container, user))));
   container.querySelector('#btnNew').addEventListener('click', () => openCreateUserModal(user, () => render(container, user)));
   container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.id, user, () => render(container, user))));
 }
@@ -205,6 +206,103 @@ async function openCreateTemplateModal(onClose) {
     if (stepErr) return toast('Đã tạo mẫu nhưng lỗi lưu các bước: ' + stepErr.message, 'error');
 
     toast('Đã tạo mẫu hồ sơ mới', 'success');
+    closeModal(modal, onClose);
+  });
+}
+
+async function openEditTemplateModal(templateId, onClose) {
+  const modal = ensureModal();
+  const { data: tpl } = await supabase.from('document_templates').select('*').eq('id', templateId).single();
+  if (!tpl) return toast('Không tải được mẫu hồ sơ', 'error');
+  const { data: currentSteps } = await supabase.from('template_steps').select('step_no, role_type, department').eq('template_id', templateId);
+  const { data: departments } = await supabase.from('departments').select('name').order('name');
+  const deptOptions = `<option value="">— Mọi phòng ban —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Sửa mẫu hồ sơ — ${tpl.name}</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Mỗi bước phải chọn ít nhất 1 vai trò — bỏ trống 1 bước sẽ khiến hồ sơ bị kẹt mãi ở bước đó, không ai duyệt được. Đổi ở đây chỉ ảnh hưởng hồ sơ CHƯA tới bước bị đổi — hồ sơ đã duyệt qua bước đó giữ nguyên lịch sử.</div>
+      <div style="margin-bottom:13px"><label class="form-label">Tên mẫu *</label><input type="text" id="fName" class="form-input" value="${tpl.name}"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
+        <div><label class="form-label">Áp dụng cho loại hồ sơ *</label>
+          <select id="fDocType" class="form-input">
+            <option value="contract" ${tpl.doc_type === 'contract' ? 'selected' : ''}>Hợp đồng</option>
+            <option value="bill" ${tpl.doc_type === 'bill' ? 'selected' : ''}>Bill thanh toán</option>
+            <option value="totrinh" ${tpl.doc_type === 'totrinh' ? 'selected' : ''}>Tờ trình chủ trương</option>
+          </select></div>
+        <div><label class="form-label">Đơn vị trình *</label>
+          <select id="fScope" class="form-input">
+            <option value="site" ${tpl.origin_scope === 'site' ? 'selected' : ''}>Công trường</option>
+            <option value="department" ${tpl.origin_scope === 'department' ? 'selected' : ''}>Phòng ban</option>
+          </select>
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Công trường: PTGD phân theo dự án. Phòng ban: PTGD phân theo phòng ban (ô bên dưới).</div></div>
+      </div>
+      <div style="margin-bottom:13px"><label class="form-label">Mô tả</label><input type="text" id="fDesc" class="form-input" value="${tpl.description || ''}"></div>
+      <div style="margin-bottom:13px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="fActive" ${tpl.is_active !== false ? 'checked' : ''}> Đang hoạt động (bỏ tick để ngừng dùng mẫu này — hồ sơ đang chọn mẫu này không bị ảnh hưởng, chỉ ẩn khỏi danh sách chọn khi tạo hồ sơ mới)</label></div>
+      ${[1, 2, 3, 4].map((step) => `
+        <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước ${step}</div>
+        <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
+          ${ALL_ROLES.map((r) => {
+            const needsDept = r === 'TruongPhongChucNang' || r === 'ChuyenVienPhongBan' || r === 'PTGD';
+            const existing = (currentSteps || []).find((s) => s.step_no === step && s.role_type === r);
+            return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" class="step-role" data-step="${step}" data-role="${r}" ${existing ? 'checked' : ''}>${r}
+              ${needsDept ? `<select class="step-dept form-input dept-for-${r === 'PTGD' ? 'ptgd' : 'office'}" data-step="${step}" data-role="${r}" style="width:140px;padding:3px 7px;font-size:11px">${deptOptions}</select>` : ''}
+            </label>`;
+          }).join('')}
+        </div>`).join('')}
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  // Điền sẵn đúng phòng ban đã ghi cho từng dòng (phải làm sau khi HTML đã dựng xong)
+  (currentSteps || []).forEach((s) => {
+    if (!s.department) return;
+    const dept = modal.querySelector(`.step-dept[data-step="${s.step_no}"][data-role="${s.role_type}"]`);
+    if (dept) dept.value = s.department;
+  });
+
+  function togglePtgdDept() {
+    const isDept = modal.querySelector('#fScope').value === 'department';
+    modal.querySelectorAll('.dept-for-ptgd').forEach((el) => {
+      el.style.display = isDept ? '' : 'none';
+      if (!isDept) el.value = '';
+    });
+  }
+  modal.querySelector('#fScope').addEventListener('change', togglePtgdDept);
+  togglePtgdDept();
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const name = modal.querySelector('#fName').value.trim();
+    const doc_type = modal.querySelector('#fDocType').value;
+    const origin_scope = modal.querySelector('#fScope').value;
+    const description = modal.querySelector('#fDesc').value.trim();
+    const is_active = modal.querySelector('#fActive').checked;
+    if (!name) return toast('Điền tên mẫu', 'error');
+
+    const checked = [...modal.querySelectorAll('.step-role:checked')].map((el) => {
+      const deptInput = modal.querySelector(`.step-dept[data-step="${el.dataset.step}"][data-role="${el.dataset.role}"]`);
+      return { step_no: Number(el.dataset.step), role_type: el.dataset.role, department: deptInput?.value.trim() || null };
+    });
+    const usedSteps = new Set(checked.map((c) => c.step_no));
+    if (usedSteps.size < 1) return toast('Phải chọn ít nhất 1 vai trò ở ít nhất 1 bước', 'error');
+    for (let s = 1; s <= Math.max(...usedSteps); s++) {
+      if (!usedSteps.has(s)) return toast(`Bước ${s} đang trống nhưng bước ${s + 1} trở đi có chọn vai trò — phải điền đủ liên tiếp từ bước 1, không được bỏ trống ở giữa`, 'error');
+    }
+
+    loading(true);
+    const { error } = await supabase.from('document_templates').update({ name, doc_type, origin_scope, description, is_active }).eq('id', templateId);
+    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+
+    // Xóa hết bước cũ, ghi lại đúng theo trạng thái tick hiện tại — đơn giản, chắc chắn
+    // đồng bộ đúng. Hồ sơ ĐÃ tạo trước đó không bị ảnh hưởng (approval_assignments là
+    // dữ liệu riêng, đã "chụp ảnh" sẵn lúc tạo, không đọc lại template_steps sau này).
+    await supabase.from('template_steps').delete().eq('template_id', templateId);
+    const { error: stepErr } = await supabase.from('template_steps').insert(checked.map((c) => ({ template_id: templateId, step_no: c.step_no, role_type: c.role_type, department: c.department })));
+    if (stepErr) return toast('Đã lưu mẫu nhưng lỗi lưu các bước: ' + stepErr.message, 'error');
+
+    toast('Đã lưu thay đổi mẫu hồ sơ', 'success');
     closeModal(modal, onClose);
   });
 }
