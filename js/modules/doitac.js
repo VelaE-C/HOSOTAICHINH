@@ -9,14 +9,16 @@ import { fmt, toast, loading, pushModalHistory, popModalHistory } from '../core/
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
-  const { data: partners, error } = await supabase.from('partners').select('id, name, abbr, mst, type').order('name');
+  const [{ data: partners, error }, { data: contractCounts }] = await Promise.all([
+    supabase.from('partners').select('id, name, abbr, mst, type').order('name'),
+    supabase.from('contracts').select('partner_id'),
+  ]);
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Lỗi tải dữ liệu: ${error.message}</div>`;
     return;
   }
 
-  // Đếm số hợp đồng theo từng đối tác — 1 truy vấn duy nhất, gộp lại ở client
-  const { data: contractCounts } = await supabase.from('contracts').select('partner_id');
+  // Đếm số hợp đồng theo từng đối tác — gộp lại ở client
   const countMap = {};
   (contractCounts || []).forEach((c) => (countMap[c.partner_id] = (countMap[c.partner_id] || 0) + 1));
 
