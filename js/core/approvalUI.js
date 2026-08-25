@@ -28,7 +28,20 @@ export async function loadApprovalState(docType, docId) {
 }
 
 // Vẽ rail 4 bước — mỗi bước liệt kê từng người + trạng thái duyệt của riêng họ
-export function railHtml(assignments, currentStep) {
+// Xem trước ai SẼ duyệt ở các bước chưa tới (chưa có dữ liệu thật) — gọi cùng lúc
+// với loadApprovalState, truyền kết quả vào railHtml qua tham số preview
+export async function loadStepPreview(projectId, templateId, currentStep) {
+  if (!templateId) return {};
+  const futureSteps = [1, 2, 3, 4].filter((s) => s > currentStep);
+  const results = await Promise.all(
+    futureSteps.map((s) => supabase.rpc('fn_preview_step_assignees', { p_project_id: projectId, p_template_id: templateId, p_step_no: s })),
+  );
+  const preview = {};
+  futureSteps.forEach((s, i) => (preview[s] = results[i].data || []));
+  return preview;
+}
+
+export function railHtml(assignments, currentStep, preview = {}) {
   const byStep = {};
   assignments.forEach((a) => {
     (byStep[a.step_no] = byStep[a.step_no] || []).push(a);
@@ -46,15 +59,24 @@ export function railHtml(assignments, currentStep) {
   return `<div class="rail">${steps
     .map((s) => {
       const cls = s.doneAll ? 'done' : s.step === currentStep ? 'active' : '';
+      const previewPeople = !s.people.length ? preview[s.step] || [] : [];
       return `<div class="rail-step ${cls}">
         <div class="rail-node">${s.doneAll ? '✓' : s.step}</div>
         <div class="rail-label">${STEP_LABEL[s.step]}</div>
-        <div class="rail-people">${s.people
-          .map(
-            (p) =>
-              `<div class="pp ${p.status}"><span class="tick">${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : ''}</span>${p.users?.full_name || '—'} <span style="opacity:.6">(${p.role_type})</span>${isOverdue(p) ? ' <span style="color:var(--red);font-weight:700">⚠️ Trễ</span>' : ''}</div>`,
-          )
-          .join('') || '<div class="pp" style="opacity:.5">—</div>'}</div>
+        <div class="rail-people">${
+          s.people.length
+            ? s.people
+                .map(
+                  (p) =>
+                    `<div class="pp ${p.status}"><span class="tick">${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : ''}</span>${p.users?.full_name || '—'} <span style="opacity:.6">(${p.role_type})</span>${isOverdue(p) ? ' <span style="color:var(--red);font-weight:700">⚠️ Trễ</span>' : ''}</div>`,
+                )
+                .join('')
+            : previewPeople.length
+              ? previewPeople
+                  .map((p) => `<div class="pp" style="opacity:.65;font-style:italic">${p.full_name || '(chưa có ai)'} <span style="opacity:.7">(${p.role_type}${p.department ? ' — ' + p.department : ''}) — dự kiến</span></div>`)
+                  .join('')
+              : '<div class="pp" style="opacity:.5">—</div>'
+        }</div>
       </div>`;
     })
     .join('')}</div>`;
