@@ -185,6 +185,7 @@ async function openPrintCoverSheet(b, r, assignments, logs) {
     .map((a) => ({
       step: a.step_no,
       name: a.users?.full_name || '—',
+      jobTitle: a.users?.job_title || '',
       status: a.status === 'approved' ? 'Duyệt' : a.status === 'rejected' ? 'Từ chối' : 'Đang chờ',
       doneDate: vnDate(a.acted_at),
     }))
@@ -200,10 +201,12 @@ async function openPrintCoverSheet(b, r, assignments, logs) {
       .label{font-weight:600;width:190px;background:#f7f5f0}
       .num{text-align:right;font-family:monospace}
       .no-print{margin-bottom:14px}
+      .logo{height:42px;margin-bottom:12px;display:block}
       @media print{.no-print{display:none}}
     </style></head>
     <body>
       <div class="no-print"><button onclick="window.print()" style="padding:8px 16px;font-size:13px">🖨️ In / Lưu thành PDF</button></div>
+      <img class="logo" src="https://raw.githubusercontent.com/VelaE-C/HOSOTAICHINH/refs/heads/main/LOGO%20DUNG.JPEG.png" alt="VELA">
       <table>
         <tr><td colspan="2" class="title">WORKFLOW BILL THANH TOÁN</td></tr>
         <tr><td class="label">Số bill</td><td>${b.doc_number} — Kỳ ${b.period_no}</td></tr>
@@ -241,9 +244,9 @@ async function openPrintCoverSheet(b, r, assignments, logs) {
       </table>
 
       <table>
-        <tr><th>Thứ tự duyệt</th><th>Người thực hiện</th><th>Trạng thái</th><th>Ngày hoàn thành</th></tr>
-        ${workflowRows.map((r2) => `<tr><td>${r2.step}</td><td>${r2.name}</td><td>${r2.status}</td><td>${r2.doneDate}</td></tr>`).join('')}
-        <tr><td colspan="3" style="text-align:right;font-weight:700">Hoàn thành duyệt</td><td>${vnDate(b.completed_at)}</td></tr>
+        <tr><th>Thứ tự duyệt</th><th>Người thực hiện</th><th>Chức danh</th><th>Trạng thái</th><th>Ngày hoàn thành</th></tr>
+        ${workflowRows.map((r2) => `<tr><td>${r2.step}</td><td>${r2.name}</td><td>${r2.jobTitle}</td><td>${r2.status}</td><td>${r2.doneDate}</td></tr>`).join('')}
+        <tr><td colspan="4" style="text-align:right;font-weight:700">Hoàn thành duyệt</td><td>${vnDate(b.completed_at)}</td></tr>
       </table>
     </body></html>`;
 
