@@ -201,6 +201,11 @@ export function actionFooterHtml(doc, docType, user, assignments) {
       </div>
     </div>`;
   }
+  // Người trình hồ sơ (không phải người duyệt ở bước hiện tại) vẫn nên nhắc được
+  // — họ là người chờ kết quả, có lợi ích chính đáng để thúc tiến độ.
+  if (doc.status === 'pending' && doc.created_by === user.id) {
+    return `<div class="panel-footer"><button class="btn btn-secondary" id="btnRemind" style="flex:1">Nhắc duyệt</button></div>`;
+  }
   return `<div class="panel-footer"><span style="font-size:12.5px;color:var(--gray5)">Không có hành động nào khả dụng cho bạn ở hồ sơ này.</span></div>`;
 }
 
