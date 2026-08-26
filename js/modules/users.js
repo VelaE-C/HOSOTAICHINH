@@ -380,6 +380,11 @@ async function openEditDeptModal(name, onClose) {
     .select('id, role_type, users(full_name, email)')
     .eq('department', name)
     .in('role_type', ['TruongPhongChucNang', 'PTGD']);
+  const { data: staff } = await supabase
+    .from('user_roles')
+    .select('id, users(full_name, email)')
+    .eq('department', name)
+    .eq('role_type', 'ChuyenVienPhongBan');
   const { data: users } = await supabase.from('users').select('id, full_name, email').eq('is_active', true).order('full_name');
   const userOptions = `<option value="">— Chọn người —</option>${(users || []).map((u) => `<option value="${u.id}">${u.full_name} (${u.email})</option>`).join('')}`;
   const roleLabel = { TruongPhongChucNang: 'Trưởng phòng', PTGD: 'PTGD phụ trách' };
@@ -391,7 +396,7 @@ async function openEditDeptModal(name, onClose) {
       <div style="font-size:11.5px;color:var(--gray4);margin-bottom:16px">Đổi tên ở đây sẽ tự cập nhật lại hết những chỗ đang dùng tên cũ (người dùng, mẫu hồ sơ) — không cần sửa tay từng nơi.</div>
 
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Người phụ trách phòng ban này</div>
-      <div class="card" style="padding:12px 14px">
+      <div class="card" style="padding:12px 14px;margin-bottom:20px">
         <div id="holderList" style="margin-bottom:10px">
           ${(holders || []).length ? holders.map((h) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray1);font-size:13px">
             <span><span class="code-chip">${roleLabel[h.role_type]}</span> ${h.users?.full_name} <span style="color:var(--gray4)">(${h.users?.email})</span></span>
@@ -402,6 +407,21 @@ async function openEditDeptModal(name, onClose) {
           <select id="fHolderUser" class="form-input">${userOptions}</select>
           <select id="fHolderRole" class="form-input"><option value="TruongPhongChucNang">Trưởng phòng</option><option value="PTGD">PTGD phụ trách</option></select>
           <button class="btn btn-sm btn-secondary" id="btnAddHolder">+ Thêm</button>
+        </div>
+      </div>
+
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Chuyên viên phòng ban — có thể nhiều người cùng lúc</div>
+      <div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">Bắt buộc phải gán mới trình được hồ sơ dưới danh nghĩa phòng này.</div>
+      <div class="card" style="padding:12px 14px">
+        <div id="staffList" style="margin-bottom:10px">
+          ${(staff || []).length ? staff.map((s) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gray1);font-size:13px">
+            <span>${s.users?.full_name} <span style="color:var(--gray4)">(${s.users?.email})</span></span>
+            <span data-rm-staff="${s.id}" style="cursor:pointer;color:var(--red);font-size:12px">Gỡ</span>
+          </div>`).join('') : '<div style="color:var(--gray4);font-size:12px">Chưa có chuyên viên nào — chưa ai trình được hồ sơ cho phòng này.</div>'}
+        </div>
+        <div style="display:flex;gap:8px">
+          <select id="fStaffUser" class="form-input">${userOptions}</select>
+          <button class="btn btn-sm btn-secondary" id="btnAddStaff">+ Thêm chuyên viên</button>
         </div>
       </div>
     </div>
@@ -427,6 +447,24 @@ async function openEditDeptModal(name, onClose) {
   modal.querySelectorAll('[data-rm-holder]').forEach((el) =>
     el.addEventListener('click', async () => {
       await supabase.from('user_roles').delete().eq('id', el.dataset.rmHolder);
+      toast('Đã gỡ', 'success');
+      openEditDeptModal(name, onClose);
+    }),
+  );
+
+  modal.querySelector('#btnAddStaff').addEventListener('click', async () => {
+    const userId = modal.querySelector('#fStaffUser').value;
+    if (!userId) return toast('Chọn người trước', 'error');
+    loading(true);
+    const { error } = await supabase.from('user_roles').insert({ user_id: userId, role_type: 'ChuyenVienPhongBan', department: name });
+    if (error) return toast('Lỗi (có thể đã gán rồi): ' + error.message, 'error');
+    toast('Đã thêm chuyên viên', 'success');
+    openEditDeptModal(name, onClose);
+  });
+
+  modal.querySelectorAll('[data-rm-staff]').forEach((el) =>
+    el.addEventListener('click', async () => {
+      await supabase.from('user_roles').delete().eq('id', el.dataset.rmStaff);
       toast('Đã gỡ', 'success');
       openEditDeptModal(name, onClose);
     }),
