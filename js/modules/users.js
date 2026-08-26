@@ -12,6 +12,7 @@ const DOC_TYPE_LABEL = { contract: 'Hợp đồng', bill: 'Bill thanh toán', to
 
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
+  const isAdmin = (user.roles || []).includes('Admin'); // chỉ Admin mới thêm/sửa được tài khoản + vai trò hệ thống
 
   // Gọi TẤT CẢ cùng lúc (song song) thay vì tuần tự — trước đây mỗi dòng đợi
   // xong mới gọi dòng tiếp theo, cộng dồn lại mất vài giây; giờ chỉ mất đúng
@@ -95,14 +96,15 @@ export async function render(container, user) {
 
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
       <div class="card-title" style="margin:0">Người dùng</div>
-      <button class="btn btn-primary btn-sm" id="btnNew">+ Thêm người dùng</button>
+      ${isAdmin ? `<button class="btn btn-primary btn-sm" id="btnNew">+ Thêm người dùng</button>` : ''}
     </div>
     <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th></tr></thead><tbody>
-    ${users && users.length ? users.map((u) => `<tr class="click" data-id="${u.id}"><td>${u.full_name}</td><td class="mono">${u.email}</td>
+    ${users && users.length ? users.map((u) => `<tr ${isAdmin ? 'class="click"' : ''} data-id="${u.id}"><td>${u.full_name}</td><td class="mono">${u.email}</td>
     <td>${(roleMap[u.id] || []).map((r) => `<span class="code-chip" style="margin:1px 3px 1px 0">${r}</span>`).join('') || '<span style="color:var(--amber);font-size:12px">Chưa gán</span>'}</td>
     <td>${u.is_active ? '<span class="badge done">Đang hoạt động</span>' : '<span class="badge danger">Đã khóa</span>'}</td></tr>`).join('') :
     `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Chưa có người dùng nào</td></tr>`}
-    </tbody></table></div>`;
+    </tbody></table></div>
+    ${!isAdmin ? `<div style="font-size:11.5px;color:var(--gray4);margin-top:6px">Chỉ Admin mới thêm/sửa được tài khoản và vai trò hệ thống — phần này chỉ xem được.</div>` : ''}`;
 
   container.querySelector('#btnNewProject').addEventListener('click', () => openCreateProjectModal(() => render(container, user)));
   container.querySelectorAll('.proj-row').forEach((row) => row.addEventListener('click', () => openProjectAssignModal(row.dataset.id, row.dataset.name, user, () => render(container, user))));
@@ -112,8 +114,10 @@ export async function render(container, user) {
   container.querySelectorAll('.bc-row').forEach((row) => row.addEventListener('click', () => openEditBudgetCatModal(row.dataset.code, () => render(container, user))));
   container.querySelector('#btnNewTemplate').addEventListener('click', () => openCreateTemplateModal(() => render(container, user)));
   container.querySelectorAll('[data-template-id]').forEach((row) => row.addEventListener('click', () => openEditTemplateModal(row.dataset.templateId, () => render(container, user))));
-  container.querySelector('#btnNew').addEventListener('click', () => openCreateUserModal(user, () => render(container, user)));
-  container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.id, user, () => render(container, user))));
+  if (isAdmin) {
+    container.querySelector('#btnNew').addEventListener('click', () => openCreateUserModal(user, () => render(container, user)));
+    container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.id, user, () => render(container, user))));
+  }
 }
 
 async function openCreateTemplateModal(onClose) {
