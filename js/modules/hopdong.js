@@ -16,7 +16,7 @@ export async function render(container, user) {
     (VIEW_PROJECT !== 'ALL'
       ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name)').eq('project_id', VIEW_PROJECT)
       : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name)')
-    ).order('created_at', { ascending: false }),
+    ).neq('status', 'cancelled').order('created_at', { ascending: false }),
   ]);
 
   if (error) {
@@ -145,6 +145,8 @@ export async function openDetail(id, user, onClose) {
   const preview = c.status === 'pending' ? await loadStepPreview(c.project_id, c.template_id, c.current_step) : {};
 
   const canEditNow = c.created_by === user.id && ['draft', 'rejected'].includes(c.status);
+  const isAdmin = (user.roles || []).includes('Admin');
+  const canCancel = isAdmin && ['draft', 'rejected'].includes(c.status);
   const isKscp = (user.roles || []).some((r) => ['Admin', 'QLCPHD_CV', 'QLCPHD_TP'].includes(r));
   const canExportPdf = c.current_step >= 3 || c.status === 'active'; // từ khi TỚI Bước 3 (không cần đợi duyệt xong), hoặc đã hoàn tất
   const box = modal.querySelector('.panel-box');
@@ -153,6 +155,7 @@ export async function openDetail(id, user, onClose) {
       <div style="display:flex;gap:6px;align-items:center">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
         ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditDocNumber">🔢 Sửa số hồ sơ</button>` : ''}
+        ${canCancel ? `<button class="btn btn-sm btn-danger" id="btnCancel">🗑️ Hủy hồ sơ</button>` : ''}
         ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditBudgetLines">🧮 Sửa mã ngân sách</button>` : ''}
         ${canExportPdf ? `<button class="btn btn-sm btn-secondary" id="btnExportPdf">🖨️ Xuất PDF (tờ cover)</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
@@ -180,6 +183,15 @@ export async function openDetail(id, user, onClose) {
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(c, user, onClose));
   box.querySelector('#btnEditBudgetLines')?.addEventListener('click', () => openBudgetLinesEditor(c, user, onClose));
+  box.querySelector('#btnCancel')?.addEventListener('click', async () => {
+    if (!confirm(`Hủy hồ sơ "${c.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
+    const reason = prompt('Lý do hủy (không bắt buộc):') || null;
+    loading(true);
+    const { error } = await supabase.rpc('fn_cancel_document', { p_doc_type: 'contract', p_doc_id: c.id, p_reason: reason });
+    if (error) return toast('Lỗi: ' + error.message, 'error');
+    toast('Đã hủy hồ sơ', 'success');
+    closeModal(modal, onClose);
+  });
   box.querySelector('#btnEditDocNumber')?.addEventListener('click', async () => {
     const newNumber = prompt('Sửa số hồ sơ (dùng khi nhập dữ liệu cũ — cần khớp đúng số hợp đồng thật đã ký):', c.doc_number);
     if (newNumber === null) return; // bấm Hủy
