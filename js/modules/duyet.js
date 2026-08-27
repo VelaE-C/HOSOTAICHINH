@@ -73,11 +73,12 @@ export async function render(container, user) {
 
   container.innerHTML = `
     ${overdueCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang trễ hạn duyệt — xem các dòng có nhãn đỏ bên dưới.</div>` : ''}
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị</th><th>Bước</th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị</th><th>Bước</th></tr></thead><tbody>
     ${rows
       .map(
         (r) => `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
-      <td><div class="mono">${r.docNumber}</div><div style="font-size:11px;color:var(--gray4);margin-top:2px">${r.projectCode || '—'}</div></td>
+      <td><span class="badge idle">${r.projectCode || '—'}</span></td>
+      <td class="mono">${r.docNumber}</td>
       <td>${r.label}</td>
       <td>${r.partner || '—'}</td>
       <td class="mono">${r.value != null ? fmt(r.value) : '—'}</td>
