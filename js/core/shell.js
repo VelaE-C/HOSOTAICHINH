@@ -21,19 +21,19 @@ const NAV = [
 // nên gộp (union) toàn bộ tab được phép của mọi vai trò họ đang giữ
 const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
-  CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  GDDA: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
+  CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  GDDA: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
   ChuyenVienPhongBan: ['hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
-  TruongPhongChucNang: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  PhapChe_CV: ['duyet', 'hopdong', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  PhapChe_TP: ['dashboard', 'duyet', 'hopdong', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  KeToan_Vien: ['duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  KeToan_Truong: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  QLCPHD_CV: ['duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  QLCPHD_TP: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'users'],
-  PTGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  TGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  Admin: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'users'],
+  TruongPhongChucNang: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  PhapChe_CV: ['duyet', 'hopdong', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  PhapChe_TP: ['dashboard', 'duyet', 'hopdong', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  KeToan_Vien: ['duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  KeToan_Truong: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  QLCPHD_CV: ['duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  QLCPHD_TP: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'users', 'hosocuatoi'],
+  PTGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  TGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  Admin: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'users', 'hosocuatoi'],
 };
 
 export function accessibleTabs(roles) {
