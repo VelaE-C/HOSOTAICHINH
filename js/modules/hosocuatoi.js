@@ -26,8 +26,8 @@ export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
   const [{ data: contracts }, { data: bills }, { data: totrinhs }] = await Promise.all([
-    supabase.from('contracts').select('id, doc_number, value, status, current_step, project_id, projects(code)').eq('created_by', user.id),
-    supabase.from('bills').select('id, doc_number, val_a, val_b, val_d, val_f, val_i, status, current_step, project_id, projects(code)').eq('created_by', user.id),
+    supabase.from('contracts').select('id, doc_number, value, status, current_step, project_id, partners(name), projects(code)').eq('created_by', user.id),
+    supabase.from('bills').select('id, doc_number, val_a, val_b, val_d, val_f, val_i, status, current_step, project_id, partners(name), projects(code)').eq('created_by', user.id),
     supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, projects(code)').eq('created_by', user.id),
   ]);
 
@@ -54,9 +54,9 @@ export async function render(container, user) {
   }
 
   const rows = [
-    ...(contracts || []).map((c) => ({ type: 'contract', label: 'Hợp đồng', id: c.id, docNumber: c.doc_number, projectCode: c.projects?.code, value: c.value, status: c.status, current_step: c.current_step, stepCreatedAt: stepCreatedMap[`contract:${c.id}:${c.current_step}`] })),
-    ...(bills || []).map((b) => ({ type: 'bill', label: 'Bill thanh toán', id: b.id, docNumber: b.doc_number, projectCode: b.projects?.code, value: Number(b.val_d) - 0.1 * Number(b.val_d) + Number(b.val_f) + Number(b.val_i), status: b.status, current_step: b.current_step, stepCreatedAt: stepCreatedMap[`bill:${b.id}:${b.current_step}`] })),
-    ...(totrinhs || []).map((t) => ({ type: 'totrinh', label: 'Tờ trình chủ trương', id: t.id, docNumber: t.doc_number, projectCode: t.projects?.code, value: null, status: t.status, current_step: t.current_step, stepCreatedAt: stepCreatedMap[`totrinh:${t.id}:${t.current_step}`] })),
+    ...(contracts || []).map((c) => ({ type: 'contract', label: 'Hợp đồng', id: c.id, docNumber: c.doc_number, projectCode: c.projects?.code, partner: c.partners?.name, value: c.value, status: c.status, current_step: c.current_step, stepCreatedAt: stepCreatedMap[`contract:${c.id}:${c.current_step}`] })),
+    ...(bills || []).map((b) => ({ type: 'bill', label: 'Bill thanh toán', id: b.id, docNumber: b.doc_number, projectCode: b.projects?.code, partner: b.partners?.name, value: Number(b.val_d) - 0.1 * Number(b.val_d) + Number(b.val_f) + Number(b.val_i), status: b.status, current_step: b.current_step, stepCreatedAt: stepCreatedMap[`bill:${b.id}:${b.current_step}`] })),
+    ...(totrinhs || []).map((t) => ({ type: 'totrinh', label: 'Tờ trình chủ trương', id: t.id, docNumber: t.doc_number, projectCode: t.projects?.code, partner: null, value: null, status: t.status, current_step: t.current_step, stepCreatedAt: stepCreatedMap[`totrinh:${t.id}:${t.current_step}`] })),
   ].sort((a, b) => priority(a) - priority(b));
 
   if (!rows.length) {
@@ -70,11 +70,13 @@ export async function render(container, user) {
   container.innerHTML = `
     ${rejectedCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:10px">🔴 <b>${rejectedCount} hồ sơ</b> đang bị từ chối — cần sửa và trình lại.</div>` : ''}
     ${overdueCount ? `<div style="font-size:12.5px;background:#FFF7ED;color:#B8790A;padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang chờ duyệt đã trễ hạn — nên bấm vào nhắc người duyệt.</div>` : ''}
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
     ${rows
       .map(
         (r) => `<tr class="click" data-type="${r.type}" data-id="${r.id}">
-      <td><div class="mono">${r.docNumber}</div><div style="font-size:11px;color:var(--gray4);margin-top:2px">${r.projectCode || '—'} · ${r.label}${r.status === 'pending' ? ' · Bước ' + r.current_step : ''}</div></td>
+      <td><div class="mono">${r.docNumber}</div><div style="font-size:11px;color:var(--gray4);margin-top:2px">${r.projectCode || '—'}${r.status === 'pending' ? ' · Bước ' + r.current_step : ''}</div></td>
+      <td>${r.label}</td>
+      <td>${r.partner || '—'}</td>
       <td class="mono">${r.value != null ? fmt(r.value) : '—'}</td>
       <td>${statusBadge(r.status)}${isOverdue(r) ? '<div style="color:var(--red);font-weight:700;font-size:11px;margin-top:2px">⚠️ Trễ</div>' : ''}</td>
     </tr>`,
