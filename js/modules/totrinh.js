@@ -151,7 +151,7 @@ export async function openDetail(id, user, onClose) {
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
     <div class="panel-header"><div><div>${t.doc_number}</div><div class="meta">${t.projects?.name || '—'}</div></div>
-      <div style="display:flex;gap:6px;align-items:center">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
         ${canExportPdf ? `<button class="btn btn-sm btn-secondary" id="btnExportPdf">🖨️ Xuất PDF (tờ cover)</button>` : ''}
         ${canCancel ? `<button class="btn btn-sm btn-danger" id="btnCancel">🗑️ Hủy hồ sơ</button>` : ''}
