@@ -18,7 +18,7 @@ export async function render(container, user) {
     (VIEW_PROJECT !== 'ALL'
       ? supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at').eq('project_id', VIEW_PROJECT)
       : supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at')
-    ).order('created_at', { ascending: false }),
+    ).neq('status', 'cancelled').order('created_at', { ascending: false }),
     supabase.from('contracts').select('to_trinh_id').not('to_trinh_id', 'is', null),
   ]);
 
@@ -146,12 +146,15 @@ export async function openDetail(id, user, onClose) {
 
   const canEditNow = t.created_by === user.id && ['draft', 'rejected'].includes(t.status);
   const canExportPdf = t.current_step >= 3 || t.status === 'active';
+  const isAdmin = (user.roles || []).includes('Admin');
+  const canCancel = isAdmin && ['draft', 'rejected'].includes(t.status);
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
     <div class="panel-header"><div><div>${t.doc_number}</div><div class="meta">${t.projects?.name || '—'}</div></div>
       <div style="display:flex;gap:6px;align-items:center">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
         ${canExportPdf ? `<button class="btn btn-sm btn-secondary" id="btnExportPdf">🖨️ Xuất PDF (tờ cover)</button>` : ''}
+        ${canCancel ? `<button class="btn btn-sm btn-danger" id="btnCancel">🗑️ Hủy hồ sơ</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
       </div></div>
     <div class="panel-body">
@@ -177,6 +180,15 @@ export async function openDetail(id, user, onClose) {
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(t, user, onClose));
   box.querySelector('#btnExportPdf')?.addEventListener('click', () => openPrintCoverSheet(t, assignments, logs));
+  box.querySelector('#btnCancel')?.addEventListener('click', async () => {
+    if (!confirm(`Hủy hồ sơ "${t.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
+    const reason = prompt('Lý do hủy (không bắt buộc):') || null;
+    loading(true);
+    const { error } = await supabase.rpc('fn_cancel_document', { p_doc_type: 'totrinh', p_doc_id: t.id, p_reason: reason });
+    if (error) return toast('Lỗi: ' + error.message, 'error');
+    toast('Đã hủy hồ sơ', 'success');
+    closeModal(modal, onClose);
+  });
   renderAttachments(box.querySelector('#attachArea'), 'totrinh', id, user.id, canEditNow);
   wireActions(box, 'totrinh', id, t.current_step, assignments, () => closeModal(modal, onClose));
 }
