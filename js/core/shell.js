@@ -29,7 +29,7 @@ const TAB_BY_ROLE = {
   PhapChe_TP: ['dashboard', 'duyet', 'hopdong', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
   KeToan_Vien: ['duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
   KeToan_Truong: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
-  QLCPHD_CV: ['duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  QLCPHD_CV: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
   QLCPHD_TP: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'users', 'hosocuatoi'],
   PTGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
   TGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
