@@ -12,18 +12,19 @@ export async function render(container, user) {
 
   const isTopLevel = (user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
 
-  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: overdueRaw }] =
+  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: overdueRaw }, { data: myDeptRoles }] =
     await Promise.all([
       supabase.from('projects').select('id, code, name').order('code'),
       supabase.from('v_budget_summary').select('*'),
       supabase.from('revenue_contracts').select('project_id, investor, value'),
       supabase.from('v_flagged_documents').select('*'),
-      supabase.from('contracts').select('id, doc_number, value, project_id, partners(name)'),
+      supabase.from('contracts').select('id, doc_number, value, project_id, origin_department, partners(name)'),
       supabase.from('bills').select('contract_id, val_d'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
       isTopLevel
         ? supabase.from('approval_assignments').select('document_type, document_id, step_no, created_at, users(full_name)').eq('status', 'pending')
         : Promise.resolve({ data: [] }),
+      supabase.from('user_roles').select('department').eq('user_id', user.id).eq('role_type', 'TruongPhongChucNang'),
     ]);
 
   // Khối "Vai trò của tôi" — tra cứu nhanh đang giữ vị trí gì, ở đâu, không cần lật từng hồ sơ
@@ -49,9 +50,16 @@ export async function render(container, user) {
   const myProjectIds = new Set((myAssignments || []).map((a) => a.project_id).filter(Boolean));
   const isSiteLimited = myProjectIds.size > 0 && !(user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
 
-  const budgetRowsFiltered = isSiteLimited ? (budgetRows || []).filter((r) => myProjectIds.has(r.project_id)) : budgetRows;
-  const revenueRowsFiltered = isSiteLimited ? (revenueRows || []).filter((r) => myProjectIds.has(r.project_id)) : revenueRows;
-  const contractsFiltered = isSiteLimited ? (contracts || []).filter((c) => myProjectIds.has(c.project_id)) : contracts;
+  // Trưởng phòng chức năng: tương đương GĐDA nhưng của PHÒNG BAN thay vì DỰ ÁN —
+  // chỉ thấy đúng hồ sơ do phòng mình trình (dựa vào origin_department, tự ghi lúc
+  // trình). Ngân sách/Doanh thu vốn là khái niệm THEO DỰ ÁN, phòng ban không sở hữu
+  // ngân sách riêng, nên KHÔNG hiện các khối đó cho diện này (tránh số liệu vô nghĩa).
+  const myDept = (myDeptRoles || [])[0]?.department || null;
+  const isDeptLimited = !isSiteLimited && !isTopLevel && !!myDept;
+
+  const budgetRowsFiltered = isSiteLimited ? (budgetRows || []).filter((r) => myProjectIds.has(r.project_id)) : isDeptLimited ? [] : budgetRows;
+  const revenueRowsFiltered = isSiteLimited ? (revenueRows || []).filter((r) => myProjectIds.has(r.project_id)) : isDeptLimited ? [] : revenueRows;
+  const contractsFiltered = isSiteLimited ? (contracts || []).filter((c) => myProjectIds.has(c.project_id)) : isDeptLimited ? (contracts || []).filter((c) => c.origin_department === myDept) : contracts;
 
   // Tổng hợp ngân sách 3 lớp — giờ ai cũng xem được (đã mở RLS), lọc theo dự án nếu cần
   const totBudget = (budgetRowsFiltered || []).reduce((s, r) => s + Number(r.allocated_value || 0), 0);
@@ -115,7 +123,7 @@ export async function render(container, user) {
         <div><div class="card-sub" style="margin:0">Giá trị HĐ CĐT</div><div class="stat-num">${tyi(totRevenue)}</div></div>
         <div><div class="card-sub" style="margin:0">Ngân sách phân bổ</div><div class="stat-num">${tyi(totBudget)}</div></div>
         <div><div class="card-sub" style="margin:0">Lợi nhuận đã bóc tách</div><div class="stat-num" style="color:${delta >= 0 ? 'var(--green)' : 'var(--red)'}">${delta >= 0 ? '+' : ''}${tyi(delta)}</div></div>
-      </div></div>` : `<div class="empty-note">Chưa có phiên bản ngân sách nào${isSiteLimited ? ' cho (các) dự án bạn phụ trách' : ''}.</div>`}
+      </div></div>` : isDeptLimited ? '' : `<div class="empty-note">Chưa có phiên bản ngân sách nào${isSiteLimited ? ' cho (các) dự án bạn phụ trách' : ''}.</div>`}
 
     ${flagged && flagged.length ? `
     <div class="card"><div class="card-title">⚠️ Hồ sơ đang có cảnh báo</div>
@@ -123,8 +131,8 @@ export async function render(container, user) {
       ${flagged.map((f) => `<tr><td>${f.doc_type === 'contract' ? 'Hợp đồng' : 'Bill'}</td><td class="mono">${f.doc_number}</td><td><span class="badge progress">${f.flag_reason}</span></td></tr>`).join('')}
       </tbody></table></div>` : ''}
 
-    <div class="card"><div class="card-title">Danh sách đơn vị đã ký hợp đồng</div>
-      <div class="card-sub">Giá trị hợp đồng so với giá trị lũy kế đã bill</div>
+    <div class="card"><div class="card-title">Danh sách đơn vị đã ký hợp đồng${isDeptLimited ? ` — ${myDept}` : ''}</div>
+      <div class="card-sub">Giá trị hợp đồng so với giá trị lũy kế đã bill${isDeptLimited ? ' — chỉ hồ sơ do phòng bạn trình' : ''}</div>
       <table><thead><tr><th>Đối tác</th><th>Số hợp đồng</th><th>Giá trị HĐ</th><th>GT lũy kế bill</th><th>Còn lại</th></tr></thead><tbody>
       ${unitRows.length ? unitRows.map((u) => `<tr><td>${u.partner}</td><td class="mono">${u.docNumber}</td><td class="mono">${fmt(u.value)}</td>
       <td class="mono">${fmt(u.lũyKe)}</td><td class="mono" style="font-weight:700;color:${u.over ? 'var(--red)' : 'var(--green)'}">${fmt(u.left)}${u.over ? ' ⚠️' : ''}</td></tr>`).join('') :
