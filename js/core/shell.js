@@ -7,6 +7,7 @@ import { supabase } from './config.js';
 const NAV = [
   { id: 'dashboard', label: 'Tổng quan', icon: '📊', group: 'TỔNG QUAN', bn: true, title: 'Tổng quan', sub: 'Tình hình tài chính dự án theo thời gian thực' },
   { id: 'duyet', label: 'Duyệt hồ sơ', icon: '✅', group: 'HỒ SƠ', bn: true, title: 'Hộp thư chờ duyệt', sub: 'Hồ sơ đang chờ bạn xử lý — gộp mọi dự án' },
+  { id: 'hosocuatoi', label: 'Hồ sơ của tôi', icon: '📤', group: 'HỒ SƠ', bn: true, title: 'Hồ sơ của tôi', sub: 'Hồ sơ bạn đã trình — theo dõi tiến độ, nhắc duyệt' },
   { id: 'hopdong', label: 'Hợp đồng', icon: '📄', group: 'HỒ SƠ', bn: true, title: 'Hợp đồng đầu vào', sub: 'Thầu phụ, nhà cung cấp' },
   { id: 'bill', label: 'Bill thanh toán', icon: '💵', group: 'HỒ SƠ', bn: true, title: 'Bill thanh toán theo kỳ', sub: 'Tạm ứng, thanh toán sản lượng, quyết toán' },
   { id: 'totrinh', label: 'Tờ trình chủ trương', icon: '🗂️', group: 'HỒ SƠ', more: true, title: 'Tờ trình phê duyệt chủ trương', sub: 'Căn cứ cho hợp đồng' },
@@ -19,10 +20,10 @@ const NAV = [
 // Đúng theo bảng phân quyền mục 9 concept — 1 người có thể giữ nhiều vai trò,
 // nên gộp (union) toàn bộ tab được phép của mọi vai trò họ đang giữ
 const TAB_BY_ROLE = {
-  QS: ['hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
+  QS: ['hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
   CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
   GDDA: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
-  ChuyenVienPhongBan: ['hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
+  ChuyenVienPhongBan: ['hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
   TruongPhongChucNang: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
   PhapChe_CV: ['duyet', 'hopdong', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
   PhapChe_TP: ['dashboard', 'duyet', 'hopdong', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac'],
@@ -61,6 +62,21 @@ async function refreshPendingBadge() {
   });
 }
 
+// Đếm số hồ sơ CHÍNH MÌNH đã trình mà bị từ chối — cập nhật huy hiệu đỏ cạnh "Hồ sơ của tôi"
+async function refreshMyRejectedBadge() {
+  if (!CURRENT_USER) return;
+  const [c, b, t] = await Promise.all([
+    supabase.from('contracts').select('id', { count: 'exact', head: true }).eq('created_by', CURRENT_USER.id).eq('status', 'rejected'),
+    supabase.from('bills').select('id', { count: 'exact', head: true }).eq('created_by', CURRENT_USER.id).eq('status', 'rejected'),
+    supabase.from('to_trinh_chu_truong').select('id', { count: 'exact', head: true }).eq('created_by', CURRENT_USER.id).eq('status', 'rejected'),
+  ]);
+  const n = (c.count || 0) + (b.count || 0) + (t.count || 0);
+  document.querySelectorAll('[data-badge="hosocuatoi"]').forEach((el) => {
+    el.textContent = n > 99 ? '99+' : n;
+    el.style.display = n > 0 ? 'inline-flex' : 'none';
+  });
+}
+
 export function renderShell(user) {
   CURRENT_USER = user;
   const visibleNav = accessibleTabs(user.roles);
@@ -92,6 +108,7 @@ export function renderShell(user) {
   buildSidebar(visibleNav);
   buildBottomNav(visibleNav);
   refreshPendingBadge();
+  refreshMyRejectedBadge();
 
   document.getElementById('btnLogout').addEventListener('click', async () => {
     await supabase.auth.signOut();
@@ -137,7 +154,7 @@ function buildSidebar(visibleNav) {
       html += `<div class="sb-group">${n.group}</div>`;
       lastGroup = n.group;
     }
-    html += `<button class="sb-item" data-nav="${n.id}"><span class="sb-icon">${n.icon}</span>${n.label}${n.id === 'duyet' ? `<span class="sb-badge" data-badge="duyet" style="display:none"></span>` : ''}</button>`;
+    html += `<button class="sb-item" data-nav="${n.id}"><span class="sb-icon">${n.icon}</span>${n.label}${n.id === 'duyet' || n.id === 'hosocuatoi' ? `<span class="sb-badge" data-badge="${n.id}" style="display:none"></span>` : ''}</button>`;
   });
   document.getElementById('sidebar').innerHTML = html;
   document.querySelectorAll('.sb-item').forEach((b) =>
@@ -152,7 +169,7 @@ function buildBottomNav(visibleNav) {
   const bnItems = visibleNav.filter((n) => n.bn);
   const moreItems = visibleNav.filter((n) => n.more);
   let html = bnItems
-    .map((n) => `<button class="bn-item" data-nav="${n.id}"><span class="bn-icon">${n.icon}${n.id === 'duyet' ? `<span class="sb-badge bn-badge" data-badge="duyet" style="display:none"></span>` : ''}</span>${n.label}</button>`)
+    .map((n) => `<button class="bn-item" data-nav="${n.id}"><span class="bn-icon">${n.icon}${n.id === 'duyet' || n.id === 'hosocuatoi' ? `<span class="sb-badge bn-badge" data-badge="${n.id}" style="display:none"></span>` : ''}</span>${n.label}</button>`)
     .join('');
   if (moreItems.length) html += `<button class="bn-item" id="bnMore"><span class="bn-icon">⋯</span>Thêm</button>`;
   document.getElementById('bnInner').innerHTML = html;
@@ -192,6 +209,7 @@ export async function switchView(id) {
   const container = document.getElementById('view-content');
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
   refreshPendingBadge(); // cập nhật lại mỗi lần chuyển tab — bắt kịp ngay sau khi vừa duyệt/từ chối xong 1 hồ sơ
+  refreshMyRejectedBadge();
   try {
     const mod = await loadModule(id);
     await mod.render(container, CURRENT_USER);
