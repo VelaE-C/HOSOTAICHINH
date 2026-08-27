@@ -73,21 +73,23 @@ export async function render(container, user) {
 
   container.innerHTML = `
     ${overdueCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang trễ hạn duyệt — xem các dòng có nhãn đỏ bên dưới.</div>` : ''}
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Loại</th><th>Số hồ sơ</th><th>Đối tác</th><th>Giá trị</th><th>Bước</th><th></th><th></th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Đối tác</th><th>Giá trị</th><th>Bước</th></tr></thead><tbody>
     ${rows
       .map(
-        (r) => `<tr><td><span class="badge idle">${r.projectCode || '—'}</span></td><td>${r.label}</td><td class="mono">${r.docNumber}</td><td>${r.partner}</td>
-      <td class="mono">${r.value != null ? fmt(r.value) : '—'}</td><td>Bước ${r.step_no}</td>
-      <td>${isOverdue(r) ? '<span style="color:var(--red);font-weight:700;font-size:12px">⚠️ Trễ</span>' : ''}</td>
-      <td style="text-align:right"><button class="btn btn-sm btn-secondary" data-type="${r.document_type}" data-id="${r.document_id}">Xem &amp; duyệt</button></td></tr>`,
+        (r) => `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
+      <td><div class="mono">${r.docNumber}</div><div style="font-size:11px;color:var(--gray4);margin-top:2px">${r.projectCode || '—'} · ${r.label}</div></td>
+      <td>${r.partner}</td>
+      <td class="mono">${r.value != null ? fmt(r.value) : '—'}</td>
+      <td>Bước ${r.step_no}${isOverdue(r) ? '<div style="color:var(--red);font-weight:700;font-size:11px;margin-top:2px">⚠️ Trễ</div>' : ''}</td>
+    </tr>`,
       )
       .join('')}
     </tbody></table></div>`;
 
-  container.querySelectorAll('[data-type]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      const type = btn.dataset.type;
-      const id = btn.dataset.id;
+  container.querySelectorAll('[data-type]').forEach((row) =>
+    row.addEventListener('click', async () => {
+      const type = row.dataset.type;
+      const id = row.dataset.id;
       const mod = await import(`./${type === 'contract' ? 'hopdong' : type === 'bill' ? 'bill' : 'totrinh'}.js`);
       mod.openDetail(id, user, () => render(container, user));
     }),
