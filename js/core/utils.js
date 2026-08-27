@@ -37,6 +37,7 @@ export function statusBadge(status) {
   const done = ['active', 'paid', 'closed'];
   const progress = 'pending';
   const danger = 'rejected';
+  if (status === 'cancelled') return `<span class="badge idle" style="text-decoration:line-through">Đã hủy</span>`;
   if (done.includes(status)) return `<span class="badge done">● ${status}</span>`;
   if (status === progress) return `<span class="badge progress">● Đang duyệt</span>`;
   if (status === danger) return `<span class="badge danger">● Từ chối</span>`;
