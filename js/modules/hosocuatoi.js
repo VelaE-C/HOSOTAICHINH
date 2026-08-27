@@ -70,11 +70,12 @@ export async function render(container, user) {
   container.innerHTML = `
     ${rejectedCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:10px">🔴 <b>${rejectedCount} hồ sơ</b> đang bị từ chối — cần sửa và trình lại.</div>` : ''}
     ${overdueCount ? `<div style="font-size:12.5px;background:#FFF7ED;color:#B8790A;padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang chờ duyệt đã trễ hạn — nên bấm vào nhắc người duyệt.</div>` : ''}
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
     ${rows
       .map(
         (r) => `<tr class="click" data-type="${r.type}" data-id="${r.id}">
-      <td><div class="mono">${r.docNumber}</div><div style="font-size:11px;color:var(--gray4);margin-top:2px">${r.projectCode || '—'}${r.status === 'pending' ? ' · Bước ' + r.current_step : ''}</div></td>
+      <td><span class="badge idle">${r.projectCode || '—'}</span></td>
+      <td><div class="mono">${r.docNumber}</div>${r.status === 'pending' ? `<div style="font-size:11px;color:var(--gray4);margin-top:2px">Bước ${r.current_step}</div>` : ''}</td>
       <td>${r.label}</td>
       <td>${r.partner || '—'}</td>
       <td class="mono">${r.value != null ? fmt(r.value) : '—'}</td>
