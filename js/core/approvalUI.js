@@ -86,7 +86,7 @@ export function railHtml(assignments, currentStep, preview = {}) {
 
 export function timelineHtml(logs) {
   if (!logs.length) return `<div class="empty-note" style="padding:16px 0">Chưa có lịch sử</div>`;
-  const actionLabel = { submit: 'Trình hồ sơ', resubmit: 'Trình lại', approve: 'Đã duyệt', reject: 'Từ chối', edit_budget: 'Điều chỉnh mã ngân sách (QLCP&HĐ)', edit_doc_number: 'Sửa số hồ sơ (QLCP&HĐ)' };
+  const actionLabel = { submit: 'Trình hồ sơ', resubmit: 'Trình lại', approve: 'Đã duyệt', reject: 'Từ chối', edit_budget: 'Điều chỉnh mã ngân sách (QLCP&HĐ)', edit_doc_number: 'Sửa số hồ sơ (QLCP&HĐ)', cancel: 'Đã hủy hồ sơ (Admin)' };
   return logs
     .map(
       (l) => `<div class="tl-item">
