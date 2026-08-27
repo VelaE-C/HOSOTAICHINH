@@ -152,7 +152,7 @@ function buildBottomNav(visibleNav) {
   const bnItems = visibleNav.filter((n) => n.bn);
   const moreItems = visibleNav.filter((n) => n.more);
   let html = bnItems
-    .map((n) => `<button class="bn-item" data-nav="${n.id}"><span class="bn-icon">${n.icon}${n.id === 'duyet' ? `<span class="sb-badge bn-badge" data-badge="duyet" style="display:none"></span>` : ''}</span>${n.label.split(' ')[0]}</button>`)
+    .map((n) => `<button class="bn-item" data-nav="${n.id}"><span class="bn-icon">${n.icon}${n.id === 'duyet' ? `<span class="sb-badge bn-badge" data-badge="duyet" style="display:none"></span>` : ''}</span>${n.label}</button>`)
     .join('');
   if (moreItems.length) html += `<button class="bn-item" id="bnMore"><span class="bn-icon">⋯</span>Thêm</button>`;
   document.getElementById('bnInner').innerHTML = html;
