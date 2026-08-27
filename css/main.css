@@ -171,4 +171,24 @@ tr.click:hover td{background:var(--lblue);}
   .panel-header{border-radius:0;}
   .panel-footer{border-radius:0;}
   .panel-close{width:40px;height:40px;font-size:18px;}
+
+  /* Nguyên nhân 2 — khối "Dự án/Giá trị/Trạng thái..." có cột nhãn cố định
+     150px, trên màn hẹp giá trị dài (VD tên tờ trình, ghi chú) bị đẩy tràn ra
+     ngoài. Xếp chồng nhãn lên trên, giá trị xuống dưới — không còn giới hạn
+     bề ngang nào để tràn nữa. */
+  .kv{grid-template-columns:1fr;gap:2px 0;}
+  .kv .k{font-size:11.5px;color:var(--gray4);margin-top:8px;}
+  .kv .k:first-child{margin-top:0;}
+
+  /* Nguyên nhân 3 — luồng phê duyệt (rail) ép 4 bước nằm ngang, mỗi bước chỉ
+     còn ~1/4 bề ngang màn hình — tên người + vai trò dài bị tràn ra khỏi ô của
+     mình. Xếp dọc từng bước trên mobile (icon bên trái, chữ xếp dọc bên phải),
+     mỗi bước chiếm trọn bề ngang. */
+  .rail{flex-direction:column;align-items:stretch;gap:16px;}
+  .rail-step{display:grid;grid-template-columns:30px 1fr;column-gap:10px;text-align:left;align-items:start;}
+  .rail-step:not(:last-child)::after{display:none;}
+  .rail-node{grid-row:1/3;margin:0;}
+  .rail-label{grid-column:2;}
+  .rail-people{grid-column:2;align-items:flex-start;margin-top:3px;}
+  .pp{flex-wrap:wrap;word-break:break-word;}
 }
