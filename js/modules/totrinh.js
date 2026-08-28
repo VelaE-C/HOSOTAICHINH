@@ -287,24 +287,9 @@ async function openCreateModal(user, onClose) {
       const { data: debugInfo } = await supabase.rpc('debug_whoami');
       const { data: canSubmit, error: canSubmitErr } = await supabase.rpc('can_submit_document', { p_project_id: project_id, p_template_id: template_id || null });
       const { data: realInsertTest } = await supabase.rpc('debug_try_totrinh_insert', { p_project_id: project_id, p_template_id: template_id || null });
-      alert(
-        'LỖI: ' + error.message +
-        '\n\n--- Thông tin chẩn đoán ---' +
-        '\nJWT email: ' + debugInfo?.[0]?.jwt_email +
-        '\napp_uid(): ' + debugInfo?.[0]?.app_uid_result +
-        '\nEmail khớp với ID đó: ' + debugInfo?.[0]?.matched_user_email +
-        '\n\n--- So sánh created_by với app_uid() ---' +
-        '\nuser.id (created_by sắp gửi): ' + user.id +
-        '\napp_uid() vừa tính: ' + debugInfo?.[0]?.app_uid_result +
-        '\nCÓ KHỚP NHAU KHÔNG: ' + (user.id === debugInfo?.[0]?.app_uid_result ? 'CÓ — khớp' : '❌ KHÔNG KHỚP — ĐÂY LÀ LỖI') +
-        '\n\n--- Gọi thẳng can_submit_document NGAY LÚC LỖI THẬT ---' +
-        '\nproject_id gửi đi: ' + project_id +
-        '\ntemplate_id gửi đi: ' + (template_id || null) +
-        '\nKết quả can_submit_document: ' + JSON.stringify(canSubmit) +
-        '\nLỗi khi gọi (nếu có): ' + (canSubmitErr ? canSubmitErr.message : '(không có lỗi)') +
-        '\n\n--- BÀI TEST INSERT THẬT (nghiêm ngặt nhất) ---' +
-        '\n' + JSON.stringify(realInsertTest, null, 2)
-      );
+      console.log('=== KẾT QUẢ CHẨN ĐOÁN ĐẦY ĐỦ ===');
+      console.log(JSON.stringify({ debugInfo, canSubmit, canSubmitErr, realInsertTest }, null, 2));
+      alert('Đã in đầy đủ kết quả ra Console (F12) — tìm dòng "=== KẾT QUẢ CHẨN ĐOÁN ĐẦY ĐỦ ===" rồi copy toàn bộ đoạn JSON ngay bên dưới nó.');
       // ---- HẾT ĐOẠN CHẨN ĐOÁN TẠM THỜI ----
       return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
     }
