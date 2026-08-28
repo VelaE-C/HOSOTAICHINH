@@ -286,6 +286,7 @@ async function openCreateModal(user, onClose) {
       // ---- CHẨN ĐOÁN TẠM THỜI — xóa đoạn này sau khi tìm ra nguyên nhân ----
       const { data: debugInfo } = await supabase.rpc('debug_whoami');
       const { data: canSubmit, error: canSubmitErr } = await supabase.rpc('can_submit_document', { p_project_id: project_id, p_template_id: template_id || null });
+      const { data: realInsertTest } = await supabase.rpc('debug_try_totrinh_insert', { p_project_id: project_id, p_template_id: template_id || null });
       alert(
         'LỖI: ' + error.message +
         '\n\n--- Thông tin chẩn đoán ---' +
@@ -300,7 +301,9 @@ async function openCreateModal(user, onClose) {
         '\nproject_id gửi đi: ' + project_id +
         '\ntemplate_id gửi đi: ' + (template_id || null) +
         '\nKết quả can_submit_document: ' + JSON.stringify(canSubmit) +
-        '\nLỗi khi gọi (nếu có): ' + (canSubmitErr ? canSubmitErr.message : '(không có lỗi)')
+        '\nLỗi khi gọi (nếu có): ' + (canSubmitErr ? canSubmitErr.message : '(không có lỗi)') +
+        '\n\n--- BÀI TEST INSERT THẬT (nghiêm ngặt nhất) ---' +
+        '\n' + JSON.stringify(realInsertTest, null, 2)
       );
       // ---- HẾT ĐOẠN CHẨN ĐOÁN TẠM THỜI ----
       return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
