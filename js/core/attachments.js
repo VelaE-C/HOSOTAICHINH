@@ -8,7 +8,15 @@ import { supabase } from './config.js';
 import { toast, loading } from './utils.js';
 
 const MAX_FILES = 10;
-const BUCKET = 'attachments';
+
+// Gọi Edge Function r2-storage — giữ chìa khóa Cloudflare R2 an toàn ở phía
+// server, trình duyệt chỉ nhận lại URL đã ký sẵn để tự upload/xem/xóa trực
+// tiếp với R2, không cần đi qua Supabase Storage nữa.
+async function r2Call(action, path, contentType) {
+  const { data, error } = await supabase.functions.invoke('r2-storage', { body: { action, path, contentType } });
+  if (error) throw new Error(error.message || 'Lỗi gọi tới kho lưu trữ');
+  return data;
+}
 
 function fileIcon(name) {
   if (/\.pdf$/i.test(name)) return '📕';
@@ -88,9 +96,12 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
     container.querySelectorAll('[data-open-file]').forEach((el) =>
       el.addEventListener('click', async (e) => {
         if (e.target.closest('[data-del-file]')) return; // bấm nút xóa thì không mở file
-        const { data, error: signErr } = await supabase.storage.from(BUCKET).createSignedUrl(el.dataset.path, 3600);
-        if (signErr) return toast('Không mở được file: ' + signErr.message, 'error');
-        window.open(viewableUrl(el.dataset.path, data.signedUrl), '_blank');
+        try {
+          const { url } = await r2Call('get-url', el.dataset.path);
+          window.open(viewableUrl(el.dataset.path, url), '_blank');
+        } catch (err) {
+          toast('Không mở được file: ' + err.message, 'error');
+        }
       }),
     );
 
@@ -98,7 +109,11 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
       el.addEventListener('click', async (ev) => {
         ev.stopPropagation();
         if (!confirm('Xóa file này khỏi hồ sơ?')) return;
-        await supabase.storage.from(BUCKET).remove([el.dataset.path]);
+        try {
+          await r2Call('delete', el.dataset.path);
+        } catch (err) {
+          toast('Lỗi xóa file trên kho lưu trữ: ' + err.message, 'error');
+        }
         await supabase.from('attachments').delete().eq('id', el.dataset.delFile);
         toast('Đã xóa file', 'success');
         refresh();
@@ -113,9 +128,12 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
     }
     loading(true, `Đang tải lên: ${file.name}`);
     const path = `${ownerType}/${ownerId}/${Date.now()}_${file.name.replace(/[^\w.\-]/g, '_')}`;
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file);
-    if (upErr) {
-      toast(`Lỗi tải file "${file.name}": ${upErr.message}`, 'error');
+    try {
+      const { uploadUrl } = await r2Call('upload-url', path, file.type || 'application/octet-stream');
+      const putRes = await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } });
+      if (!putRes.ok) throw new Error(`Kho lưu trữ từ chối (mã ${putRes.status})`);
+    } catch (err) {
+      toast(`Lỗi tải file "${file.name}": ${err.message}`, 'error');
       return;
     }
     const { error: insErr } = await supabase.from('attachments').insert({
@@ -196,9 +214,12 @@ export async function uploadStagedFiles(files, ownerType, ownerId, uploaderId) {
   loading(true, `Đang tải lên ${files.length} file đính kèm…`);
   for (const file of files) {
     const path = `${ownerType}/${ownerId}/${Date.now()}_${file.name.replace(/[^\w.\-]/g, '_')}`;
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file);
-    if (upErr) {
-      toast(`Lỗi tải file "${file.name}": ${upErr.message}`, 'error');
+    try {
+      const { uploadUrl } = await r2Call('upload-url', path, file.type || 'application/octet-stream');
+      const putRes = await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } });
+      if (!putRes.ok) throw new Error(`Kho lưu trữ từ chối (mã ${putRes.status})`);
+    } catch (err) {
+      toast(`Lỗi tải file "${file.name}": ${err.message}`, 'error');
       continue;
     }
     const { error: insErr } = await supabase.from('attachments').insert({
