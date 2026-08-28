@@ -414,12 +414,19 @@ async function openCreateModal(user, onClose) {
     if (Math.abs(sumLines - value) > 1) return toast(`Tổng chia mã ngân sách (${sumLines.toLocaleString('vi-VN')}) phải khớp đúng giá trị hợp đồng (${value.toLocaleString('vi-VN')})`, 'error');
     loading(true);
 
-    const { data: newContract, error } = await supabase
-      .from('contracts')
-      .insert({ project_id, partner_id, contract_type, value, signed_date, retention_rate, vat_rate, template_id: template_id || null, to_trinh_id, created_by: user.id, status: 'draft' })
-      .select('id')
-      .single();
+    const { data: newContractId, error } = await supabase.rpc('fn_create_contract', {
+      p_project_id: project_id,
+      p_partner_id: partner_id,
+      p_contract_type: contract_type,
+      p_value: value,
+      p_signed_date: signed_date,
+      p_retention_rate: retention_rate,
+      p_vat_rate: vat_rate,
+      p_template_id: template_id || null,
+      p_to_trinh_id: to_trinh_id,
+    });
     if (error) return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
+    const newContract = { id: newContractId };
 
     await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: newContract.id, budget_code: l.budget_code, value: l.value })));
     await uploadStagedFiles(filePicker.getFiles(), 'contract', newContract.id, user.id);
