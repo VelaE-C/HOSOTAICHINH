@@ -285,7 +285,19 @@ async function openCreateModal(user, onClose) {
     if (error) {
       // ---- CHẨN ĐOÁN TẠM THỜI — xóa đoạn này sau khi tìm ra nguyên nhân ----
       const { data: debugInfo } = await supabase.rpc('debug_whoami');
-      alert('LỖI: ' + error.message + '\n\n--- Thông tin chẩn đoán ---\nJWT email: ' + debugInfo?.[0]?.jwt_email + '\napp_uid(): ' + debugInfo?.[0]?.app_uid_result + '\nEmail khớp với ID đó: ' + debugInfo?.[0]?.matched_user_email);
+      const { data: canSubmit, error: canSubmitErr } = await supabase.rpc('can_submit_document', { p_project_id: project_id, p_template_id: template_id || null });
+      alert(
+        'LỖI: ' + error.message +
+        '\n\n--- Thông tin chẩn đoán ---' +
+        '\nJWT email: ' + debugInfo?.[0]?.jwt_email +
+        '\napp_uid(): ' + debugInfo?.[0]?.app_uid_result +
+        '\nEmail khớp với ID đó: ' + debugInfo?.[0]?.matched_user_email +
+        '\n\n--- Gọi thẳng can_submit_document NGAY LÚC LỖI THẬT ---' +
+        '\nproject_id gửi đi: ' + project_id +
+        '\ntemplate_id gửi đi: ' + (template_id || null) +
+        '\nKết quả can_submit_document: ' + JSON.stringify(canSubmit) +
+        '\nLỗi khi gọi (nếu có): ' + (canSubmitErr ? canSubmitErr.message : '(không có lỗi)')
+      );
       // ---- HẾT ĐOẠN CHẨN ĐOÁN TẠM THỜI ----
       return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
     }
