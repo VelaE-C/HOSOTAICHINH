@@ -282,7 +282,13 @@ async function openCreateModal(user, onClose) {
       .insert({ project_id, title, content, signed_date, template_id: template_id || null, created_by: user.id, status: 'draft' })
       .select('id')
       .single();
-    if (error) return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
+    if (error) {
+      // ---- CHẨN ĐOÁN TẠM THỜI — xóa đoạn này sau khi tìm ra nguyên nhân ----
+      const { data: debugInfo } = await supabase.rpc('debug_whoami');
+      alert('LỖI: ' + error.message + '\n\n--- Thông tin chẩn đoán ---\nJWT email: ' + debugInfo?.[0]?.jwt_email + '\napp_uid(): ' + debugInfo?.[0]?.app_uid_result + '\nEmail khớp với ID đó: ' + debugInfo?.[0]?.matched_user_email);
+      // ---- HẾT ĐOẠN CHẨN ĐOÁN TẠM THỜI ----
+      return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
+    }
 
     await uploadStagedFiles(filePicker.getFiles(), 'totrinh', newDoc.id, user.id);
 
