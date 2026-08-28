@@ -292,6 +292,10 @@ async function openCreateModal(user, onClose) {
         '\nJWT email: ' + debugInfo?.[0]?.jwt_email +
         '\napp_uid(): ' + debugInfo?.[0]?.app_uid_result +
         '\nEmail khớp với ID đó: ' + debugInfo?.[0]?.matched_user_email +
+        '\n\n--- So sánh created_by với app_uid() ---' +
+        '\nuser.id (created_by sắp gửi): ' + user.id +
+        '\napp_uid() vừa tính: ' + debugInfo?.[0]?.app_uid_result +
+        '\nCÓ KHỚP NHAU KHÔNG: ' + (user.id === debugInfo?.[0]?.app_uid_result ? 'CÓ — khớp' : '❌ KHÔNG KHỚP — ĐÂY LÀ LỖI') +
         '\n\n--- Gọi thẳng can_submit_document NGAY LÚC LỖI THẬT ---' +
         '\nproject_id gửi đi: ' + project_id +
         '\ntemplate_id gửi đi: ' + (template_id || null) +
