@@ -277,22 +277,15 @@ async function openCreateModal(user, onClose) {
     if (!project_id || !title) return toast('Điền đủ Dự án và Tiêu đề trước khi lưu', 'error');
     loading(true);
 
-    const { data: newDoc, error } = await supabase
-      .from('to_trinh_chu_truong')
-      .insert({ project_id, title, content, signed_date, template_id: template_id || null, created_by: user.id, status: 'draft' })
-      .select('id')
-      .single();
-    if (error) {
-      // ---- CHẨN ĐOÁN TẠM THỜI — xóa đoạn này sau khi tìm ra nguyên nhân ----
-      const { data: debugInfo } = await supabase.rpc('debug_whoami');
-      const { data: canSubmit, error: canSubmitErr } = await supabase.rpc('can_submit_document', { p_project_id: project_id, p_template_id: template_id || null });
-      const { data: realInsertTest } = await supabase.rpc('debug_try_totrinh_insert', { p_project_id: project_id, p_template_id: template_id || null });
-      console.log('=== KẾT QUẢ CHẨN ĐOÁN ĐẦY ĐỦ ===');
-      console.log(JSON.stringify({ debugInfo, canSubmit, canSubmitErr, realInsertTest }, null, 2));
-      alert('Đã in đầy đủ kết quả ra Console (F12) — tìm dòng "=== KẾT QUẢ CHẨN ĐOÁN ĐẦY ĐỦ ===" rồi copy toàn bộ đoạn JSON ngay bên dưới nó.');
-      // ---- HẾT ĐOẠN CHẨN ĐOÁN TẠM THỜI ----
-      return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
-    }
+    const { data: newDocId, error } = await supabase.rpc('fn_create_totrinh', {
+      p_project_id: project_id,
+      p_title: title,
+      p_content: content,
+      p_signed_date: signed_date,
+      p_template_id: template_id || null,
+    });
+    if (error) return toast('Lỗi tạo tờ trình: ' + error.message, 'error');
+    const newDoc = { id: newDocId };
 
     await uploadStagedFiles(filePicker.getFiles(), 'totrinh', newDoc.id, user.id);
 
