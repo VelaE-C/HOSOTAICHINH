@@ -676,12 +676,27 @@ async function openCreateModal(user, onClose) {
     }
 
     loading(true);
-    const { data: newBill, error } = await supabase
-      .from('bills')
-      .insert({ project_id, contract_id, partner_id, period_no, scope, signed_date, val_a, val_b, val_d, val_f, val_i, val_h, deduction_note: deduction_note || null, retention_rate, vat_rate, checklist_required, template_id: template_id || null, created_by: user.id, status: 'draft' })
-      .select('id')
-      .single();
+    const { data: newBillId, error } = await supabase.rpc('fn_create_bill', {
+      p_project_id: project_id,
+      p_contract_id: contract_id,
+      p_partner_id: partner_id,
+      p_period_no: period_no,
+      p_scope: scope,
+      p_signed_date: signed_date,
+      p_val_a: val_a,
+      p_val_b: val_b,
+      p_val_d: val_d,
+      p_val_f: val_f,
+      p_val_i: val_i,
+      p_val_h: val_h,
+      p_deduction_note: deduction_note || null,
+      p_retention_rate: retention_rate,
+      p_vat_rate: vat_rate,
+      p_checklist_required: checklist_required,
+      p_template_id: template_id || null,
+    });
     if (error) return toast('Lỗi tạo bill: ' + error.message, 'error');
+    const newBill = { id: newBillId };
 
     // Chia mã ngân sách: nếu hợp đồng có nhiều mã, lưu đúng từng phần D theo mã (không lưu K —
     // K là số tiền thanh toán thực tế đã trừ tạm ứng/giữ lại, không phản ánh đúng "đã dùng ngân sách");
