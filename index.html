@@ -5,9 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VELA · Hồ sơ Tài chính</title>
 <link rel="stylesheet" href="css/main.css">
+
+<!-- Cho phép cài app lên màn hình chính (PWA) -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1e293b">
+
+<!-- Hỗ trợ riêng cho iPhone/iPad (Safari không đọc manifest.json đầy đủ) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="VELA TC">
+<link rel="apple-touch-icon" href="https://raw.githubusercontent.com/VelaE-C/HOSOTAICHINH/refs/heads/main/LOGO%20DUNG.JPEG.png">
 </head>
 <body>
   <div id="app-root"></div>
   <script type="module" src="js/main.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    }
+  </script>
 </body>
 </html>
