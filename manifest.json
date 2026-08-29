@@ -1,0 +1,21 @@
+{
+  "name": "VELA Hồ Sơ Tài Chính",
+  "short_name": "VELA TC",
+  "start_url": "/HOSOTAICHINH/",
+  "scope": "/HOSOTAICHINH/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1e293b",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/VelaE-C/HOSOTAICHINH/refs/heads/main/LOGO%20DUNG.JPEG.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/VelaE-C/HOSOTAICHINH/refs/heads/main/LOGO%20DUNG.JPEG.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
