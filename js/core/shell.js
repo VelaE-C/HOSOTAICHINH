@@ -60,6 +60,15 @@ async function refreshPendingBadge() {
     el.textContent = n > 99 ? '99+' : n;
     el.style.display = n > 0 ? 'inline-flex' : 'none';
   });
+
+  // Hiện số đỏ lên icon app ngoài màn hình chính (nếu đã "Cài đặt"/"Thêm vào
+  // màn hình chính") — chỉ hoạt động trên trình duyệt hỗ trợ (Android/Desktop
+  // Chrome tốt, iPhone hạn chế hơn tùy phiên bản iOS). Chỉ cập nhật đúng lúc
+  // mở app lên, không real-time khi app đang đóng.
+  if ('setAppBadge' in navigator) {
+    if (n > 0) navigator.setAppBadge(n).catch(() => {});
+    else navigator.clearAppBadge().catch(() => {});
+  }
 }
 
 // Đếm số hồ sơ CHÍNH MÌNH đã trình mà bị từ chối — cập nhật huy hiệu đỏ cạnh "Hồ sơ của tôi"
