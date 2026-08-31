@@ -3,7 +3,11 @@
 // Công thức: C=A+B | E=-10%×D | G = F==0 ? 0 : -F×(D/(0.8×A)) | H=D+E+F+G | J=H+I
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue } from '../core/utils.js';
+
+// Đối tác dùng chung cho ô gõ-tìm ở cả 2 form (Tạo mới / Sửa)
+const partnerLabelFn = (p) => p.name;
+const partnerSubFn = (p) => `(MST ${p.mst})`;
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
@@ -440,7 +444,7 @@ async function openEditModal(bill, user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
         <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" ${c.id === bill.contract_id ? 'selected' : ''} data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}" data-retention="${c.retention_rate}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
-        <select id="fPartner" class="form-input">${(partners || []).map((p) => `<option value="${p.id}" ${p.id === bill.partner_id ? 'selected' : ''}>${p.name} (MST ${p.mst})</option>`).join('')}</select></div>
+        ${searchSelectHtml('fPartner', partners, bill.partner_id, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
       <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
         <input type="number" id="fPeriod" class="form-input" value="${bill.period_no}" min="1"></div>
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
@@ -469,6 +473,7 @@ async function openEditModal(bill, user, onClose) {
   showModal(modal, onClose);
   wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(bill.id, user, onClose));
+  initSearchSelect(modal, 'fPartner', partners, { labelFn: partnerLabelFn, subFn: partnerSubFn });
 
   const dWrap = modal.querySelector('#dSectionWrap');
   renderDSection(dWrap, contractLinesForBill, currentLines);
@@ -479,7 +484,7 @@ async function openEditModal(bill, user, onClose) {
     if (opt && opt.value) {
       modal.querySelector('#fA').value = opt.dataset.value || '';
       modal.querySelector('#fB').value = opt.dataset.adj || 0;
-      if (opt.dataset.partner) modal.querySelector('#fPartner').value = opt.dataset.partner;
+      if (opt.dataset.partner) setSearchSelectValue(modal, 'fPartner', partners, opt.dataset.partner, partnerLabelFn, partnerSubFn);
       if (opt.dataset.retention) modal.querySelector('#fRetention').value = opt.dataset.retention;
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
 
@@ -561,7 +566,7 @@ async function openCreateModal(user, onClose) {
         <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}" data-retention="${c.retention_rate}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chọn hợp đồng sẽ tự điền A, B, Đối tác, % giữ lại, % VAT theo đúng hợp đồng đó.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
-        <select id="fPartner" class="form-input">${(partners || []).map((p) => `<option value="${p.id}">${p.name} (MST ${p.mst})</option>`).join('')}</select></div>
+        ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
       <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
         <input type="number" id="fPeriod" class="form-input" value="1" min="1"></div>
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
@@ -600,6 +605,7 @@ async function openCreateModal(user, onClose) {
   showModal(modal, onClose);
   wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+  initSearchSelect(modal, 'fPartner', partners, { labelFn: partnerLabelFn, subFn: partnerSubFn });
 
   const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
   const dWrap = modal.querySelector('#dSectionWrap');
@@ -611,7 +617,7 @@ async function openCreateModal(user, onClose) {
     if (opt && opt.value) {
       modal.querySelector('#fA').value = opt.dataset.value || '';
       modal.querySelector('#fB').value = opt.dataset.adj || 0;
-      if (opt.dataset.partner) modal.querySelector('#fPartner').value = opt.dataset.partner;
+      if (opt.dataset.partner) setSearchSelectValue(modal, 'fPartner', partners, opt.dataset.partner, partnerLabelFn, partnerSubFn);
       if (opt.dataset.retention) modal.querySelector('#fRetention').value = opt.dataset.retention;
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
 
