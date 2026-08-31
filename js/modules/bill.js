@@ -506,10 +506,8 @@ async function openEditModal(bill, user, onClose) {
       ${sectionTitleHtml('Xem trước công thức')}
       <div class="card" id="livePreview" style="padding:4px 14px;margin-top:8px;margin-bottom:13px"></div>
 
-      <div id="singleBudgetCodeWrap" style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
+      <div id="singleBudgetCodeWrap"><label class="form-label">Chia theo mã ngân sách</label>
         <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}" ${c.code === currentBudgetCode ? 'selected' : ''}>${c.code} — ${c.name}</option>`).join('')}</select></div>
-      <div><label class="form-label">Số hồ sơ đính kèm bắt buộc (checklist)</label>
-        <input type="number" id="fChecklist" class="form-input" value="${bill.checklist_required || 0}" min="0"></div>
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
   </div>`;
@@ -575,7 +573,6 @@ async function openEditModal(bill, user, onClose) {
     const deduction_note = modal.querySelector('#fDeductNote').value.trim();
     const vat_rate = Number(modal.querySelector('#fVat').value);
     const budget_code = modal.querySelector('#fBudgetCode').value;
-    const checklist_required = Number(modal.querySelector('#fChecklist').value);
 
     if (!project_id || !partner_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
@@ -583,7 +580,7 @@ async function openEditModal(bill, user, onClose) {
     loading(true);
     const { error } = await supabase
       .from('bills')
-      .update({ project_id, contract_id, partner_id, period_no, scope, signed_date, val_a, val_b, val_d, val_e, val_f, val_i, val_h, deduction_note: deduction_note || null, vat_rate, checklist_required })
+      .update({ project_id, contract_id, partner_id, period_no, scope, signed_date, val_a, val_b, val_d, val_e, val_f, val_i, val_h, deduction_note: deduction_note || null, vat_rate })
       .eq('id', bill.id);
     if (error) return toast('Lỗi lưu: ' + error.message, 'error');
 
@@ -648,8 +645,6 @@ async function openCreateModal(user, onClose) {
       <div id="singleBudgetCodeWrap" style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
         <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">"Dự trù tài chính" sẽ tự lấy theo đúng Ngân sách phân bổ của mã này, không cần nhập tay.</div></div>
-      <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ đính kèm bắt buộc (checklist)</label>
-        <input type="number" id="fChecklist" class="form-input" value="5" min="0"></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
@@ -724,7 +719,6 @@ async function openCreateModal(user, onClose) {
     const deduction_note = modal.querySelector('#fDeductNote').value.trim();
     const vat_rate = Number(modal.querySelector('#fVat').value);
     const budget_code = modal.querySelector('#fBudgetCode').value;
-    const checklist_required = Number(modal.querySelector('#fChecklist').value);
     const template_id = modal.querySelector('#fTemplate').value;
 
     if (!project_id || !partner_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
@@ -765,7 +759,7 @@ async function openCreateModal(user, onClose) {
       p_deduction_note: deduction_note || null,
       p_retention_rate: 0,
       p_vat_rate: vat_rate,
-      p_checklist_required: checklist_required,
+      p_checklist_required: 0, // tạm bỏ ô nhập checklist khỏi form — không bắt buộc đính kèm gì cho tới khi bật lại
       p_template_id: template_id || null,
     });
     if (error) return toast('Lỗi tạo bill: ' + error.message, 'error');
