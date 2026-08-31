@@ -18,7 +18,7 @@ function calcBill(b, contract) {
   const C = Number(b.val_a) + Number(b.val_b);
   const VAT = Math.round(Number(b.val_d) * vatRate); // làm tròn về đơn vị đồng — trước đây để lẻ vì D×VAT% ra số thập phân
   const E = Number(b.val_e) || 0; // giữ lại — QS nhập trực tiếp bằng VNĐ (số âm), không còn tính theo %
-  const G = -Number(b.val_f); // hoàn trả tạm ứng kỳ này = đúng bằng số âm của F (khớp mẫu chứng từ thật, F đã là số tiền hoàn trả của riêng kỳ này, không cần tính theo tỉ lệ tiến độ)
+  const G = Number(b.val_g) || 0; // hoàn trả tạm ứng — QS nhập trực tiếp bằng VNĐ, không tự = -F (hoàn trả có thể chia nhiều kỳ, không nhất thiết trùng đúng F)
   const H = Number(b.val_h) || 0;
   const I = Number(b.val_d) + E + Number(b.val_f) + G + H;
   const K = I + Number(b.val_i); // "J" trên chứng từ = val_i trong database (giữ tên cột cũ, chỉ đổi nhãn hiển thị)
@@ -86,10 +86,11 @@ function renderLivePreview(modal) {
   const { val_d } = dWrap ? readDValue(dWrap) : { val_d: 0 };
   const val_e = parseMoneyInput(modal.querySelector('#fE')?.value);
   const val_f = parseMoneyInput(modal.querySelector('#fF')?.value);
+  const val_g = parseMoneyInput(modal.querySelector('#fG')?.value);
   const val_h = parseMoneyInput(modal.querySelector('#fH')?.value);
   const val_i = parseMoneyInput(modal.querySelector('#fI')?.value);
   const vat_rate = Number(modal.querySelector('#fVat')?.value) || 0;
-  const r = calcBill({ val_a, val_b, val_d, val_e, val_f, val_h, val_i, vat_rate });
+  const r = calcBill({ val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, vat_rate });
   box.innerHTML = `
     ${finRow('Giá trị hợp đồng điều chỉnh (có VAT)', r.C, 'C = A+B', true)}
     ${finRow(`VAT (${vat_rate}%)`, r.VAT, '= D×VAT%')}
@@ -161,8 +162,8 @@ export async function render(container, user) {
   const [{ data: projects }, { data: bills, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)')
+      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)')
     ).neq('status', 'cancelled').order('created_at', { ascending: false }),
   ]);
 
@@ -495,6 +496,8 @@ async function openEditModal(bill, user, onClose) {
         <div style="margin-bottom:13px"><label class="form-label">E — Giá trị giữ lại kỳ này (VNĐ)</label><input type="text" inputmode="numeric" id="fE" class="form-input money-input" value="${formatMoneyInput(bill.val_e || 0)}">
           <div style="font-size:11px;color:var(--gray4);margin-top:4px">Nhập số âm (VD: -178.953.245) vì đây là khoản làm giảm số tiền thanh toán — QS nhập trực tiếp theo đúng kỳ này, không tự tính theo %.</div></div>
         <div style="margin-bottom:13px"><label class="form-label">F — Giá trị tạm ứng</label><input type="text" inputmode="numeric" id="fF" class="form-input money-input" value="${formatMoneyInput(bill.val_f)}"></div>
+        <div style="margin-bottom:13px"><label class="form-label">G — Hoàn trả tạm ứng đến kỳ này (VNĐ)</label><input type="text" inputmode="numeric" id="fG" class="form-input money-input" value="${formatMoneyInput(bill.val_g || 0)}">
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Nhập số âm — QS nhập trực tiếp theo đúng kỳ này, không tự bằng -F (tạm ứng có thể hoàn trả nhiều kỳ, không nhất thiết trùng đúng F).</div></div>
         <div style="margin-bottom:13px" id="deductNoteWrap">
           <label class="form-label">H — Giá trị khấu trừ</label><input type="text" inputmode="numeric" id="fH" class="form-input money-input" value="${formatMoneyInput(bill.val_h || 0)}">
           <div style="margin-top:8px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label><input type="text" id="fDeductNote" class="form-input" value="${bill.deduction_note || ''}"></div>
@@ -568,6 +571,7 @@ async function openEditModal(bill, user, onClose) {
     const { val_d, perCode } = readDValue(dWrap);
     const val_e = parseMoneyInput(modal.querySelector('#fE').value);
     const val_f = parseMoneyInput(modal.querySelector('#fF').value);
+    const val_g = parseMoneyInput(modal.querySelector('#fG').value);
     const val_i = parseMoneyInput(modal.querySelector('#fI').value);
     const val_h = parseMoneyInput(modal.querySelector('#fH').value);
     const deduction_note = modal.querySelector('#fDeductNote').value.trim();
@@ -580,7 +584,7 @@ async function openEditModal(bill, user, onClose) {
     loading(true);
     const { error } = await supabase
       .from('bills')
-      .update({ project_id, contract_id, partner_id, period_no, scope, signed_date, val_a, val_b, val_d, val_e, val_f, val_i, val_h, deduction_note: deduction_note || null, vat_rate })
+      .update({ project_id, contract_id, partner_id, period_no, scope, signed_date, val_a, val_b, val_d, val_e, val_f, val_g, val_i, val_h, deduction_note: deduction_note || null, vat_rate })
       .eq('id', bill.id);
     if (error) return toast('Lỗi lưu: ' + error.message, 'error');
 
@@ -631,6 +635,8 @@ async function openCreateModal(user, onClose) {
         <div style="margin-bottom:13px"><label class="form-label">E — Giá trị giữ lại kỳ này (VNĐ)</label><input type="text" inputmode="numeric" id="fE" class="form-input money-input" value="0">
           <div style="font-size:11px;color:var(--gray4);margin-top:4px">Nhập số âm (VD: -178.953.245) vì đây là khoản làm giảm số tiền thanh toán — QS nhập trực tiếp theo đúng kỳ này, không tự tính theo %.</div></div>
         <div style="margin-bottom:13px"><label class="form-label">F — Giá trị tạm ứng</label><input type="text" inputmode="numeric" id="fF" class="form-input money-input" value="0"></div>
+        <div style="margin-bottom:13px"><label class="form-label">G — Hoàn trả tạm ứng đến kỳ này (VNĐ)</label><input type="text" inputmode="numeric" id="fG" class="form-input money-input" value="0">
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Nhập số âm — QS nhập trực tiếp theo đúng kỳ này, không tự bằng -F (tạm ứng có thể hoàn trả nhiều kỳ, không nhất thiết trùng đúng F).</div></div>
         <div style="margin-bottom:13px" id="deductNoteWrap">
           <label class="form-label">H — Giá trị khấu trừ</label><input type="text" inputmode="numeric" id="fH" class="form-input money-input" value="0">
           <div style="margin-top:8px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label><input type="text" id="fDeductNote" class="form-input" placeholder="VD: Phạt chậm tiến độ 5 ngày"></div>
@@ -714,6 +720,7 @@ async function openCreateModal(user, onClose) {
     const { val_d, perCode } = readDValue(dWrap);
     const val_e = parseMoneyInput(modal.querySelector('#fE').value);
     const val_f = parseMoneyInput(modal.querySelector('#fF').value);
+    const val_g = parseMoneyInput(modal.querySelector('#fG').value);
     const val_i = parseMoneyInput(modal.querySelector('#fI').value);
     const val_h = parseMoneyInput(modal.querySelector('#fH').value);
     const deduction_note = modal.querySelector('#fDeductNote').value.trim();
@@ -739,10 +746,10 @@ async function openCreateModal(user, onClose) {
     }
 
     loading(true);
-    // Lưu ý: fn_create_bill (RPC) hiện chưa biết tới val_e (giữ lại nhập tay bằng VNĐ) —
-    // vẫn gửi p_retention_rate = 0 cho đủ tham số hàm cũ (không còn dùng để tính toán),
-    // rồi UPDATE thẳng val_e ngay sau khi tạo xong — giống hệt cách bill_budget_lines
-    // đang được thêm sau khi có newBillId, không cần sửa RPC.
+    // Lưu ý: fn_create_bill (RPC) hiện chưa biết tới val_e/val_g (giữ lại/hoàn trả tạm ứng
+    // nhập tay bằng VNĐ) — vẫn gửi p_retention_rate = 0 cho đủ tham số hàm cũ (không còn
+    // dùng để tính toán), rồi UPDATE thẳng val_e/val_g ngay sau khi tạo xong — giống hệt
+    // cách bill_budget_lines đang được thêm sau khi có newBillId, không cần sửa RPC.
     const { data: newBillId, error } = await supabase.rpc('fn_create_bill', {
       p_project_id: project_id,
       p_contract_id: contract_id,
@@ -764,7 +771,7 @@ async function openCreateModal(user, onClose) {
     });
     if (error) return toast('Lỗi tạo bill: ' + error.message, 'error');
     const newBill = { id: newBillId };
-    await supabase.from('bills').update({ val_e }).eq('id', newBill.id);
+    await supabase.from('bills').update({ val_e, val_g }).eq('id', newBill.id);
 
     // Chia mã ngân sách: nếu hợp đồng có nhiều mã, lưu đúng từng phần D theo mã (không lưu K —
     // K là số tiền thanh toán thực tế đã trừ tạm ứng/giữ lại, không phản ánh đúng "đã dùng ngân sách");
