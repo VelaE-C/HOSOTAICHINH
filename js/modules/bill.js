@@ -16,9 +16,9 @@ let VIEW_PROJECT = 'ALL';
 function calcBill(b, contract) {
   const vatRate = (b.vat_rate ?? contract?.vat_rate ?? 8) / 100;
   const C = Number(b.val_a) + Number(b.val_b);
-  const VAT = Number(b.val_d) * vatRate;
+  const VAT = Math.round(Number(b.val_d) * vatRate); // làm tròn về đơn vị đồng — trước đây để lẻ vì D×VAT% ra số thập phân
   const E = Number(b.val_e) || 0; // giữ lại — QS nhập trực tiếp bằng VNĐ (số âm), không còn tính theo %
-  const G = Number(b.val_f) === 0 ? 0 : -Number(b.val_f) * (Number(b.val_d) / (0.8 * Number(b.val_a)));
+  const G = -Number(b.val_f); // hoàn trả tạm ứng kỳ này = đúng bằng số âm của F (khớp mẫu chứng từ thật, F đã là số tiền hoàn trả của riêng kỳ này, không cần tính theo tỉ lệ tiến độ)
   const H = Number(b.val_h) || 0;
   const I = Number(b.val_d) + E + Number(b.val_f) + G + H;
   const K = I + Number(b.val_i); // "J" trên chứng từ = val_i trong database (giữ tên cột cũ, chỉ đổi nhãn hiển thị)
