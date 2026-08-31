@@ -33,10 +33,10 @@ export async function render(container, user) {
     </tbody></table></div>`;
 
   container.querySelector('#btnNew').addEventListener('click', () => openCreateModal(user, () => render(container, user)));
-  container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, () => render(container, user))));
+  container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
 }
 
-export async function openDetail(id, onClose) {
+export async function openDetail(id, user, onClose) {
   const modal = ensureModal();
   modal.innerHTML = `<div class="panel-box"><div class="empty-note">Đang tải…</div></div>`;
   showModal(modal, onClose);
@@ -49,17 +49,25 @@ export async function openDetail(id, onClose) {
   const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, status, contract_type').eq('partner_id', id).order('created_at', { ascending: false });
 
   const statusVN = { draft: 'Nháp', pending: 'Đang duyệt', active: 'Có hiệu lực', rejected: 'Từ chối', closed: 'Đã thanh lý' };
+  // Sửa thông tin đối tác (đặc biệt số tài khoản/ngân hàng) chỉ dành cho QLCP&HĐ/Admin
+  // — đây là thông tin nhạy cảm, sửa sai/sửa bậy có thể dẫn tới chuyển nhầm tiền.
+  const isKscp = (user.roles || []).some((r) => ['Admin', 'QLCPHD_CV', 'QLCPHD_TP'].includes(r));
 
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
-    <div class="panel-header"><div><div>${p.name}</div><div class="meta">${p.type} · Mã ${p.abbr}</div></div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-header"><div><div>${p.name}</div><div class="meta">${p.type} · Mã ${p.abbr}</div></div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
+        <button class="panel-close" id="pClose">✕</button>
+      </div></div>
     <div class="panel-body">
       <div class="kv">
         <div class="k">Mã số thuế (MST)</div><div class="v mono">${p.mst}</div>
         <div class="k">Người đại diện</div><div class="v">${p.representative || '—'}</div>
         <div class="k">Điện thoại</div><div class="v">${p.phone || '—'}</div>
         <div class="k">Địa chỉ</div><div class="v">${p.address || '—'}</div>
-        <div class="k">Tài khoản NH</div><div class="v mono">${p.bank_account || '—'}</div>
+        <div class="k">Ngân hàng</div><div class="v">${p.bank_name || '—'}</div>
+        <div class="k">Số tài khoản</div><div class="v mono">${p.bank_account || '—'}</div>
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hợp đồng đã ký (${contracts?.length || 0})</div>
       <div class="card" style="padding:0;overflow:hidden">
@@ -70,6 +78,7 @@ export async function openDetail(id, onClose) {
       <div style="font-size:11.5px;color:var(--gray4);margin-top:8px">🔒 Đối tác đã dùng trong ít nhất 1 hợp đồng thì không thể xóa khỏi hệ thống.</div>
     </div>`;
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+  box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(p, onClose));
 }
 
 async function openCreateModal(user, onClose) {
@@ -88,7 +97,10 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Người đại diện</label><input type="text" id="fRep" class="form-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Điện thoại</label><input type="text" id="fPhone" class="form-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Địa chỉ</label><input type="text" id="fAddress" class="form-input"></div>
-      <div style="margin-bottom:13px"><label class="form-label">Tài khoản ngân hàng</label><input type="text" id="fBank" class="form-input"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
+        <div><label class="form-label">Ngân hàng</label><input type="text" id="fBankName" class="form-input" placeholder="VD: Techcombank"></div>
+        <div><label class="form-label">Số tài khoản</label><input type="text" id="fBank" class="form-input"></div>
+      </div>
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu đối tác</button></div>
   </div>`;
@@ -135,11 +147,65 @@ async function openCreateModal(user, onClose) {
       representative: modal.querySelector('#fRep').value.trim() || null,
       phone: modal.querySelector('#fPhone').value.trim() || null,
       address: modal.querySelector('#fAddress').value.trim() || null,
+      bank_name: modal.querySelector('#fBankName').value.trim() || null,
       bank_account: modal.querySelector('#fBank').value.trim() || null,
       created_by: user.id,
     });
     if (error) return toast('Lỗi lưu đối tác: ' + error.message, 'error');
     toast('Đã lưu đối tác mới', 'success');
+    closeModal(modal, onClose);
+  });
+}
+
+async function openEditModal(p, onClose) {
+  const modal = ensureModal();
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Sửa đối tác — ${p.name}</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mã số thuế (MST) — không sửa được</label><input type="text" class="form-input" value="${p.mst}" disabled style="background:var(--gray1)"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Tên đối tác * (tự động in hoa)</label><input type="text" id="fName" class="form-input" value="${p.name}"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Mã viết tắt * (dùng trong số hợp đồng)</label><input type="text" id="fAbbr" class="form-input" value="${p.abbr}"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Loại *</label>
+        <select id="fType" class="form-input">
+          <option value="NCC" ${p.type === 'NCC' ? 'selected' : ''}>NCC — Nhà cung cấp</option>
+          <option value="NTP" ${p.type === 'NTP' ? 'selected' : ''}>NTP — Nhà thầu phụ</option>
+        </select></div>
+      <div style="margin-bottom:13px"><label class="form-label">Người đại diện</label><input type="text" id="fRep" class="form-input" value="${p.representative || ''}"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Điện thoại</label><input type="text" id="fPhone" class="form-input" value="${p.phone || ''}"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Địa chỉ</label><input type="text" id="fAddress" class="form-input" value="${p.address || ''}"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
+        <div><label class="form-label">Ngân hàng</label><input type="text" id="fBankName" class="form-input" value="${p.bank_name || ''}" placeholder="VD: Techcombank"></div>
+        <div><label class="form-label">Số tài khoản</label><input type="text" id="fBank" class="form-input" value="${p.bank_account || ''}"></div>
+      </div>
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
+
+  modal.querySelector('#fName').addEventListener('input', (e) => {
+    const pos = e.target.selectionStart;
+    e.target.value = e.target.value.toUpperCase();
+    e.target.setSelectionRange(pos, pos);
+  });
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const name = modal.querySelector('#fName').value.trim();
+    const abbr = modal.querySelector('#fAbbr').value.trim();
+    if (!name || !abbr) return toast('Điền đủ Tên, Mã viết tắt', 'error');
+
+    loading(true);
+    const { error } = await supabase.from('partners').update({
+      name, abbr,
+      type: modal.querySelector('#fType').value,
+      representative: modal.querySelector('#fRep').value.trim() || null,
+      phone: modal.querySelector('#fPhone').value.trim() || null,
+      address: modal.querySelector('#fAddress').value.trim() || null,
+      bank_name: modal.querySelector('#fBankName').value.trim() || null,
+      bank_account: modal.querySelector('#fBank').value.trim() || null,
+    }).eq('id', p.id);
+    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+    toast('Đã lưu thay đổi', 'success');
     closeModal(modal, onClose);
   });
 }
