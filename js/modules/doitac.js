@@ -93,7 +93,7 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Tên đối tác * (tự động in hoa)</label><input type="text" id="fName" class="form-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Mã viết tắt * (dùng trong số hợp đồng)</label><input type="text" id="fAbbr" class="form-input" placeholder="VD: DongA"></div>
       <div style="margin-bottom:13px"><label class="form-label">Loại *</label>
-        <select id="fType" class="form-input"><option value="NCC">NCC — Nhà cung cấp</option><option value="NTP">NTP — Nhà thầu phụ</option></select></div>
+        <select id="fType" class="form-input"><option value="NCC">NCC — Nhà cung cấp</option><option value="NTP">NTP — Nhà thầu phụ</option><option value="DTC">ĐTC — Đội thi công</option><option value="DVK">DVK — Dịch vụ khác</option></select></div>
       <div style="margin-bottom:13px"><label class="form-label">Người đại diện</label><input type="text" id="fRep" class="form-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Điện thoại</label><input type="text" id="fPhone" class="form-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Địa chỉ</label><input type="text" id="fAddress" class="form-input"></div>
@@ -169,6 +169,8 @@ async function openEditModal(p, onClose) {
         <select id="fType" class="form-input">
           <option value="NCC" ${p.type === 'NCC' ? 'selected' : ''}>NCC — Nhà cung cấp</option>
           <option value="NTP" ${p.type === 'NTP' ? 'selected' : ''}>NTP — Nhà thầu phụ</option>
+          <option value="DTC" ${p.type === 'DTC' ? 'selected' : ''}>ĐTC — Đội thi công</option>
+          <option value="DVK" ${p.type === 'DVK' ? 'selected' : ''}>DVK — Dịch vụ khác</option>
         </select></div>
       <div style="margin-bottom:13px"><label class="form-label">Người đại diện</label><input type="text" id="fRep" class="form-input" value="${p.representative || ''}"></div>
       <div style="margin-bottom:13px"><label class="form-label">Điện thoại</label><input type="text" id="fPhone" class="form-input" value="${p.phone || ''}"></div>
