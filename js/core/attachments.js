@@ -45,6 +45,32 @@ function viewableUrl(path, signedUrl) {
   return `https://docs.google.com/gview?url=${encodeURIComponent(signedUrl)}&embedded=true`;
 }
 
+// Excel (xlsx/xls/csv) qua Google Docs Viewer trên PC thường báo "Không xem trước
+// được tệp" vì Google không đọc được link ký tạm dạng này — thay vì cố xem trước,
+// tải hẳn file về máy (giống bấm "Save As"). PDF/ảnh/Word vẫn giữ nguyên hành vi cũ
+// vì đang chạy tốt. Trên điện thoại vẫn mở link gốc như cũ (Quick Look/Xem sẵn có
+// của hệ điều hành đọc Excel tốt hơn tải về).
+const IS_EXCEL = (path) => /\.(xlsx|xls|csv)$/i.test(path);
+
+async function downloadFile(url, fileName) {
+  loading(true, `Đang tải xuống: ${fileName}`);
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Không tải được (mã ${resp.status})`);
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+  } catch (err) {
+    toast('Lỗi tải xuống: ' + err.message, 'error');
+  }
+}
+
 // Gọi hàm này để vẽ + gắn toàn bộ chức năng vào 1 khung <div>
 // canEdit = false -> chỉ xem/tải file, ẩn hẳn nút Thêm/Xóa (hồ sơ đang duyệt hoặc đã hoàn tất)
 export async function renderAttachments(container, ownerType, ownerId, currentUserId, canEdit = true) {
@@ -68,8 +94,8 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
       ${!canEdit ? `<div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">🔒 Hồ sơ đang khóa (đang duyệt hoặc đã hoàn tất) — chỉ xem, không thêm/xóa được.</div>` : ''}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
         ${count ? files.map((f) => `
-          <span class="linked-chip" style="background:var(--gray1);color:var(--gray7);cursor:pointer" data-open-file="${f.id}" data-path="${f.file_url}">
-            ${fileIcon(f.file_name)} ${f.file_name}
+          <span class="linked-chip" style="background:var(--gray1);color:var(--gray7);cursor:pointer" data-open-file="${f.id}" data-path="${f.file_url}" data-name="${f.file_name.replace(/"/g, '&quot;')}" ${!IS_MOBILE && IS_EXCEL(f.file_name) ? 'title="Bấm để tải file Excel về máy — không xem trước được trên PC"' : ''}>
+            ${fileIcon(f.file_name)} ${f.file_name}${!IS_MOBILE && IS_EXCEL(f.file_name) ? ' ⬇' : ''}
             <span style="color:var(--gray4);font-weight:400;font-size:11px">(${fmtSize(f.file_size_kb)})</span>
             ${canEdit && f.uploaded_by === currentUserId ? `<span data-del-file="${f.id}" data-path="${f.file_url}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:2px">✕</span>` : ''}
           </span>`).join('') : '<span style="color:var(--gray4);font-size:12px">Chưa có file đính kèm</span>'}
@@ -98,7 +124,11 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
         if (e.target.closest('[data-del-file]')) return; // bấm nút xóa thì không mở file
         try {
           const { url } = await r2Call('get-url', el.dataset.path);
-          window.open(viewableUrl(el.dataset.path, url), '_blank');
+          if (!IS_MOBILE && IS_EXCEL(el.dataset.path)) {
+            await downloadFile(url, el.dataset.name || el.dataset.path.split('/').pop());
+          } else {
+            window.open(viewableUrl(el.dataset.path, url), '_blank');
+          }
         } catch (err) {
           toast('Không mở được file: ' + err.message, 'error');
         }
