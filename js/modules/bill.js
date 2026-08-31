@@ -16,11 +16,11 @@ let VIEW_PROJECT = 'ALL';
 function calcBill(b, contract) {
   const vatRate = (b.vat_rate ?? contract?.vat_rate ?? 8) / 100;
   const C = Number(b.val_a) + Number(b.val_b);
-  const VAT = Math.round(Number(b.val_d) * vatRate); // làm tròn về đơn vị đồng — trước đây để lẻ vì D×VAT% ra số thập phân
+  const VAT = Math.round(Number(b.val_d) - Number(b.val_d) / (1 + vatRate)); // D đã BAO GỒM VAT — tách phần thuế ra bằng D - D/(1+thuế suất), không nhân thẳng D×% (sẽ tính dư)
   const E = Number(b.val_e) || 0; // giữ lại — QS nhập trực tiếp bằng VNĐ (số âm), không còn tính theo %
   const G = Number(b.val_g) || 0; // hoàn trả tạm ứng — QS nhập trực tiếp bằng VNĐ, không tự = -F (hoàn trả có thể chia nhiều kỳ, không nhất thiết trùng đúng F)
   const H = Number(b.val_h) || 0;
-  const I = Number(b.val_d) + VAT + E + Number(b.val_f) + G + H; // I tính trên số ĐÃ CÓ VAT — trước đây thiếu cộng VAT, sai lệch với chứng từ thật
+  const I = Number(b.val_d) + E + Number(b.val_f) + G + H; // D ở đây đã BAO GỒM VAT (theo đúng mẫu chứng từ thật) — không cộng thêm VAT vào I nữa
   const K = I + Number(b.val_i); // "J" trên chứng từ = val_i trong database (giữ tên cột cũ, chỉ đổi nhãn hiển thị)
   return { C, VAT, E, G, H, I, K };
 }
@@ -31,11 +31,11 @@ function renderDSection(wrapEl, contractLines, prefillLines) {
   const isMulti = contractLines && contractLines.length > 1;
   if (!isMulti) {
     const prefill = prefillLines?.[0]?.value ?? '';
-    wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện kỳ này (chưa VAT)</label>
+    wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện kỳ này (bao gồm VAT)</label>
       <input type="text" inputmode="numeric" id="fD" class="form-input money-input" value="${prefill ? formatMoneyInput(prefill) : ''}">`;
     return;
   }
-  wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện theo từng mã ngân sách (chưa VAT)</label>
+  wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện theo từng mã ngân sách (bao gồm VAT)</label>
     <div class="card" style="padding:10px 14px">
       ${contractLines
         .map((l) => {
@@ -93,10 +93,10 @@ function renderLivePreview(modal) {
   const r = calcBill({ val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, vat_rate });
   box.innerHTML = `
     ${finRow('Giá trị hợp đồng điều chỉnh (có VAT)', r.C, 'C = A+B', true)}
-    ${finRow(`VAT (${vat_rate}%)`, r.VAT, '= D×VAT%')}
+    ${finRow(`VAT (${vat_rate}%)`, r.VAT, '= D - D/(1+VAT%)')}
     ${finRow('Tổng giá trị tiền giữ lại', r.E, 'E')}
     ${finRow('Hoàn trả tạm ứng đến kỳ này', r.G, 'G')}
-    ${finRow('Tổng giá trị thanh toán bao gồm tạm ứng', r.I, 'I = D+VAT+E+F+G+H', true)}
+    ${finRow('Tổng giá trị thanh toán bao gồm tạm ứng', r.I, 'I = D+E+F+G+H', true)}
     ${finRow('Số tiền phải thanh toán đợt này', r.K, 'K = I+J', true)}`;
 }
 
@@ -268,13 +268,13 @@ async function openPrintCoverSheet(b, r, assignments, logs) {
         <tr><td class="label">A — Giá trị HĐ ban đầu (có VAT)</td><td class="num">${vnMoney(b.val_a)}</td></tr>
         <tr><td class="label">B — Điều chỉnh hợp đồng (có VAT)</td><td class="num">${vnMoney(b.val_b)}</td></tr>
         <tr><td class="label">C — Giá trị HĐ điều chỉnh (=A+B)</td><td class="num">${vnMoney(r.C)}</td></tr>
-        <tr><td class="label">D — Thực hiện lũy kế (chưa VAT)</td><td class="num">${vnMoney(b.val_d)}</td></tr>
+        <tr><td class="label">D — Thực hiện lũy kế (bao gồm VAT)</td><td class="num">${vnMoney(b.val_d)}</td></tr>
         <tr><td class="label">VAT (${b.vat_rate}%)</td><td class="num">${vnMoney(r.VAT)}</td></tr>
         <tr><td class="label">E — Giữ lại kỳ này</td><td class="num">${vnMoney(r.E)}</td></tr>
         <tr><td class="label">F — Giá trị tạm ứng</td><td class="num">${vnMoney(b.val_f)}</td></tr>
         <tr><td class="label">G — Hoàn trả tạm ứng đến kỳ này</td><td class="num">${vnMoney(r.G)}</td></tr>
         <tr><td class="label">H — Giá trị khấu trừ${b.val_h ? ' (' + (b.deduction_note || 'chưa ghi lý do') + ')' : ''}</td><td class="num">${vnMoney(r.H)}</td></tr>
-        <tr><td class="label">I — Tổng thanh toán bao gồm tạm ứng (=D+VAT+E+F+G+H)</td><td class="num">${vnMoney(r.I)}</td></tr>
+        <tr><td class="label">I — Tổng thanh toán bao gồm tạm ứng (=D+E+F+G+H)</td><td class="num">${vnMoney(r.I)}</td></tr>
         <tr><td class="label">J — Trừ các đợt thanh toán trước</td><td class="num">${vnMoney(b.val_i)}</td></tr>
         <tr><td class="label" style="font-weight:700">K — Số tiền phải thanh toán đợt này (=I+J)</td><td class="num" style="font-weight:700">${vnMoney(r.K)}</td></tr>
       </table>
@@ -374,14 +374,14 @@ export async function openDetail(id, user, onClose) {
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Chi tiết thanh toán</div>
       <div class="card" style="padding:4px 14px">
-        ${finRow('Giá trị thực hiện lũy kế đến kỳ này (chưa VAT)', b.val_d, 'D')}
-        ${finRow(`VAT (${b.vat_rate}%)`, r.VAT, '= D×VAT%')}
+        ${finRow('Giá trị thực hiện lũy kế đến kỳ này (bao gồm VAT)', b.val_d, 'D')}
+        ${finRow(`VAT (${b.vat_rate}%)`, r.VAT, '= D - D/(1+VAT%)')}
         ${finRow('Tổng giá trị tiền giữ lại', r.E, 'E')}
         ${finRow('Giá trị tạm ứng', b.val_f, 'F')}
         ${finRow('Hoàn trả tạm ứng đến kỳ này', r.G, 'G')}
         ${finRow('Giá trị khấu trừ', r.H, 'H', false)}
         ${b.val_h ? `<div style="font-size:11.5px;color:var(--gray5);margin:-4px 0 6px;padding-left:2px">Lý do: ${b.deduction_note || '(chưa ghi lý do)'}</div>` : ''}
-        ${finRow('Tổng giá trị thanh toán bao gồm tạm ứng', r.I, 'I = D+VAT+E+F+G+H', true)}
+        ${finRow('Tổng giá trị thanh toán bao gồm tạm ứng', r.I, 'I = D+E+F+G+H', true)}
         ${finRow('Trừ các đợt thanh toán trước', b.val_i, 'J')}
         ${finRow('Số tiền phải thanh toán đợt này', r.K, 'K = I+J', true)}
       </div>
