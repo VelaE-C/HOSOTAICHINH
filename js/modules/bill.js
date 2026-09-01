@@ -222,12 +222,12 @@ export async function render(container, user) {
 }
 
 function finRow(label, value, code, bold) {
-  return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--gray1);${bold ? 'font-weight:700;' : ''}">
+  // Bỏ cột công thức (code) theo yêu cầu — chỉ còn nhãn (được xuống hàng tự do) và số
+  // tiền (bắt buộc nằm nguyên 1 hàng, không bao giờ được xuống dòng giữa chừng số).
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--gray1);${bold ? 'font-weight:700;' : ''}">
     <span style="font-size:12.5px;color:${bold ? 'var(--gray8)' : 'var(--gray7)'}">${label}</span>
-    <span style="display:flex;align-items:center;gap:10px">
-      <span class="mono" style="font-size:13px;${bold ? 'font-weight:700;color:var(--navy)' : ''}">${value === 0 ? '—' : fmt(value) + ' ₫'}</span>
-      <span style="font-size:10.5px;color:var(--gray4);width:60px;text-align:left">${code}</span>
-    </span></div>`;
+    <span class="mono" style="font-size:13px;white-space:nowrap;flex-shrink:0;${bold ? 'font-weight:700;color:var(--navy)' : ''}">${value === 0 ? '—' : fmt(value) + ' ₫'}</span>
+  </div>`;
 }
 
 // Xuất tờ cover để kẹp hồ sơ cứng — giống hệt cách làm ở Hợp đồng/Tờ trình,
@@ -359,7 +359,7 @@ export async function openDetail(id, user, onClose) {
   const canExportPdf = b.current_step >= 3 || b.status === 'active';
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
-    <div class="panel-header"><div><div>${b.doc_number}</div><div class="meta">Kỳ ${b.period_no} · ${b.partners?.name || '—'}</div></div>
+    <div class="panel-header"><div><div>${b.projects?.name || '—'}</div><div class="meta">${b.partners?.name || '—'}</div><div class="meta">Kỳ ${b.period_no}</div><div class="meta mono">${b.doc_number}</div></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
         ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditBudgetLines">🧮 Sửa mã ngân sách</button>` : ''}
