@@ -103,55 +103,70 @@ function renderLivePreview(modal) {
 // Kỳ số khóa theo đúng thứ tự lũy kế, J tự = -D của kỳ liền trước (trừ Kỳ 1 vẫn tự nhập tay)
 // Nếu CHƯA có hợp đồng liên kết (đi bill trước, làm hợp đồng bù sau) — vẫn theo dõi được,
 // tạm dùng cặp Dự án + Đối tác làm "chuỗi tạm" cho tới khi có hợp đồng thật
+// Tìm bill KỲ HỢP LỆ MỚI NHẤT cho đúng hợp đồng (hoặc cặp Dự án+Đối tác nếu đi bill tự
+// do) — loại hẳn bill đã "Hủy hồ sơ" ra khỏi việc tính kỳ tiếp theo, coi như nó chưa từng
+// tồn tại (số kỳ đó được dùng lại). Dùng chung cho cả gợi ý số kỳ (updateKyAndJ) lẫn
+// chặn thật lúc lưu (doSave) — để 2 nơi luôn tính ra cùng 1 kết quả, không lệch nhau.
+async function findLatestValidBill(contractId, projectId, partnerId) {
+  let q = supabase.from('bills').select('period_no, val_d, status').neq('status', 'cancelled').order('period_no', { ascending: false }).limit(1);
+  if (contractId) {
+    q = q.eq('contract_id', contractId);
+  } else if (projectId && partnerId) {
+    q = q.is('contract_id', null).eq('project_id', projectId).eq('partner_id', partnerId);
+  } else {
+    return null;
+  }
+  const { data } = await q;
+  return data && data[0] ? data[0] : null;
+}
+
+const BILL_STATUS_LABEL = { draft: 'nháp', pending: 'đang duyệt', rejected: 'bị từ chối', paid: 'đã thanh toán xong' };
+
 async function updateKyAndJ(modal, contractId, projectId, partnerId) {
   const periodInput = modal.querySelector('#fPeriod');
   const jInput = modal.querySelector('#fI');
+  const noteEl = modal.querySelector('#kyNote');
 
-  let existingBills = [];
-  if (contractId) {
-    const { data } = await supabase.from('bills').select('period_no, val_d').eq('contract_id', contractId).order('period_no', { ascending: false });
-    existingBills = data || [];
-  } else if (projectId && partnerId) {
-    const { data } = await supabase
-      .from('bills')
-      .select('period_no, val_d')
-      .is('contract_id', null)
-      .eq('project_id', projectId)
-      .eq('partner_id', partnerId)
-      .order('period_no', { ascending: false });
-    existingBills = data || [];
-  } else {
+  if (!contractId && !(projectId && partnerId)) {
     periodInput.readOnly = false;
     periodInput.style.background = '';
     jInput.readOnly = false;
     jInput.style.background = '';
+    if (noteEl) noteEl.innerHTML = '';
     return;
   }
 
-  if (existingBills.length === 0) {
-    // Chưa có bill nào trong hệ thống cho đúng hợp đồng/cặp này — có thể đây là bill
-    // ĐẦU TIÊN nhập vào hệ thống của 1 hồ sơ đã có sẵn ngoài đời (VD thực tế đang ở
-    // Kỳ 4) -> mở cho nhập tay tự do, không ép về Kỳ 1. Bill tiếp theo sau đó sẽ tự
-    // động nối tiếp đúng từ số vừa nhập (n+1), như bình thường.
+  const latest = await findLatestValidBill(contractId, projectId, partnerId);
+
+  if (!latest) {
+    // Chưa có bill HỢP LỆ nào (bỏ qua bill đã Hủy) cho đúng hợp đồng/cặp này — có thể
+    // đây là bill ĐẦU TIÊN nhập vào hệ thống của 1 hồ sơ đã có sẵn ngoài đời (VD thực tế
+    // đang ở Kỳ 4) -> mở cho nhập tay tự do, không ép về Kỳ 1. Bill tiếp theo sau đó sẽ
+    // tự động nối tiếp đúng từ số vừa nhập (n+1), như bình thường.
     if (!periodInput.value) periodInput.value = '1';
     periodInput.readOnly = false;
     periodInput.style.background = '';
-    periodInput.title = 'Chưa có bill nào trong hệ thống cho hồ sơ này — nhập đúng kỳ thực tế (VD nếu đã tới Kỳ 4 ngoài đời, nhập 4).';
+    periodInput.title = 'Chưa có bill hợp lệ nào trong hệ thống cho hồ sơ này — nhập đúng kỳ thực tế (VD nếu đã tới Kỳ 4 ngoài đời, nhập 4).';
     if (!jInput.value) jInput.value = '0';
     jInput.readOnly = false;
     jInput.style.background = '';
+    if (noteEl) noteEl.innerHTML = `<span style="color:var(--gray4)">Chưa có kỳ hợp lệ nào trước đó trong hệ thống — nhập đúng kỳ thực tế (bỏ qua bill đã hủy nếu có).</span>`;
     return;
   }
 
-  const nextPeriod = existingBills[0].period_no + 1;
-
-  periodInput.value = nextPeriod;
+  periodInput.value = latest.period_no + 1;
   periodInput.readOnly = true;
   periodInput.style.background = 'var(--gray1)';
-  periodInput.title = '';
 
-  const prevBill = existingBills.find((b) => b.period_no === nextPeriod - 1);
-  jInput.value = formatMoneyInput(prevBill ? -Number(prevBill.val_d) : 0);
+  const okToProceed = latest.status === 'paid';
+  periodInput.title = !okToProceed ? `⚠️ Kỳ ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — chưa trình/lưu được kỳ này cho tới khi kỳ ${latest.period_no} thanh toán xong` : '';
+  if (noteEl) {
+    noteEl.innerHTML = okToProceed
+      ? `<span style="color:var(--red)">⚠️ Kỳ ${latest.period_no + 1} này được lập dựa trên kỳ ${latest.period_no} (đã duyệt xong, lũy kế kỳ trước: ${fmt(latest.val_d)} đ).</span>`
+      : `<span style="color:var(--red);font-weight:600">⚠️ Kỳ ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — phải đợi kỳ ${latest.period_no} thanh toán xong mới lưu/trình được kỳ ${latest.period_no + 1}.</span>`;
+  }
+
+  jInput.value = formatMoneyInput(-Number(latest.val_d));
   jInput.readOnly = true;
   jInput.style.background = 'var(--gray1)';
 }
@@ -477,7 +492,8 @@ async function openEditModal(bill, user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
         ${searchSelectHtml('fPartner', partners, bill.partner_id, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
       <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
-        <input type="number" id="fPeriod" class="form-input" value="${bill.period_no}" min="1"></div>
+        <input type="number" id="fPeriod" class="form-input" value="${bill.period_no}" min="1">
+        <div id="kyNote" style="font-size:11.5px;margin-top:4px"></div></div>
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
         <input type="text" id="fScope" class="form-input" value="${bill.scope || ''}"></div>
       <div style="margin-bottom:13px"><label class="form-label">Ngày ký hồ sơ (không bắt buộc)</label>
@@ -616,7 +632,8 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
         ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
       <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
-        <input type="number" id="fPeriod" class="form-input" value="1" min="1"></div>
+        <input type="number" id="fPeriod" class="form-input" value="1" min="1">
+        <div id="kyNote" style="font-size:11.5px;margin-top:4px"></div></div>
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
         <input type="text" id="fScope" class="form-input" placeholder="VD: Cung cấp bê tông tươi mác 300"></div>
       <div style="margin-bottom:13px"><label class="form-label">Ngày ký hồ sơ (không bắt buộc)</label>
@@ -731,18 +748,24 @@ async function openCreateModal(user, onClose) {
     if (!project_id || !partner_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
-    // Quy tắc: kỳ N+1 chỉ tạo được khi kỳ N đã qua tối thiểu bước 2
-    if (contract_id && period_no > 1) {
-      const { data: prevBill } = await supabase
-        .from('bills')
-        .select('current_step, status')
-        .eq('contract_id', contract_id)
-        .eq('period_no', period_no - 1)
-        .maybeSingle();
-      if (!prevBill) return toast(`Chưa có bill kỳ ${period_no - 1} của hợp đồng này — phải tạo kỳ trước đó trước`, 'error');
-      if (prevBill.status === 'draft' || prevBill.current_step < 2) {
-        return toast(`Bill kỳ ${period_no - 1} chưa qua tối thiểu bước 2 — chưa tạo được kỳ ${period_no}`, 'error');
+    // Quy tắc: kỳ N+1 chỉ tạo được khi kỳ N đã DUYỆT XONG (đã thanh toán) — áp dụng đều
+    // cho cả 2 kiểu: có liên kết hợp đồng lẫn đi bill tự do theo cặp Dự án+Đối tác.
+    // Bill "Hủy" hay "Đang duyệt" đều KHÔNG đủ điều kiện lên kỳ tiếp theo. Nếu kỳ trước
+    // đó đã bị Hủy, hệ thống coi như số kỳ đó chưa từng có (findLatestValidBill bỏ qua
+    // nó), nên period_no lúc đó sẽ tự nhảy lùi để dùng lại đúng số đã hủy — trường hợp
+    // này period_no - 1 sẽ không khớp với latest.period_no, cũng bị chặn ở nhánh dưới.
+    if (period_no > 1) {
+      const latest = await findLatestValidBill(contract_id, project_id, partner_id);
+      if (latest) {
+        if (latest.period_no !== period_no - 1) {
+          return toast(`Số kỳ không khớp — kỳ hợp lệ mới nhất trong hệ thống là kỳ ${latest.period_no} (không tính bill đã hủy), phải tạo kỳ ${latest.period_no + 1} tiếp theo`, 'error');
+        }
+        if (latest.status !== 'paid') {
+          return toast(`Bill kỳ ${period_no - 1} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — chưa tạo được kỳ ${period_no}`, 'error');
+        }
       }
+      // latest === null -> chưa có bill hợp lệ nào cho hồ sơ này -> đây là bill đầu tiên
+      // nhập vào hệ thống (có thể ngoài đời đã tới kỳ N), cho phép nhập tự do
     }
 
     loading(true);
