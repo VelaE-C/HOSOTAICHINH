@@ -13,7 +13,7 @@ import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/
 
 let VIEW_PROJECT = 'ALL';
 
-function calcBill(b, contract) {
+export function calcBill(b, contract) {
   const vatRate = (b.vat_rate ?? contract?.vat_rate ?? 8) / 100;
   const C = Number(b.val_a) + Number(b.val_b);
   const VAT = Math.round(Number(b.val_d) - Number(b.val_d) / (1 + vatRate)); // D đã BAO GỒM VAT — tách phần thuế ra bằng D - D/(1+thuế suất), không nhân thẳng D×% (sẽ tính dư)
