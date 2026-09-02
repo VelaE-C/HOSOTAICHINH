@@ -454,7 +454,7 @@ export async function openDetail(id, user, onClose) {
       ${b.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, b.current_step, preview)}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp.</div>`}
     </div>
-    ${actionFooterHtml(b, 'bill', user, assignments)}
+    ${actionFooterHtml(b, 'bill', user, assignments, (user.roles || []).includes('Admin'))}
   `;
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(b, user, onClose));
