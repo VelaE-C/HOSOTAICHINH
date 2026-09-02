@@ -16,8 +16,8 @@ export async function render(container, user) {
   const [{ data: projects }, { data: rows, error }, { data: linkCounts }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at').eq('project_id', VIEW_PROJECT)
-      : supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at')
+      ? supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at, projects(name)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at, projects(name)')
     ).neq('status', 'cancelled').order('created_at', { ascending: false }),
     supabase.from('contracts').select('to_trinh_id').not('to_trinh_id', 'is', null),
   ]);
@@ -46,8 +46,8 @@ export async function render(container, user) {
       </select>
       <button class="btn btn-primary" id="btnNew">+ Trình tờ trình chủ trương</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th></tr></thead><tbody>
-    ${sorted.length ? sorted.map((t) => `<tr class="click" data-id="${t.id}"><td class="mono">${t.doc_number}</td><td>${t.title}</td>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th></tr></thead><tbody>
+    ${sorted.length ? sorted.map((t) => `<tr class="click" data-id="${t.id}"><td>${t.projects?.name || '—'}</td><td>${t.title}</td>
     <td>${countMap[t.id] ? `<span class="code-chip">${countMap[t.id]} hợp đồng</span>` : '<span style="color:var(--gray4);font-size:12px">Chưa có</span>'}</td>
     <td>${statusBadge(t.status)}</td></tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Chưa có tờ trình nào</td></tr>`}
     </tbody></table></div>`;
