@@ -3,7 +3,7 @@
 // Công thức: C=A+B | E=-10%×D | G = F==0 ? 0 : -F×(D/(0.8×A)) | H=D+E+F+G | J=H+I
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE } from '../core/utils.js';
 
 // Đối tác dùng chung cho ô gõ-tìm ở cả 2 form (Tạo mới / Sửa)
 const partnerLabelFn = (p) => p.name;
@@ -253,7 +253,7 @@ export async function render(container, user) {
       <button class="btn btn-primary" id="btnNew">+ Trình bill thanh toán</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr><th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th></tr></thead><tbody id="billTbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác</th><th>Giá trị thanh toán</th>' : '<th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th>'}</tr></thead><tbody id="billTbody"></tbody></table></div>
       <div id="billPagination"></div>
     </div>`;
 
@@ -289,17 +289,19 @@ export async function render(container, user) {
 }
 
 function renderBillRows(list) {
-  return list.length
-    ? list
-        .map((b) => {
-          const { C, K } = calcBill(b);
-          const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
-          return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
+  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 7}" style="text-align:center;color:var(--gray4);padding:20px">Không có bill nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
+  return list
+    .map((b) => {
+      const { C, K } = calcBill(b);
+      if (IS_MOBILE) {
+        return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'} <span style="color:var(--gray4);font-size:11px">(Kỳ ${b.period_no})</span></td><td>${b.partners?.name || '—'}</td><td class="mono">${fmt(K)}</td></tr>`;
+      }
+      const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
+      return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
       <td class="mono">${fmt(C)}</td><td class="mono">${fmt(b.val_d)}</td><td class="mono">${fmt(K)}</td>
       <td><div style="font-weight:700;white-space:nowrap;color:${pct == null ? 'var(--gray4)' : budgetColor(pct)}">${pct == null ? '—' : pct + '%'}</div><div style="margin-top:2px">${statusBadge(b.status)}</div></td></tr>`;
-        })
-        .join('')
-    : `<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:20px">Không có bill nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
+    })
+    .join('');
 }
 
 function finRow(label, value, code, bold) {
