@@ -2,7 +2,7 @@
 // hopdong.js — Module Hợp đồng đầu vào (NTP/NCC)
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
@@ -45,7 +45,7 @@ export async function render(container, user) {
       <button class="btn btn-primary" id="btnNew">+ Trình hợp đồng mới</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody id="contractTbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác</th><th>Giá trị</th>' : '<th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th>'}</tr></thead><tbody id="contractTbody"></tbody></table></div>
       <div id="contractPagination"></div>
     </div>`;
 
@@ -81,14 +81,15 @@ export async function render(container, user) {
 }
 
 function renderContractRows(list) {
-  return list.length
-    ? list
-        .map(
-          (c) => `<tr class="click" data-id="${c.id}"><td>${c.projects?.name || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
+  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 6}" style="text-align:center;color:var(--gray4);padding:20px">Không có hợp đồng nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
+  return list
+    .map((c) =>
+      IS_MOBILE
+        ? `<tr class="click" data-id="${c.id}"><td>${c.projects?.name || '—'}</td><td>${c.partners?.name || '—'}</td><td class="mono">${fmt(c.value)}</td></tr>`
+        : `<tr class="click" data-id="${c.id}"><td>${c.projects?.name || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
     <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td></tr>`,
-        )
-        .join('')
-    : `<tr><td colspan="6" style="text-align:center;color:var(--gray4);padding:20px">Không có hợp đồng nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
+    )
+    .join('');
 }
 
 // Xuất tờ cover để kẹp hồ sơ cứng — dùng chức năng In của trình duyệt (không dùng
