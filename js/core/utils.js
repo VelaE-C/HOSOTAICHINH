@@ -277,3 +277,47 @@ export function setSearchSelectValue(container, id, items, value, labelFn = (it)
     searchInput.value = it ? searchSelectLabel(it, labelFn, subFn) : '';
   }
 }
+
+// ============================================================
+// PHÂN TRANG — dùng chung cho các bảng danh sách dài (Bill, Hợp đồng, Tờ trình...)
+// Giữ mỗi trang gọn trong 1 khung hình, có số trang + nút Trước/Tiếp ở góc dưới,
+// không phải cuộn dài làm mất tiêu đề cột.
+// ============================================================
+
+export const PAGE_SIZE = 15;
+
+// list đã lọc xong (nếu có) — hàm CHỈ vẽ HTML, không tự lọc/sắp xếp gì cả
+export function paginationHtml(currentPage, totalItems, pageSize = PAGE_SIZE) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  if (totalPages <= 1) return '';
+  const pages = [];
+  for (let p = 1; p <= totalPages; p++) {
+    if (p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1) pages.push(p);
+    else if (pages[pages.length - 1] !== '…') pages.push('…');
+  }
+  const start = (currentPage - 1) * pageSize + 1;
+  const end = Math.min(currentPage * pageSize, totalItems);
+  return `<div class="pagination" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;flex-wrap:wrap;border-top:1px solid var(--gray1)">
+    <div style="font-size:12.5px;color:var(--gray5)">Hiển thị ${start}–${end} / ${totalItems}</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-secondary" data-pg="prev" ${currentPage <= 1 ? 'disabled' : ''}>← Trước</button>
+      ${pages.map((p) => (p === '…' ? `<span style="padding:0 6px;color:var(--gray4)">…</span>` : `<button class="btn btn-sm ${p === currentPage ? 'btn-primary' : 'btn-secondary'}" data-pg="${p}">${p}</button>`)).join('')}
+      <button class="btn btn-sm btn-secondary" data-pg="next" ${currentPage >= totalPages ? 'disabled' : ''}>Tiếp →</button>
+    </div>
+  </div>`;
+}
+
+// Gắn sự kiện cho các nút do paginationHtml() vẽ ra — gọi onChange(soTrangMoi) khi bấm
+export function wirePagination(container, currentPage, totalItems, onChange, pageSize = PAGE_SIZE) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  container.querySelectorAll('[data-pg]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.pg;
+      let next = currentPage;
+      if (v === 'prev') next = Math.max(1, currentPage - 1);
+      else if (v === 'next') next = Math.min(totalPages, currentPage + 1);
+      else next = Number(v);
+      if (next !== currentPage) onChange(next);
+    }),
+  );
+}
