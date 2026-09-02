@@ -3,7 +3,7 @@
 // Công thức: C=A+B | E=-10%×D | G = F==0 ? 0 : -F×(D/(0.8×A)) | H=D+E+F+G | J=H+I
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue } from '../core/utils.js';
 
 // Đối tác dùng chung cho ô gõ-tìm ở cả 2 form (Tạo mới / Sửa)
 const partnerLabelFn = (p) => p.name;
@@ -223,8 +223,8 @@ export async function render(container, user) {
   const [{ data: projects }, { data: bills, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name)')
+      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name), projects(name)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name), projects(name)')
     ).neq('status', 'cancelled').order('created_at', { ascending: false }),
   ]);
 
@@ -248,15 +248,14 @@ export async function render(container, user) {
       </select>
       <button class="btn btn-primary" id="btnNew">+ Trình bill thanh toán</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Đối tác</th><th>Kỳ</th><th>Đề nghị (K)</th><th>Checklist</th><th>Trạng thái</th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th></tr></thead><tbody>
     ${sorted.length ? sorted.map((b) => {
-      const { K } = calcBill(b);
-      const req = b.checklist_required || 0;
-      const done = b.checklist_done || 0;
-      return `<tr class="click" data-id="${b.id}"><td class="mono">${b.doc_number}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
-      <td class="mono">${fmt(K)}</td><td>${req ? (done < req ? `<span style="color:var(--amber)">${done}/${req} ⚠️</span>` : `<span style="color:var(--green)">${done}/${req} ✓</span>`) : '—'}</td>
-      <td>${statusBadge(b.status)}</td></tr>`;
-    }).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--gray4);padding:20px">Chưa có bill nào</td></tr>`}
+      const { C, K } = calcBill(b);
+      const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
+      return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
+      <td class="mono">${fmt(C)}</td><td class="mono">${fmt(b.val_d)}</td><td class="mono">${fmt(K)}</td>
+      <td><div style="font-weight:700;white-space:nowrap;color:${pct == null ? 'var(--gray4)' : budgetColor(pct)}">${pct == null ? '—' : pct + '%'}</div><div style="margin-top:2px">${statusBadge(b.status)}</div></td></tr>`;
+    }).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:20px">Chưa có bill nào</td></tr>`}
     </tbody></table></div>`;
 
   container.querySelector('#projFilter').addEventListener('change', (e) => {
