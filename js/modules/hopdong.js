@@ -2,11 +2,12 @@
 // hopdong.js — Module Hợp đồng đầu vào (NTP/NCC)
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
+let VIEW_PAGE = 1;
 
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
@@ -43,27 +44,40 @@ export async function render(container, user) {
       </div>
       <button class="btn btn-primary" id="btnNew">+ Trình hợp đồng mới</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody id="contractTbody">
-    ${renderContractRows(sorted)}
-    </tbody></table></div>`;
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="overflow-x:auto"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody id="contractTbody"></tbody></table></div>
+      <div id="contractPagination"></div>
+    </div>`;
 
-  function wireRowClicks() {
+  let currentList = sorted;
+
+  function draw() {
+    const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
+    VIEW_PAGE = Math.min(Math.max(1, VIEW_PAGE), totalPages);
+    const pageItems = currentList.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
+    container.querySelector('#contractTbody').innerHTML = renderContractRows(pageItems);
+    container.querySelector('#contractPagination').innerHTML = paginationHtml(VIEW_PAGE, currentList.length);
+    wirePagination(container.querySelector('#contractPagination'), VIEW_PAGE, currentList.length, (p) => {
+      VIEW_PAGE = p;
+      draw();
+    });
     container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
   }
 
   container.querySelector('#partnerFilter').addEventListener('input', (e) => {
     const q = normalizeSearchText(e.target.value);
-    const filtered = q ? sorted.filter((c) => normalizeSearchText(c.partners?.name || '').includes(q)) : sorted;
-    container.querySelector('#contractTbody').innerHTML = renderContractRows(filtered);
-    wireRowClicks();
+    currentList = q ? sorted.filter((c) => normalizeSearchText(c.partners?.name || '').includes(q)) : sorted;
+    VIEW_PAGE = 1;
+    draw();
   });
 
   container.querySelector('#projFilter').addEventListener('change', (e) => {
     VIEW_PROJECT = e.target.value;
+    VIEW_PAGE = 1;
     render(container, user);
   });
   container.querySelector('#btnNew').addEventListener('click', () => openCreateModal(user, () => render(container, user)));
-  wireRowClicks();
+  draw();
 }
 
 function renderContractRows(list) {
