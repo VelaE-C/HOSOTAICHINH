@@ -13,7 +13,7 @@ export async function loadApprovalState(docType, docId) {
   const [{ data: assignments, error: e1 }, { data: logs, error: e2 }] = await Promise.all([
     supabase
       .from('approval_assignments')
-      .select('step_no, role_type, status, user_id, created_at, acted_at, users(full_name, job_title)')
+      .select('step_no, role_type, status, user_id, created_at, acted_at, acted_by_admin_id, admin_override_reason, users!user_id(full_name, job_title), admin_override_users:users!acted_by_admin_id(full_name)')
       .eq('document_type', docType)
       .eq('document_id', docId)
       .order('step_no'),
@@ -70,7 +70,7 @@ export function railHtml(assignments, currentStep, preview = {}) {
             ? s.people
                 .map(
                   (p) =>
-                    `<div class="pp ${p.status}"><span class="tick">${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : ''}</span>${p.users?.full_name || '—'} <span style="opacity:.6">(${p.role_type})</span>${isOverdue(p) ? ' <span style="color:var(--red);font-weight:700">⚠️ Trễ</span>' : ''}</div>`,
+                    `<div class="pp ${p.status}"><span class="tick">${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : ''}</span>${p.users?.full_name || '—'} <span style="opacity:.6">(${p.role_type})</span>${isOverdue(p) ? ' <span style="color:var(--red);font-weight:700">⚠️ Trễ</span>' : ''}${p.acted_by_admin_id ? `<div style="color:var(--amber);font-size:11px;font-weight:600">⚠️ Admin ${p.status === 'rejected' ? 'từ chối' : 'duyệt'} thay${p.admin_override_users?.full_name ? ' — ' + p.admin_override_users.full_name : ''}${p.admin_override_reason ? ` (${p.admin_override_reason})` : ''}</div>` : ''}</div>`,
                 )
                 .join('')
             : previewPeople.length
@@ -86,11 +86,21 @@ export function railHtml(assignments, currentStep, preview = {}) {
 
 export function timelineHtml(logs) {
   if (!logs.length) return `<div class="empty-note" style="padding:16px 0">Chưa có lịch sử</div>`;
-  const actionLabel = { submit: 'Trình hồ sơ', resubmit: 'Trình lại', approve: 'Đã duyệt', reject: 'Từ chối', edit_budget: 'Điều chỉnh mã ngân sách (QLCP&HĐ)', edit_doc_number: 'Sửa số hồ sơ (QLCP&HĐ)', cancel: 'Đã hủy hồ sơ (Admin)' };
+  const actionLabel = {
+    submit: 'Trình hồ sơ',
+    resubmit: 'Trình lại',
+    approve: 'Đã duyệt',
+    reject: 'Từ chối',
+    approve_on_behalf: '⚠️ Admin duyệt thay',
+    reject_on_behalf: '⚠️ Admin từ chối thay',
+    edit_budget: 'Điều chỉnh mã ngân sách (QLCP&HĐ)',
+    edit_doc_number: 'Sửa số hồ sơ (QLCP&HĐ)',
+    cancel: 'Đã hủy hồ sơ (Admin)',
+  };
   return logs
     .map(
       (l) => `<div class="tl-item">
-      <div class="tl-dot ${l.action === 'reject' ? 'danger' : 'done'}"></div>
+      <div class="tl-dot ${l.action === 'reject' || l.action === 'reject_on_behalf' ? 'danger' : 'done'}"></div>
       <div class="tl-body"><b>${l.users?.full_name || '—'}</b> — ${actionLabel[l.action] || l.action}
         <div class="tl-time">${fmtDateTime(l.created_at)}</div>
         ${l.comment ? `<div class="tl-comment">"${l.comment}"</div>` : ''}
@@ -183,8 +193,15 @@ export function readBudgetLines(wrapEl) {
 }
 
 // đang đăng nhập có đang là người cần xử lý bước hiện tại hay không
-export function actionFooterHtml(doc, docType, user, assignments) {
+// isAdmin (mặc định false) — nếu true, luôn hiện thêm khối "Duyệt/Từ chối THAY" ở dưới
+// cho phép Admin xử lý thay bất kỳ ai đang đứng tên chờ duyệt ở bước hiện tại, không cần
+// chính Admin nằm trong danh sách người duyệt của bước đó. Bắt buộc lý do, KHÔNG ẩn dấu
+// vết — mọi hành động vẫn ghi rõ "Admin duyệt/từ chối thay [tên]" trên rail/lịch sử/PDF.
+export function actionFooterHtml(doc, docType, user, assignments, isAdmin = false) {
   const myPending = assignments.find((a) => a.step_no === doc.current_step && a.user_id === user.id && a.status === 'pending');
+  const stepPendingList = assignments.filter((a) => a.step_no === doc.current_step && a.status === 'pending');
+
+  let html = '';
 
   if (doc.status === 'draft' && doc.created_by === user.id) {
     return `<div class="panel-footer"><button class="btn btn-primary" id="btnSubmit" style="flex:1">Trình duyệt</button></div>`;
@@ -193,7 +210,7 @@ export function actionFooterHtml(doc, docType, user, assignments) {
     return `<div class="panel-footer"><button class="btn btn-primary" id="btnResubmit" style="flex:1">Trình lại</button></div>`;
   }
   if (doc.status === 'pending' && myPending) {
-    return `<div class="panel-footer" style="flex-direction:column;align-items:stretch;gap:8px">
+    html += `<div class="panel-footer" style="flex-direction:column;align-items:stretch;gap:8px">
       <textarea id="approveNote" class="form-input" rows="2" placeholder="Ghi chú khi duyệt (không bắt buộc) — để trống nếu không có ý kiến gì thêm"></textarea>
       <div style="display:flex;gap:8px">
         <button class="btn btn-secondary" id="btnRemind">Nhắc duyệt</button>
@@ -201,13 +218,27 @@ export function actionFooterHtml(doc, docType, user, assignments) {
         <button class="btn btn-primary" id="btnApprove" style="flex:1">Duyệt</button>
       </div>
     </div>`;
+  } else if (doc.status === 'pending' && doc.created_by === user.id) {
+    // Người trình hồ sơ (không phải người duyệt ở bước hiện tại) vẫn nên nhắc được
+    // — họ là người chờ kết quả, có lợi ích chính đáng để thúc tiến độ.
+    html += `<div class="panel-footer"><button class="btn btn-secondary" id="btnRemind" style="flex:1">Nhắc duyệt</button></div>`;
   }
-  // Người trình hồ sơ (không phải người duyệt ở bước hiện tại) vẫn nên nhắc được
-  // — họ là người chờ kết quả, có lợi ích chính đáng để thúc tiến độ.
-  if (doc.status === 'pending' && doc.created_by === user.id) {
-    return `<div class="panel-footer"><button class="btn btn-secondary" id="btnRemind" style="flex:1">Nhắc duyệt</button></div>`;
+
+  if (isAdmin && doc.status === 'pending' && stepPendingList.length) {
+    html += `<div class="panel-footer" style="flex-direction:column;align-items:stretch;gap:8px;border-top:2px dashed var(--amber);${html ? 'margin-top:10px' : ''}">
+      <div style="font-size:12px;font-weight:700;color:var(--amber)">⚠️ Duyệt/Từ chối THAY (chỉ Admin thấy mục này)</div>
+      <select id="onBehalfUser" class="form-input">
+        ${stepPendingList.map((a) => `<option value="${a.user_id}">${a.users?.full_name || '—'} (${a.role_type})</option>`).join('')}
+      </select>
+      <textarea id="onBehalfReason" class="form-input" rows="2" placeholder="Lý do duyệt/từ chối thay (bắt buộc) — VD: Nghỉ phép, đang off tạm thời"></textarea>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-danger" id="btnRejectOnBehalf" style="flex:1">Từ chối thay</button>
+        <button class="btn btn-primary" id="btnApproveOnBehalf" style="flex:1">Duyệt thay</button>
+      </div>
+    </div>`;
   }
-  return `<div class="panel-footer"><span style="font-size:12.5px;color:var(--gray5)">Không có hành động nào khả dụng cho bạn ở hồ sơ này.</span></div>`;
+
+  return html || `<div class="panel-footer"><span style="font-size:12.5px;color:var(--gray5)">Không có hành động nào khả dụng cho bạn ở hồ sơ này.</span></div>`;
 }
 
 // Gắn sự kiện cho các nút trên — gọi thẳng 4 hàm RPC đã viết ở database
@@ -260,5 +291,30 @@ export function wireActions(container, docType, docId, currentStep, assignments,
     }
     if (okCount > 0) toast(`Đã gửi nhắc duyệt (${okCount}/${pendingUserIds.length} người)`, 'success');
     if (lastError) toast('Lỗi gửi nhắc: ' + lastError.message, 'error');
+  });
+
+  // Admin duyệt/từ chối THAY người đang chờ duyệt ở bước hiện tại — bắt buộc lý do,
+  // KHÔNG ẩn dấu vết (RPC tự ghi rõ "Admin duyệt/từ chối thay [tên]" vào approval_logs).
+  container.querySelector('#btnApproveOnBehalf')?.addEventListener('click', async () => {
+    const onBehalfUserId = container.querySelector('#onBehalfUser')?.value;
+    const reason = container.querySelector('#onBehalfReason')?.value.trim();
+    if (!reason) return toast('Phải nhập lý do duyệt thay', 'error');
+    loading(true);
+    const { error } = await supabase.rpc('fn_approve_document', { p_doc_type: docType, p_doc_id: docId, p_comment: reason, p_on_behalf_user_id: onBehalfUserId });
+    if (error) return toast('Lỗi: ' + error.message, 'error');
+    toast('Đã duyệt thay', 'success');
+    onDone();
+  });
+
+  container.querySelector('#btnRejectOnBehalf')?.addEventListener('click', async () => {
+    const onBehalfUserId = container.querySelector('#onBehalfUser')?.value;
+    const reason = container.querySelector('#onBehalfReason')?.value.trim();
+    if (!reason) return toast('Phải nhập lý do từ chối thay', 'error');
+    if (!confirm('Xác nhận TỪ CHỐI THAY hồ sơ này? Hồ sơ sẽ quay về người trình.')) return;
+    loading(true);
+    const { error } = await supabase.rpc('fn_reject_document', { p_doc_type: docType, p_doc_id: docId, p_comment: reason, p_on_behalf_user_id: onBehalfUserId });
+    if (error) return toast('Lỗi: ' + error.message, 'error');
+    toast('Đã từ chối thay — quay về người trình', 'success');
+    onDone();
   });
 }
