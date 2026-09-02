@@ -4,7 +4,7 @@
 // Quan hệ 1-nhiều được ghi nhận NGƯỢC từ phía hợp đồng (contracts.to_trinh_id).
 // ============================================================
 import { supabase } from '../core/config.js';
-import { toast, loading, statusBadge, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE } from '../core/utils.js';
+import { toast, loading, statusBadge, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
@@ -51,7 +51,7 @@ export async function render(container, user) {
       <button class="btn btn-primary" id="btnNew">+ Trình tờ trình chủ trương</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr><th>Dự án</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th></tr></thead><tbody id="totrinhTbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Tiêu đề</th>' : '<th>Dự án</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th>'}</tr></thead><tbody id="totrinhTbody"></tbody></table></div>
       <div id="totrinhPagination"></div>
     </div>`;
 
@@ -87,15 +87,16 @@ export async function render(container, user) {
 }
 
 function renderTotrinhRows(list, countMap) {
-  return list.length
-    ? list
-        .map(
-          (t) => `<tr class="click" data-id="${t.id}"><td>${t.projects?.name || '—'}</td><td>${t.title}</td>
+  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 2 : 4}" style="text-align:center;color:var(--gray4);padding:20px">Không có tờ trình nào — kiểm tra lại bộ lọc Dự án/Tiêu đề nếu đang lọc</td></tr>`;
+  return list
+    .map((t) =>
+      IS_MOBILE
+        ? `<tr class="click" data-id="${t.id}"><td>${t.projects?.name || '—'}</td><td>${t.title}</td></tr>`
+        : `<tr class="click" data-id="${t.id}"><td>${t.projects?.name || '—'}</td><td>${t.title}</td>
     <td>${countMap[t.id] ? `<span class="code-chip">${countMap[t.id]} hợp đồng</span>` : '<span style="color:var(--gray4);font-size:12px">Chưa có</span>'}</td>
     <td>${statusBadge(t.status)}</td></tr>`,
-        )
-        .join('')
-    : `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Không có tờ trình nào — kiểm tra lại bộ lọc Dự án/Tiêu đề nếu đang lọc</td></tr>`;
+    )
+    .join('');
 }
 
 // Xuất tờ cover để kẹp hồ sơ cứng — giống hệt cách làm ở Hợp đồng, chỉ đổi nội dung
