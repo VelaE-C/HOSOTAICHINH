@@ -3,7 +3,8 @@
 // (đúng thiết kế: luôn hiện hết để không bỏ sót hồ sơ cần xử lý)
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt } from '../core/utils.js';
+import { fmt, budgetColor } from '../core/utils.js';
+import { calcBill } from './bill.js'; // dùng chung ĐÚNG 1 công thức tính C/D/K với trang Bill — tránh lệch số giữa 2 màn hình
 
 // Bước 1-2: hạn 2 ngày (48h). Bước 3-4: hạn 1 ngày (24h) — khớp đúng quy tắc SLA đang dùng.
 function isOverdue(m) {
@@ -38,7 +39,7 @@ export async function render(container, user) {
       ? supabase.from('contracts').select('id, doc_number, value, project_id, partners(name), projects(code)').in('id', idsByType.contract)
       : { data: [] },
     idsByType.bill.length
-      ? supabase.from('bills').select('id, doc_number, val_a, val_b, val_d, val_f, val_i, project_id, partners(name), projects(code)').in('id', idsByType.bill)
+      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, vat_rate, project_id, partners(name), projects(code)').in('id', idsByType.bill)
       : { data: [] },
     idsByType.totrinh.length
       ? supabase.from('to_trinh_chu_truong').select('id, doc_number, title, project_id, projects(code)').in('id', idsByType.totrinh)
@@ -54,17 +55,18 @@ export async function render(container, user) {
       if (m.document_type === 'contract') {
         const c = contractMap[m.document_id];
         if (!c) return null;
-        return { ...m, docNumber: c.doc_number, projectCode: c.projects?.code, partner: c.partners?.name, value: c.value, label: 'Hợp đồng' };
+        return { ...m, docNumber: c.doc_number, projectCode: c.projects?.code, partner: c.partners?.name, label: 'Hợp đồng', contractValue: c.value, sanLuong: null, deNghi: c.value, pct: null };
       }
       if (m.document_type === 'bill') {
         const b = billMap[m.document_id];
         if (!b) return null;
-        const J = Number(b.val_d) - 0.1 * Number(b.val_d) + Number(b.val_f) + Number(b.val_i);
-        return { ...m, docNumber: b.doc_number, projectCode: b.projects?.code, partner: b.partners?.name, value: J, label: 'Bill thanh toán' };
+        const { C, K } = calcBill(b);
+        const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
+        return { ...m, docNumber: `${b.doc_number}${b.period_no ? ` (Kỳ ${b.period_no})` : ''}`, projectCode: b.projects?.code, partner: b.partners?.name, label: 'Bill thanh toán', contractValue: C, sanLuong: b.val_d, deNghi: K, pct };
       }
       const t = totrinhMap[m.document_id];
       if (!t) return null;
-      return { ...m, docNumber: t.doc_number, projectCode: t.projects?.code, partner: '—', value: null, label: 'Tờ trình chủ trương' };
+      return { ...m, docNumber: t.doc_number, projectCode: t.projects?.code, partner: '—', label: 'Tờ trình chủ trương', contractValue: null, sanLuong: null, deNghi: null, pct: null };
     })
     .filter(Boolean)
     .sort((a, b) => (isOverdue(b) ? 1 : 0) - (isOverdue(a) ? 1 : 0)); // trễ lên đầu
@@ -73,7 +75,7 @@ export async function render(container, user) {
 
   container.innerHTML = `
     ${overdueCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang trễ hạn duyệt — xem các dòng có nhãn đỏ bên dưới.</div>` : ''}
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị</th><th>Bước</th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>%</th><th>Bước</th></tr></thead><tbody>
     ${rows
       .map(
         (r) => `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
@@ -81,7 +83,10 @@ export async function render(container, user) {
       <td class="mono">${r.docNumber}</td>
       <td>${r.label}</td>
       <td>${r.partner || '—'}</td>
-      <td class="mono">${r.value != null ? fmt(r.value) : '—'}</td>
+      <td class="mono">${r.contractValue != null ? fmt(r.contractValue) : '—'}</td>
+      <td class="mono">${r.sanLuong != null ? fmt(r.sanLuong) : '—'}</td>
+      <td class="mono">${r.deNghi != null ? fmt(r.deNghi) : '—'}</td>
+      <td>${r.pct != null ? `<span style="font-weight:700;white-space:nowrap;color:${budgetColor(r.pct)}">${r.pct}%</span>` : '—'}</td>
       <td>Bước ${r.step_no}${isOverdue(r) ? '<div style="color:var(--red);font-weight:700;font-size:11px;margin-top:2px">⚠️ Trễ</div>' : ''}</td>
     </tr>`,
       )
