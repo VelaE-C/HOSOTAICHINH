@@ -3,7 +3,7 @@
 // Công thức: C=A+B | E=-10%×D | G = F==0 ? 0 : -F×(D/(0.8×A)) | H=D+E+F+G | J=H+I
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue, normalizeSearchText } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE } from '../core/utils.js';
 
 // Đối tác dùng chung cho ô gõ-tìm ở cả 2 form (Tạo mới / Sửa)
 const partnerLabelFn = (p) => p.name;
@@ -12,6 +12,7 @@ import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireAction
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
+let VIEW_PAGE = 1;
 
 export function calcBill(b, contract) {
   const vatRate = (b.vat_rate ?? contract?.vat_rate ?? 8) / 100;
@@ -251,27 +252,40 @@ export async function render(container, user) {
       </div>
       <button class="btn btn-primary" id="btnNew">+ Trình bill thanh toán</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th></tr></thead><tbody id="billTbody">
-    ${renderBillRows(sorted)}
-    </tbody></table></div>`;
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="overflow-x:auto"><table><thead><tr><th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th></tr></thead><tbody id="billTbody"></tbody></table></div>
+      <div id="billPagination"></div>
+    </div>`;
 
-  function wireRowClicks() {
+  let currentList = sorted;
+
+  function draw() {
+    const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
+    VIEW_PAGE = Math.min(Math.max(1, VIEW_PAGE), totalPages);
+    const pageItems = currentList.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
+    container.querySelector('#billTbody').innerHTML = renderBillRows(pageItems);
+    container.querySelector('#billPagination').innerHTML = paginationHtml(VIEW_PAGE, currentList.length);
+    wirePagination(container.querySelector('#billPagination'), VIEW_PAGE, currentList.length, (p) => {
+      VIEW_PAGE = p;
+      draw();
+    });
     container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
   }
 
   container.querySelector('#partnerFilter').addEventListener('input', (e) => {
     const q = normalizeSearchText(e.target.value);
-    const filtered = q ? sorted.filter((b) => normalizeSearchText(b.partners?.name || '').includes(q)) : sorted;
-    container.querySelector('#billTbody').innerHTML = renderBillRows(filtered);
-    wireRowClicks();
+    currentList = q ? sorted.filter((b) => normalizeSearchText(b.partners?.name || '').includes(q)) : sorted;
+    VIEW_PAGE = 1;
+    draw();
   });
 
   container.querySelector('#projFilter').addEventListener('change', (e) => {
     VIEW_PROJECT = e.target.value;
+    VIEW_PAGE = 1;
     render(container, user);
   });
   container.querySelector('#btnNew').addEventListener('click', () => openCreateModal(user, () => render(container, user)));
-  wireRowClicks();
+  draw();
 }
 
 function renderBillRows(list) {
