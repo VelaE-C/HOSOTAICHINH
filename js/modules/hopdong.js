@@ -2,7 +2,7 @@
 // hopdong.js — Module Hợp đồng đầu vào (NTP/NCC)
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
@@ -14,8 +14,8 @@ export async function render(container, user) {
   const [{ data: projects }, { data: contracts, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name)')
+      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name), projects(name)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name), projects(name)')
     ).neq('status', 'cancelled').order('created_at', { ascending: false }),
   ]);
 
@@ -34,24 +34,47 @@ export async function render(container, user) {
 
   container.innerHTML = `
     <div style="display:flex;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap">
-      <select class="btn btn-secondary" id="projFilter">
-        <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
-        ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
-      </select>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select class="btn btn-secondary" id="projFilter">
+          <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
+          ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
+        </select>
+        <input type="text" class="form-input" id="partnerFilter" placeholder="🔎 Lọc theo tên Đối tác/NCC..." style="min-width:220px">
+      </div>
       <button class="btn btn-primary" id="btnNew">+ Trình hợp đồng mới</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Số hồ sơ</th><th>Đối tác</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
-    ${sorted.length ? sorted.map((c) => `<tr class="click" data-id="${c.id}"><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
-    <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td></tr>`).join('') :
-    `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Chưa có hợp đồng nào</td></tr>`}
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody id="contractTbody">
+    ${renderContractRows(sorted)}
     </tbody></table></div>`;
+
+  function wireRowClicks() {
+    container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
+  }
+
+  container.querySelector('#partnerFilter').addEventListener('input', (e) => {
+    const q = normalizeSearchText(e.target.value);
+    const filtered = q ? sorted.filter((c) => normalizeSearchText(c.partners?.name || '').includes(q)) : sorted;
+    container.querySelector('#contractTbody').innerHTML = renderContractRows(filtered);
+    wireRowClicks();
+  });
 
   container.querySelector('#projFilter').addEventListener('change', (e) => {
     VIEW_PROJECT = e.target.value;
     render(container, user);
   });
   container.querySelector('#btnNew').addEventListener('click', () => openCreateModal(user, () => render(container, user)));
-  container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
+  wireRowClicks();
+}
+
+function renderContractRows(list) {
+  return list.length
+    ? list
+        .map(
+          (c) => `<tr class="click" data-id="${c.id}"><td>${c.projects?.name || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
+    <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td></tr>`,
+        )
+        .join('')
+    : `<tr><td colspan="6" style="text-align:center;color:var(--gray4);padding:20px">Không có hợp đồng nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
 }
 
 // Xuất tờ cover để kẹp hồ sơ cứng — dùng chức năng In của trình duyệt (không dùng
