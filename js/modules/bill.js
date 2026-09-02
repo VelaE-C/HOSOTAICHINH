@@ -107,8 +107,8 @@ function renderLivePreview(modal) {
 // do) — loại hẳn bill đã "Hủy hồ sơ" ra khỏi việc tính kỳ tiếp theo, coi như nó chưa từng
 // tồn tại (số kỳ đó được dùng lại). Dùng chung cho cả gợi ý số kỳ (updateKyAndJ) lẫn
 // chặn thật lúc lưu (doSave) — để 2 nơi luôn tính ra cùng 1 kết quả, không lệch nhau.
-async function findLatestValidBill(contractId, projectId, partnerId) {
-  let q = supabase.from('bills').select('period_no, val_d, status').neq('status', 'cancelled').order('period_no', { ascending: false }).limit(1);
+async function findLatestValidBill(contractId, projectId, partnerId, excludeBillId) {
+  let q = supabase.from('bills').select('id, period_no, val_a, val_b, val_d, status').neq('status', 'cancelled').order('period_no', { ascending: false }).limit(5);
   if (contractId) {
     q = q.eq('contract_id', contractId);
   } else if (projectId && partnerId) {
@@ -117,15 +117,56 @@ async function findLatestValidBill(contractId, projectId, partnerId) {
     return null;
   }
   const { data } = await q;
-  return data && data[0] ? data[0] : null;
+  if (!data || !data.length) return null;
+  // Đang SỬA đúng bill đang là kỳ mới nhất -> phải loại chính nó ra, không được tự
+  // coi mình là "kỳ liền trước" của chính mình (lấy limit 5 thay vì 1 để vẫn tìm được
+  // kỳ hợp lệ kế tiếp phía sau khi loại trừ)
+  const filtered = excludeBillId ? data.filter((b) => b.id !== excludeBillId) : data;
+  return filtered.length ? filtered[0] : null;
+}
+
+// Lọc danh sách Hợp đồng liên kết theo đúng Dự án + Đối tác đã chọn — Đối tác là
+// "chìa khóa" của hợp đồng, tránh gắn nhầm hợp đồng của dự án/đối tác khác vào bill.
+// keepId (nếu có) luôn được giữ trong danh sách dù không khớp lọc — dùng khi render
+// LẦN ĐẦU form Sửa, để không âm thầm "mất" liên kết hợp đồng cũ đã lưu từ trước.
+function contractOptionsHtml(contracts, projectId, partnerId, keepId) {
+  const filtered = (contracts || []).filter((c) => {
+    if (keepId && c.id === keepId) return true;
+    if (projectId && c.project_id !== projectId) return false;
+    if (partnerId && c.partner_id !== partnerId) return false;
+    return true;
+  });
+  return (
+    '<option value="">— Chưa liên kết —</option>' +
+    filtered.map((c) => `<option value="${c.id}" ${c.id === keepId ? 'selected' : ''} data-partner="${c.partner_id}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')
+  );
+}
+
+// Gọi mỗi khi đổi Dự án/Đối tác SAU KHI form đã mở — nếu hợp đồng đang chọn không còn
+// khớp Dự án/Đối tác mới, tự bỏ chọn (không âm thầm giữ lại lựa chọn sai) và báo cho
+// người dùng biết, đồng thời bắn 'change' để các phần phụ thuộc (D theo mã, Kỳ/J...)
+// tự cập nhật lại đúng theo trạng thái "chưa liên kết".
+function refreshContractSelect(modal, contracts, projectId, partnerId) {
+  const sel = modal.querySelector('#fContract');
+  const currentId = sel.value;
+  const stillMatches = currentId && (contracts || []).some((c) => c.id === currentId && (!projectId || c.project_id === projectId) && (!partnerId || c.partner_id === partnerId));
+  sel.innerHTML = contractOptionsHtml(contracts, projectId, partnerId, stillMatches ? currentId : null);
+  if (currentId && !stillMatches) {
+    toast('Đã bỏ chọn Hợp đồng liên kết vì không còn khớp Dự án/Đối tác vừa đổi', 'info');
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 }
 
 const BILL_STATUS_LABEL = { draft: 'nháp', pending: 'đang duyệt', rejected: 'bị từ chối', paid: 'đã thanh toán xong' };
 
-async function updateKyAndJ(modal, contractId, projectId, partnerId) {
+
+
+async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBillId) {
   const periodInput = modal.querySelector('#fPeriod');
   const jInput = modal.querySelector('#fI');
   const noteEl = modal.querySelector('#kyNote');
+  const aInput = modal.querySelector('#fA');
+  const bInput = modal.querySelector('#fB');
 
   if (!contractId && !(projectId && partnerId)) {
     periodInput.readOnly = false;
@@ -136,7 +177,7 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId) {
     return;
   }
 
-  const latest = await findLatestValidBill(contractId, projectId, partnerId);
+  const latest = await findLatestValidBill(contractId, projectId, partnerId, excludeBillId);
 
   if (!latest) {
     // Chưa có bill HỢP LỆ nào (bỏ qua bill đã Hủy) cho đúng hợp đồng/cặp này — có thể
@@ -157,6 +198,11 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId) {
   periodInput.value = latest.period_no + 1;
   periodInput.readOnly = true;
   periodInput.style.background = 'var(--gray1)';
+
+  // A, B kế thừa đúng số kỳ liền trước (QS đã điền thật, không lấy lại theo hợp đồng gốc
+  // nữa) — vẫn để sửa được bình thường nếu hợp đồng có điều chỉnh mới trong kỳ này
+  if (aInput) aInput.value = formatMoneyInput(latest.val_a);
+  if (bInput) bInput.value = formatMoneyInput(latest.val_b);
 
   const okToProceed = latest.status === 'paid';
   periodInput.title = !okToProceed ? `⚠️ Kỳ ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — chưa trình/lưu được kỳ này cho tới khi kỳ ${latest.period_no} thanh toán xong` : '';
@@ -488,7 +534,7 @@ async function openEditModal(bill, user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}" ${p.id === bill.project_id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
-        <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" ${c.id === bill.contract_id ? 'selected' : ''} data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')}</select></div>
+        <select id="fContract" class="form-input">${contractOptionsHtml(contracts, bill.project_id, bill.partner_id, bill.contract_id)}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
         ${searchSelectHtml('fPartner', partners, bill.partner_id, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
       <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
@@ -544,33 +590,36 @@ async function openEditModal(bill, user, onClose) {
   modal.querySelector('#fContract').addEventListener('change', async (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
-      modal.querySelector('#fA').value = opt.dataset.value || '';
-      modal.querySelector('#fB').value = opt.dataset.adj || 0;
+      // A, B KHÔNG còn tự lấy theo giá trị hợp đồng gốc nữa — updateKyAndJ() bên dưới sẽ
+      // tự kế thừa đúng số QS đã điền ở kỳ liền trước (nếu có); nếu là kỳ đầu tiên thì để
+      // trống, QS tự nhập theo đúng số thực tế của bill này.
       if (opt.dataset.partner) setSearchSelectValue(modal, 'fPartner', partners, opt.dataset.partner, partnerLabelFn, partnerSubFn);
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
 
       const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
       renderDSection(dWrap, cLines, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
-      await updateKyAndJ(modal, opt.value, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+      await updateKyAndJ(modal, opt.value, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
     } else {
       renderDSection(dWrap, null, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = '';
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
     }
     renderLivePreview(modal);
   });
 
   // Chưa chọn hợp đồng (đi bill trước) — đổi Dự án/Đối tác cũng cần tính lại Kỳ/J theo đúng cặp đó
   modal.querySelector('#fProject').addEventListener('change', async () => {
+    refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     if (!modal.querySelector('#fContract').value) {
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
       renderLivePreview(modal);
     }
   });
   modal.querySelector('#fPartner').addEventListener('change', async () => {
+    refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     if (!modal.querySelector('#fContract').value) {
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
       renderLivePreview(modal);
     }
   });
@@ -627,7 +676,7 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
-        <select id="fContract" class="form-input"><option value="">— Chưa liên kết —</option>${(contracts || []).map((c) => `<option value="${c.id}" data-value="${c.value}" data-adj="${c.value_adjustment || 0}" data-partner="${c.partner_id}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')}</select>
+        <select id="fContract" class="form-input">${contractOptionsHtml(contracts, projects?.[0]?.id, null, null)}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chọn hợp đồng sẽ tự điền A, B, Đối tác, % VAT theo đúng hợp đồng đó.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
         ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
@@ -690,12 +739,12 @@ async function openCreateModal(user, onClose) {
   renderDSection(dWrap, null, null); // mặc định: chưa chọn hợp đồng -> D đơn giản
   renderLivePreview(modal);
 
-  // Khi chọn hợp đồng liên kết, tự điền A, B, Đối tác, % VAT, và tách D theo mã nếu hợp đồng có nhiều mã
+  // Khi chọn hợp đồng liên kết, tự điền Đối tác + % VAT, và tách D theo mã nếu hợp đồng có nhiều mã.
+  // A/B KHÔNG tự lấy theo giá trị hợp đồng gốc nữa — updateKyAndJ() bên dưới sẽ tự kế thừa
+  // đúng số QS đã điền ở kỳ liền trước (nếu có); nếu là kỳ đầu tiên thì để trống, QS tự nhập.
   modal.querySelector('#fContract').addEventListener('change', async (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
-      modal.querySelector('#fA').value = opt.dataset.value || '';
-      modal.querySelector('#fB').value = opt.dataset.adj || 0;
       if (opt.dataset.partner) setSearchSelectValue(modal, 'fPartner', partners, opt.dataset.partner, partnerLabelFn, partnerSubFn);
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
 
@@ -713,12 +762,14 @@ async function openCreateModal(user, onClose) {
 
   // Chưa chọn hợp đồng (đi bill trước) — đổi Dự án/Đối tác cũng cần tính lại Kỳ/J theo đúng cặp đó
   modal.querySelector('#fProject').addEventListener('change', async () => {
+    refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     if (!modal.querySelector('#fContract').value) {
       await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
       renderLivePreview(modal);
     }
   });
   modal.querySelector('#fPartner').addEventListener('change', async () => {
+    refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     if (!modal.querySelector('#fContract').value) {
       await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
       renderLivePreview(modal);
