@@ -2,12 +2,16 @@
 // hopdong.js — Module Hợp đồng đầu vào (NTP/NCC)
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE, searchSelectHtml, initSearchSelect, setSearchSelectValue } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
 let VIEW_PAGE = 1;
+
+// Đối tác dùng chung cho ô gõ-tìm ở cả 2 form (Tạo mới / Sửa)
+const partnerLabelFn = (p) => p.name;
+const partnerSubFn = (p) => `(MST ${p.mst})`;
 
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
@@ -310,7 +314,7 @@ async function openEditModal(c, user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}" ${p.id === c.project_id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC)</label>
-        <select id="fPartner" class="form-input">${(partners || []).map((p) => `<option value="${p.id}" ${p.id === c.partner_id ? 'selected' : ''}>${p.name} (MST ${p.mst})</option>`).join('')}</select></div>
+        ${searchSelectHtml('fPartner', partners, c.partner_id, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
       <div style="margin-bottom:13px"><label class="form-label">Loại hợp đồng</label>
         <select id="fType" class="form-input">
           ${['Hợp đồng thầu phụ thi công', 'Hợp đồng giao khoán', 'Hợp đồng NCC vật tư', 'Hợp đồng thuê thiết bị', 'Dịch vụ khác']
@@ -341,6 +345,7 @@ async function openEditModal(c, user, onClose) {
   wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(c.id, user, onClose));
   wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
+  initSearchSelect(modal, 'fPartner', partners, { labelFn: partnerLabelFn, subFn: partnerSubFn });
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const project_id = modal.querySelector('#fProject').value;
@@ -388,7 +393,7 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC)</label>
-        <select id="fPartner" class="form-input">${(partners || []).map((p) => `<option value="${p.id}">${p.name} (MST ${p.mst})</option>`).join('')}</select>
+        ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}
         <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Chưa có đối tác? Vào tab Đối tác để khai báo trước, hệ thống tự chống trùng theo MST.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Loại hợp đồng</label>
         <select id="fType" class="form-input">
@@ -431,6 +436,7 @@ async function openCreateModal(user, onClose) {
 
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
+  initSearchSelect(modal, 'fPartner', partners, { labelFn: partnerLabelFn, subFn: partnerSubFn });
   const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
 
   async function doSave(submitAfter) {
