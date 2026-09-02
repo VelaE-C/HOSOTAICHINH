@@ -40,15 +40,15 @@ export async function render(container, user) {
   (linkCounts || []).forEach((c) => (countMap[c.to_trinh_id] = (countMap[c.to_trinh_id] || 0) + 1));
 
   container.innerHTML = `
-    <div style="display:flex;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <select class="btn btn-secondary" id="projFilter">
+    <div style="display:flex;${IS_MOBILE ? 'flex-direction:column;align-items:stretch' : 'justify-content:space-between;flex-wrap:wrap'};margin-bottom:12px;gap:10px">
+      <div style="display:flex;gap:8px;${IS_MOBILE ? 'flex-direction:column' : 'flex-wrap:wrap'}">
+        <select class="btn btn-secondary" id="projFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">
           <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
           ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
         </select>
-        <input type="text" class="form-input" id="titleFilter" placeholder="🔎 Lọc theo tiêu đề (tên NCC/nội dung)..." style="min-width:260px">
+        <input type="text" class="form-input" id="titleFilter" placeholder="🔎 Lọc theo tiêu đề (tên NCC/nội dung)..." style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:260px'}">
       </div>
-      <button class="btn btn-primary" id="btnNew">+ Trình tờ trình chủ trương</button>
+      <button class="btn btn-primary" id="btnNew" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">+ Trình tờ trình chủ trương</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
       <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Tiêu đề</th>' : '<th>Dự án</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th>'}</tr></thead><tbody id="totrinhTbody"></tbody></table></div>
