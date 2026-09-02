@@ -242,15 +242,15 @@ export async function render(container, user) {
   });
 
   container.innerHTML = `
-    <div style="display:flex;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <select class="btn btn-secondary" id="projFilter">
+    <div style="display:flex;${IS_MOBILE ? 'flex-direction:column;align-items:stretch' : 'justify-content:space-between;flex-wrap:wrap'};margin-bottom:12px;gap:10px">
+      <div style="display:flex;gap:8px;${IS_MOBILE ? 'flex-direction:column' : 'flex-wrap:wrap'}">
+        <select class="btn btn-secondary" id="projFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">
           <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
           ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
         </select>
-        <input type="text" class="form-input" id="partnerFilter" placeholder="🔎 Lọc theo tên Đối tác/NCC..." style="min-width:220px">
+        <input type="text" class="form-input" id="partnerFilter" placeholder="🔎 Lọc theo tên Đối tác/NCC..." style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:220px'}">
       </div>
-      <button class="btn btn-primary" id="btnNew">+ Trình bill thanh toán</button>
+      <button class="btn btn-primary" id="btnNew" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">+ Trình bill thanh toán</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
       <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác</th><th>Giá trị thanh toán</th>' : '<th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th>'}</tr></thead><tbody id="billTbody"></tbody></table></div>
@@ -294,7 +294,7 @@ function renderBillRows(list) {
     .map((b) => {
       const { C, K } = calcBill(b);
       if (IS_MOBILE) {
-        return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'} <span style="color:var(--gray4);font-size:11px">(Kỳ ${b.period_no})</span></td><td>${b.partners?.name || '—'}</td><td class="mono">${fmt(K)}</td></tr>`;
+        return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'} <span style="color:var(--gray4);font-size:11px">(Kỳ ${b.period_no})</span></td><td class="mono">${fmt(K)}</td></tr>`;
       }
       const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
       return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
