@@ -70,7 +70,7 @@ export function railHtml(assignments, currentStep, preview = {}) {
             ? s.people
                 .map(
                   (p) =>
-                    `<div class="pp ${p.status}"><span class="tick">${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : ''}</span>${p.users?.full_name || '—'} <span style="opacity:.6">(${p.role_type})</span>${isOverdue(p) ? ' <span style="color:var(--red);font-weight:700">⚠️ Trễ</span>' : ''}${p.acted_by_admin_id ? `<div style="color:var(--amber);font-size:11px;font-weight:600">⚠️ Admin ${p.status === 'rejected' ? 'từ chối' : 'duyệt'} thay${p.admin_override_users?.full_name ? ' — ' + p.admin_override_users.full_name : ''}${p.admin_override_reason ? ` (${p.admin_override_reason})` : ''}</div>` : ''}</div>`,
+                    `<div class="pp ${p.status}"><span class="tick">${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✕' : ''}</span>${p.users?.full_name || '—'} <span style="opacity:.6">(${p.role_type})</span>${isOverdue(p) ? ' <span style="color:var(--red);font-weight:700">⚠️ Trễ</span>' : ''}${p.acted_by_admin_id ? `<div style="color:var(--amber);font-size:11px;font-weight:600" title="${(p.admin_override_reason || '').replace(/"/g, '&quot;')}">⚠️ Admin ${p.status === 'rejected' ? 'từ chối' : 'duyệt'} thay</div>` : ''}</div>`,
                 )
                 .join('')
             : previewPeople.length
