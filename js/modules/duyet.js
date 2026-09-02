@@ -3,7 +3,7 @@
 // (đúng thiết kế: luôn hiện hết để không bỏ sót hồ sơ cần xử lý)
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, budgetColor } from '../core/utils.js';
+import { fmt, budgetColor, IS_MOBILE } from '../core/utils.js';
 import { calcBill } from './bill.js'; // dùng chung ĐÚNG 1 công thức tính C/D/K với trang Bill — tránh lệch số giữa 2 màn hình
 
 // Bước 1-2: hạn 2 ngày (48h). Bước 3-4: hạn 1 ngày (24h) — khớp đúng quy tắc SLA đang dùng.
@@ -75,10 +75,16 @@ export async function render(container, user) {
 
   container.innerHTML = `
     ${overdueCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang trễ hạn duyệt — xem các dòng có nhãn đỏ bên dưới.</div>` : ''}
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>%</th><th>Bước</th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Loại hồ sơ</th><th>Đối tác</th>' : '<th>Dự án</th><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>%</th><th>Bước</th>'}</tr></thead><tbody>
     ${rows
-      .map(
-        (r) => `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
+      .map((r) =>
+        IS_MOBILE
+          ? `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
+      <td><span class="badge idle">${r.projectCode || '—'}</span></td>
+      <td>${r.label}${isOverdue(r) ? ' <span style="color:var(--red);font-weight:700;font-size:11px">⚠️ Trễ</span>' : ''}</td>
+      <td>${r.partner || '—'}</td>
+    </tr>`
+          : `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
       <td><span class="badge idle">${r.projectCode || '—'}</span></td>
       <td class="mono">${r.docNumber}</td>
       <td>${r.label}</td>
@@ -91,7 +97,7 @@ export async function render(container, user) {
     </tr>`,
       )
       .join('')}
-    </tbody></table></div>`;
+    </tbody></table></div></div>`;
 
   container.querySelectorAll('[data-type]').forEach((row) =>
     row.addEventListener('click', async () => {
