@@ -4,7 +4,7 @@
 // Quan hệ 1-nhiều được ghi nhận NGƯỢC từ phía hợp đồng (contracts.to_trinh_id).
 // ============================================================
 import { supabase } from '../core/config.js';
-import { toast, loading, statusBadge, pushModalHistory, popModalHistory } from '../core/utils.js';
+import { toast, loading, statusBadge, pushModalHistory, popModalHistory, normalizeSearchText } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
@@ -40,24 +40,48 @@ export async function render(container, user) {
 
   container.innerHTML = `
     <div style="display:flex;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap">
-      <select class="btn btn-secondary" id="projFilter">
-        <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
-        ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
-      </select>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select class="btn btn-secondary" id="projFilter">
+          <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
+          ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
+        </select>
+        <input type="text" class="form-input" id="titleFilter" placeholder="🔎 Lọc theo tiêu đề (tên NCC/nội dung)..." style="min-width:260px">
+      </div>
       <button class="btn btn-primary" id="btnNew">+ Trình tờ trình chủ trương</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th></tr></thead><tbody>
-    ${sorted.length ? sorted.map((t) => `<tr class="click" data-id="${t.id}"><td>${t.projects?.name || '—'}</td><td>${t.title}</td>
-    <td>${countMap[t.id] ? `<span class="code-chip">${countMap[t.id]} hợp đồng</span>` : '<span style="color:var(--gray4);font-size:12px">Chưa có</span>'}</td>
-    <td>${statusBadge(t.status)}</td></tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Chưa có tờ trình nào</td></tr>`}
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th></tr></thead><tbody id="totrinhTbody">
+    ${renderTotrinhRows(sorted, countMap)}
     </tbody></table></div>`;
+
+  function wireRowClicks() {
+    container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
+  }
+
+  container.querySelector('#titleFilter').addEventListener('input', (e) => {
+    const q = normalizeSearchText(e.target.value);
+    const filtered = q ? sorted.filter((t) => normalizeSearchText(t.title || '').includes(q)) : sorted;
+    container.querySelector('#totrinhTbody').innerHTML = renderTotrinhRows(filtered, countMap);
+    wireRowClicks();
+  });
 
   container.querySelector('#projFilter').addEventListener('change', (e) => {
     VIEW_PROJECT = e.target.value;
     render(container, user);
   });
   container.querySelector('#btnNew').addEventListener('click', () => openCreateModal(user, () => render(container, user)));
-  container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
+  wireRowClicks();
+}
+
+function renderTotrinhRows(list, countMap) {
+  return list.length
+    ? list
+        .map(
+          (t) => `<tr class="click" data-id="${t.id}"><td>${t.projects?.name || '—'}</td><td>${t.title}</td>
+    <td>${countMap[t.id] ? `<span class="code-chip">${countMap[t.id]} hợp đồng</span>` : '<span style="color:var(--gray4);font-size:12px">Chưa có</span>'}</td>
+    <td>${statusBadge(t.status)}</td></tr>`,
+        )
+        .join('')
+    : `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Không có tờ trình nào — kiểm tra lại bộ lọc Dự án/Tiêu đề nếu đang lọc</td></tr>`;
 }
 
 // Xuất tờ cover để kẹp hồ sơ cứng — giống hệt cách làm ở Hợp đồng, chỉ đổi nội dung
