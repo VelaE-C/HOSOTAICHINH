@@ -180,7 +180,8 @@ function buildBottomNav(visibleNav) {
   let html = bnItems
     .map((n) => `<button class="bn-item" data-nav="${n.id}"><span class="bn-icon">${n.icon}${n.id === 'duyet' || n.id === 'hosocuatoi' ? `<span class="sb-badge bn-badge" data-badge="${n.id}" style="display:none"></span>` : ''}</span>${n.label}</button>`)
     .join('');
-  if (moreItems.length) html += `<button class="bn-item" id="bnMore"><span class="bn-icon">⋯</span>Thêm</button>`;
+  // Nút "⋯ Thêm" đã bỏ — các tab còn lại (moreItems) vẫn xem đủ qua menu ☰ (hamburger)
+  // ở góc trái, không cần trùng 2 chỗ truy cập cho cùng 1 nhóm tab.
   document.getElementById('bnInner').innerHTML = html;
   document.querySelectorAll('#bnInner .bn-item[data-nav]').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.nav)));
   document.getElementById('bnMore')?.addEventListener('click', () => document.getElementById('moreSheet').classList.add('show'));
