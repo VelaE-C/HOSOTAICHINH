@@ -177,7 +177,7 @@ export async function openDetail(id, user, onClose) {
       ${c.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, c.current_step, preview)}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
     </div>
-    ${actionFooterHtml(c, 'contract', user, assignments)}
+    ${actionFooterHtml(c, 'contract', user, assignments, (user.roles || []).includes('Admin'))}
   `;
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
