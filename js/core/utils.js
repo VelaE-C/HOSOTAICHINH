@@ -3,6 +3,12 @@
 // ============================================================
 
 export const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('vi-VN'));
+
+// Nhận diện điện thoại — dùng chung cho các bảng danh sách để tự rút gọn cột,
+// tránh tràn ngang màn hình (khác IS_MOBILE cục bộ trong attachments.js, dùng cho
+// việc khác — xem/tải file)
+export const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 export const tyi = (n) => (n / 1e9).toFixed(2) + ' tỷ';
 export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('vi-VN') : '—');
 export const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('vi-VN') : '—');
