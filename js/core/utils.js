@@ -144,7 +144,7 @@ export function initModalBackHandler() {
 //   tự bắn, đúng như hành vi select.value = x trước đây.
 // ============================================================
 
-function normalizeSearchText(str) {
+export function normalizeSearchText(str) {
   return String(str || '')
     .toLowerCase()
     .normalize('NFD')
