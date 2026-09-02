@@ -284,7 +284,7 @@ export function setSearchSelectValue(container, id, items, value, labelFn = (it)
 // không phải cuộn dài làm mất tiêu đề cột.
 // ============================================================
 
-export const PAGE_SIZE = 15;
+export const PAGE_SIZE = 10;
 
 // list đã lọc xong (nếu có) — hàm CHỈ vẽ HTML, không tự lọc/sắp xếp gì cả
 export function paginationHtml(currentPage, totalItems, pageSize = PAGE_SIZE) {
