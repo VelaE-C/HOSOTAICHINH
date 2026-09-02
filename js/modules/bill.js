@@ -3,7 +3,7 @@
 // Công thức: C=A+B | E=-10%×D | G = F==0 ? 0 : -F×(D/(0.8×A)) | H=D+E+F+G | J=H+I
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue } from '../core/utils.js';
+import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, searchSelectHtml, initSearchSelect, setSearchSelectValue, normalizeSearchText } from '../core/utils.js';
 
 // Đối tác dùng chung cho ô gõ-tìm ở cả 2 form (Tạo mới / Sửa)
 const partnerLabelFn = (p) => p.name;
@@ -242,28 +242,50 @@ export async function render(container, user) {
 
   container.innerHTML = `
     <div style="display:flex;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap">
-      <select class="btn btn-secondary" id="projFilter">
-        <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
-        ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
-      </select>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select class="btn btn-secondary" id="projFilter">
+          <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
+          ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
+        </select>
+        <input type="text" class="form-input" id="partnerFilter" placeholder="🔎 Lọc theo tên Đối tác/NCC..." style="min-width:220px">
+      </div>
       <button class="btn btn-primary" id="btnNew">+ Trình bill thanh toán</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th></tr></thead><tbody>
-    ${sorted.length ? sorted.map((b) => {
-      const { C, K } = calcBill(b);
-      const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
-      return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
-      <td class="mono">${fmt(C)}</td><td class="mono">${fmt(b.val_d)}</td><td class="mono">${fmt(K)}</td>
-      <td><div style="font-weight:700;white-space:nowrap;color:${pct == null ? 'var(--gray4)' : budgetColor(pct)}">${pct == null ? '—' : pct + '%'}</div><div style="margin-top:2px">${statusBadge(b.status)}</div></td></tr>`;
-    }).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:20px">Chưa có bill nào</td></tr>`}
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th></tr></thead><tbody id="billTbody">
+    ${renderBillRows(sorted)}
     </tbody></table></div>`;
+
+  function wireRowClicks() {
+    container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
+  }
+
+  container.querySelector('#partnerFilter').addEventListener('input', (e) => {
+    const q = normalizeSearchText(e.target.value);
+    const filtered = q ? sorted.filter((b) => normalizeSearchText(b.partners?.name || '').includes(q)) : sorted;
+    container.querySelector('#billTbody').innerHTML = renderBillRows(filtered);
+    wireRowClicks();
+  });
 
   container.querySelector('#projFilter').addEventListener('change', (e) => {
     VIEW_PROJECT = e.target.value;
     render(container, user);
   });
   container.querySelector('#btnNew').addEventListener('click', () => openCreateModal(user, () => render(container, user)));
-  container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
+  wireRowClicks();
+}
+
+function renderBillRows(list) {
+  return list.length
+    ? list
+        .map((b) => {
+          const { C, K } = calcBill(b);
+          const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
+          return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
+      <td class="mono">${fmt(C)}</td><td class="mono">${fmt(b.val_d)}</td><td class="mono">${fmt(K)}</td>
+      <td><div style="font-weight:700;white-space:nowrap;color:${pct == null ? 'var(--gray4)' : budgetColor(pct)}">${pct == null ? '—' : pct + '%'}</div><div style="margin-top:2px">${statusBadge(b.status)}</div></td></tr>`;
+        })
+        .join('')
+    : `<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:20px">Không có bill nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
 }
 
 function finRow(label, value, code, bold) {
