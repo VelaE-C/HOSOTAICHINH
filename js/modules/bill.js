@@ -165,6 +165,22 @@ const BILL_STATUS_LABEL = { draft: 'nháp', pending: 'đang duyệt', rejected: 
 
 
 
+// Chưa chọn Hợp đồng — vì Hợp đồng giờ BẮT BUỘC, không còn "dò theo Dự án+Đối tác"
+// (cơ chế cũ, dễ nhầm với bill cũ không liên quan tới đúng hợp đồng đang link) nữa.
+// Chỉ đơn giản mở lại 2 ô cho nhập tay, không tự gợi ý gì cả — chờ tới khi có Hợp đồng
+// mới bắt đầu tự động (xem updateKyAndJ).
+function resetPeriodJFields(modal) {
+  const periodInput = modal.querySelector('#fPeriod');
+  const jInput = modal.querySelector('#fI');
+  const noteEl = modal.querySelector('#kyNote');
+  periodInput.readOnly = false;
+  periodInput.style.background = '';
+  periodInput.title = '';
+  jInput.readOnly = false;
+  jInput.style.background = '';
+  if (noteEl) noteEl.innerHTML = '';
+}
+
 async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBillId) {
   const periodInput = modal.querySelector('#fPeriod');
   const jInput = modal.querySelector('#fI');
@@ -563,7 +579,7 @@ async function openEditModal(bill, user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, vat_rate').eq('status', 'active').order('doc_number');
+  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, vat_rate').neq('status', 'cancelled').order('doc_number');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const { data: currentLines } = await supabase.from('bill_budget_lines').select('budget_code, value').eq('bill_id', bill.id);
   const currentBudgetCode = currentLines?.[0]?.budget_code || '';
@@ -650,25 +666,18 @@ async function openEditModal(bill, user, onClose) {
     } else {
       renderDSection(dWrap, null, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = '';
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
+      resetPeriodJFields(modal);
     }
     renderLivePreview(modal);
   });
 
-  // Chưa chọn hợp đồng (đi bill trước) — đổi Dự án/Đối tác cũng cần tính lại Kỳ/J theo đúng cặp đó
-  modal.querySelector('#fProject').addEventListener('change', async () => {
+  // Hợp đồng giờ BẮT BUỘC — đổi Dự án/Đối tác chỉ để lọc lại danh sách Hợp đồng cho khớp,
+  // KHÔNG còn tự gợi ý Đợt/J theo Dự án+Đối tác nữa (dễ nhầm với bill cũ không liên quan)
+  modal.querySelector('#fProject').addEventListener('change', () => {
     refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
-    if (!modal.querySelector('#fContract').value) {
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
-      renderLivePreview(modal);
-    }
   });
-  modal.querySelector('#fPartner').addEventListener('change', async () => {
+  modal.querySelector('#fPartner').addEventListener('change', () => {
     refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
-    if (!modal.querySelector('#fContract').value) {
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
-      renderLivePreview(modal);
-    }
   });
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
@@ -717,7 +726,7 @@ async function openCreateModal(user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, vat_rate').eq('status', 'active').order('doc_number');
+  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, vat_rate').neq('status', 'cancelled').order('doc_number');
   const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const templates = await resolveDefaultTemplates(user.id, 'bill');
 
@@ -806,25 +815,18 @@ async function openCreateModal(user, onClose) {
     } else {
       renderDSection(dWrap, null, null);
       modal.querySelector('#singleBudgetCodeWrap').style.display = '';
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+      resetPeriodJFields(modal);
     }
     renderLivePreview(modal);
   });
 
-  // Chưa chọn hợp đồng (đi bill trước) — đổi Dự án/Đối tác cũng cần tính lại Kỳ/J theo đúng cặp đó
-  modal.querySelector('#fProject').addEventListener('change', async () => {
+  // Hợp đồng giờ BẮT BUỘC — đổi Dự án/Đối tác chỉ để lọc lại danh sách Hợp đồng cho khớp,
+  // KHÔNG còn tự gợi ý Đợt/J theo Dự án+Đối tác nữa (dễ nhầm với bill cũ không liên quan)
+  modal.querySelector('#fProject').addEventListener('change', () => {
     refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
-    if (!modal.querySelector('#fContract').value) {
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
-      renderLivePreview(modal);
-    }
   });
-  modal.querySelector('#fPartner').addEventListener('change', async () => {
+  modal.querySelector('#fPartner').addEventListener('change', () => {
     refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
-    if (!modal.querySelector('#fContract').value) {
-      await updateKyAndJ(modal, null, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
-      renderLivePreview(modal);
-    }
   });
 
   async function doSave(submitAfter) {
