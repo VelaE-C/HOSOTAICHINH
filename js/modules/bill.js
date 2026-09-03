@@ -8,7 +8,7 @@ import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMo
 // Đối tác dùng chung cho ô gõ-tìm ở cả 2 form (Tạo mới / Sửa)
 const partnerLabelFn = (p) => p.name;
 const partnerSubFn = (p) => `(MST ${p.mst})`;
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines, loadStepPreview } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -26,47 +26,15 @@ export function calcBill(b, contract) {
   return { C, VAT, E, G, H, I, K };
 }
 
-// Khi hợp đồng liên kết có NHIỀU mã ngân sách, tách D thành nhiều ô nhập theo từng mã
-// (tổng các ô = D) — khớp đúng cách hợp đồng đã chia từ đầu, không nhập gộp 1 số nữa
-function renderDSection(wrapEl, contractLines, prefillLines) {
-  const isMulti = contractLines && contractLines.length > 1;
-  if (!isMulti) {
-    const prefill = prefillLines?.[0]?.value ?? '';
-    wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện kỳ này (bao gồm VAT)</label>
-      <input type="text" inputmode="numeric" id="fD" class="form-input money-input" value="${prefill ? formatMoneyInput(prefill) : ''}">`;
-    return;
-  }
-  wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện theo từng mã ngân sách (bao gồm VAT)</label>
-    <div class="card" style="padding:10px 14px">
-      ${contractLines
-        .map((l) => {
-          const prefill = prefillLines?.find((p) => p.budget_code === l.budget_code)?.value ?? '';
-          return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span class="code-chip" style="width:140px;flex:none">${l.budget_code}</span>
-          <input type="text" inputmode="numeric" class="d-per-code form-input money-input" data-code="${l.budget_code}" placeholder="Lũy kế theo mã này" value="${prefill ? formatMoneyInput(prefill) : ''}" style="flex:1">
-        </div>`;
-        })
-        .join('')}
-      <div class="d-total" style="font-size:12px;font-weight:600;margin-top:6px;color:var(--navy)"></div>
-    </div>`;
-  const updateTotal = () => {
-    const total = [...wrapEl.querySelectorAll('.d-per-code')].reduce((s, i) => s + parseMoneyInput(i.value), 0);
-    wrapEl.querySelector('.d-total').textContent = `Tổng D: ${total.toLocaleString('vi-VN')} ₫`;
-  };
-  wrapEl.addEventListener('input', (e) => {
-    if (e.target.classList.contains('d-per-code')) updateTotal();
-  });
-  updateTotal();
+// D — 1 ô nhập duy nhất (đã bỏ cơ chế tách nhiều mã ngân sách)
+function renderDSection(wrapEl, prefill) {
+  wrapEl.innerHTML = `<label class="form-label">D — Lũy kế thực hiện kỳ này (bao gồm VAT)</label>
+    <input type="text" inputmode="numeric" id="fD" class="form-input money-input" value="${prefill ? formatMoneyInput(prefill) : ''}">`;
 }
 
 function readDValue(wrapEl) {
-  const multiInputs = wrapEl.querySelectorAll('.d-per-code');
-  if (multiInputs.length) {
-    const perCode = [...multiInputs].map((i) => ({ budget_code: i.dataset.code, value: parseMoneyInput(i.value) })).filter((l) => l.value > 0);
-    return { val_d: perCode.reduce((s, l) => s + l.value, 0), perCode };
-  }
   const single = wrapEl.querySelector('#fD');
-  return { val_d: parseMoneyInput(single?.value), perCode: null };
+  return { val_d: parseMoneyInput(single?.value) };
 }
 
 // Nhãn nhóm — dùng lại đúng kiểu chữ hoa/màu xám như ở trang duyệt, để form nhập
@@ -435,7 +403,7 @@ export async function openDetail(id, user, onClose) {
 
   const { data: b } = await supabase
     .from('bills')
-    .select('*, partners(name), projects(name), contracts(doc_number, value, retention_rate, vat_rate), bill_budget_lines(budget_code, value), document_templates(name), users!created_by(full_name)')
+    .select('*, partners(name), projects(name), contracts(doc_number, value, retention_rate, vat_rate), document_templates(name), users!created_by(full_name)')
     .eq('id', id)
     .single();
   if (!b) {
@@ -449,29 +417,15 @@ export async function openDetail(id, user, onClose) {
   const { count: attachCount } = await supabase.from('attachments').select('id', { count: 'exact', head: true }).eq('owner_type', 'bill').eq('owner_id', id);
   const done = attachCount || 0;
 
-  // "Dự trù tài chính (chưa thuế)" = chính là Ngân sách phân bổ (phiên bản hiện hành)
-  // theo đúng mã ngân sách của bill này — tính động, không nhập tay
-  let budgetForecast = null;
-  const billBudgetCode = b.bill_budget_lines?.[0]?.budget_code;
-  if (billBudgetCode) {
-    const { data: latestRev } = await supabase.from('budget_revisions').select('id, revision_code').eq('project_id', b.project_id).order('effective_date', { ascending: false }).limit(1).maybeSingle();
-    if (latestRev) {
-      const { data: line } = await supabase.from('budget_revision_lines').select('allocated_value').eq('revision_id', latestRev.id).eq('budget_code', billBudgetCode).maybeSingle();
-      if (line) budgetForecast = { value: line.allocated_value, revision: latestRev.revision_code };
-    }
-  }
-
   const canEditNow = b.created_by === user.id && ['draft', 'rejected'].includes(b.status);
   const isAdmin = (user.roles || []).includes('Admin');
   const canCancel = isAdmin && ['draft', 'rejected'].includes(b.status);
-  const isKscp = (user.roles || []).some((r) => ['Admin', 'QLCPHD_CV', 'QLCPHD_TP'].includes(r));
   const canExportPdf = b.current_step >= 3 || b.status === 'active';
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
     <div class="panel-header"><div><div>${b.projects?.name || '—'}</div><div class="meta">${b.partners?.name || '—'}</div><div class="meta">Đợt ${b.period_no}</div><div class="meta mono">${b.doc_number}</div></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
-        ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditBudgetLines">🧮 Sửa mã ngân sách</button>` : ''}
         ${canCancel ? `<button class="btn btn-sm btn-danger" id="btnCancel">🗑️ Hủy hồ sơ</button>` : ''}
         ${canExportPdf ? `<button class="btn btn-sm btn-secondary" id="btnExportPdf">🖨️ Xuất PDF (tờ cover)</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
@@ -484,11 +438,6 @@ export async function openDetail(id, user, onClose) {
         ${b.completed_at ? `<div class="k">Ngày hoàn thành</div><div class="v">${new Date(b.completed_at).toLocaleDateString('vi-VN')}</div>` : ''}
         <div class="k">Trạng thái</div><div class="v">${statusBadge(b.status)}</div>
         <div class="k">Hợp đồng liên kết</div><div class="v">${b.contracts ? `<span class="code-chip">${b.contracts.doc_number}</span>` : '<span style="color:var(--amber)">⚠️ Chưa gắn hợp đồng</span>'}</div>
-        <div class="k">Chia mã ngân sách</div><div class="v">${(b.bill_budget_lines || []).map((l) => `<div class="budget-line"><span class="code-chip">${l.budget_code}</span><span class="mono">${fmt(l.value)} ₫</span></div>`).join('') || '—'}</div>
-      </div>
-      <div class="card" style="background:var(--gray1);border:1px solid var(--gray2)">
-        ${finRow(`Dự trù tài chính (chưa thuế)${budgetForecast ? ' — theo ngân sách ' + budgetForecast.revision : ''}`, budgetForecast?.value ?? 0, '')}
-        ${!budgetForecast ? `<div style="font-size:11px;color:var(--gray4);margin-top:4px">Chưa chia mã ngân sách, hoặc dự án chưa có phiên bản ngân sách — không lấy được số này.</div>` : ''}
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Chi tiết hợp đồng</div>
       <div class="card" style="padding:4px 14px">
@@ -521,7 +470,6 @@ export async function openDetail(id, user, onClose) {
   `;
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(b, user, onClose));
-  box.querySelector('#btnEditBudgetLines')?.addEventListener('click', () => openBudgetLinesEditor(b, user, onClose));
   box.querySelector('#btnCancel')?.addEventListener('click', async () => {
     if (!confirm(`Hủy hồ sơ "${b.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
     const reason = prompt('Lý do hủy (không bắt buộc):') || null;
@@ -537,59 +485,11 @@ export async function openDetail(id, user, onClose) {
   wireActions(box, 'bill', id, b.current_step, assignments, () => closeModal(modal, onClose));
 }
 
-async function openBudgetLinesEditor(bill, user, onClose) {
-  const modal = ensureModal();
-  const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
-  const { data: currentLines } = await supabase.from('bill_budget_lines').select('budget_code, value').eq('bill_id', bill.id);
-
-  modal.innerHTML = `<div class="panel-box">
-    <div class="panel-header"><div>Sửa mã ngân sách — ${bill.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
-    <div class="panel-body">
-      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Chỉ sửa cách chia mã ngân sách để phục vụ đối chiếu báo cáo tài chính — không đụng tới số liệu D/E/F/G/H hay luồng duyệt. Tổng các dòng nên khớp với D đã trình, nhưng không bị chặn nếu lệch.</div>
-      <div class="card" id="budgetLinesWrap" style="padding:12px 14px">
-        <div class="bl-rows">${(currentLines && currentLines.length ? currentLines : [{}]).map((l) => budgetLineRowHtml(categories || [], l.budget_code, l.value)).join('')}</div>
-        <button type="button" class="btn btn-sm btn-secondary bl-add">+ Thêm dòng</button>
-        <div class="bl-total" style="font-size:12px;margin-top:8px;font-weight:600"></div>
-      </div>
-    </div>
-    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu điều chỉnh</button></div>
-  </div>`;
-  showModal(modal, onClose);
-  wireMoneyInputs(modal);
-  modal.querySelector('#pClose').addEventListener('click', () => openDetail(bill.id, user, onClose));
-  wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#__no_target__');
-
-  modal.querySelector('#btnSave').addEventListener('click', async () => {
-    const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
-    if (!lines.length) return toast('Chọn ít nhất 1 mã ngân sách có giá trị', 'error');
-
-    loading(true);
-    await supabase.from('bill_budget_lines').delete().eq('bill_id', bill.id);
-    const { error } = await supabase.from('bill_budget_lines').insert(lines.map((l) => ({ bill_id: bill.id, budget_code: l.budget_code, value: l.value })));
-    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
-
-    await supabase.from('approval_logs').insert({ document_type: 'bill', document_id: bill.id, user_id: user.id, action: 'edit_budget', comment: 'QLCP&HĐ điều chỉnh chia mã ngân sách' });
-
-    toast('Đã lưu điều chỉnh mã ngân sách', 'success');
-    openDetail(bill.id, user, onClose);
-  });
-}
-
 async function openEditModal(bill, user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
   const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, vat_rate').neq('status', 'cancelled').order('doc_number');
-  const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
-  const { data: currentLines } = await supabase.from('bill_budget_lines').select('budget_code, value').eq('bill_id', bill.id);
-  const currentBudgetCode = currentLines?.[0]?.budget_code || '';
-
-  // Nếu hợp đồng liên kết có nhiều mã, cần biết trước để vẽ đúng dSection nhiều dòng ngay từ đầu
-  let contractLinesForBill = null;
-  if (bill.contract_id) {
-    const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', bill.contract_id);
-    if (cLines && cLines.length > 1) contractLinesForBill = cLines;
-  }
 
   modal.innerHTML = `<div class="panel-box" style="max-width:760px;width:95%">
     <div class="panel-header"><div>Sửa bill — ${bill.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
@@ -633,9 +533,6 @@ async function openEditModal(bill, user, onClose) {
 
       ${sectionTitleHtml('Xem trước công thức')}
       <div class="card" id="livePreview" style="padding:4px 14px;margin-top:8px;margin-bottom:13px"></div>
-
-      <div id="singleBudgetCodeWrap"><label class="form-label">Chia theo mã ngân sách</label>
-        <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}" ${c.code === currentBudgetCode ? 'selected' : ''}>${c.code} — ${c.name}</option>`).join('')}</select></div>
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
   </div>`;
@@ -646,8 +543,7 @@ async function openEditModal(bill, user, onClose) {
   modal.addEventListener('input', () => renderLivePreview(modal));
 
   const dWrap = modal.querySelector('#dSectionWrap');
-  renderDSection(dWrap, contractLinesForBill, currentLines);
-  modal.querySelector('#singleBudgetCodeWrap').style.display = contractLinesForBill ? 'none' : '';
+  renderDSection(dWrap, bill.val_d);
   renderLivePreview(modal);
 
   modal.querySelector('#fContract').addEventListener('change', async (e) => {
@@ -658,14 +554,8 @@ async function openEditModal(bill, user, onClose) {
       // trống, QS tự nhập theo đúng số thực tế của bill này.
       if (opt.dataset.partner) setSearchSelectValue(modal, 'fPartner', partners, opt.dataset.partner, partnerLabelFn, partnerSubFn);
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
-
-      const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
-      renderDSection(dWrap, cLines, null);
-      modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
       await updateKyAndJ(modal, opt.value, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
     } else {
-      renderDSection(dWrap, null, null);
-      modal.querySelector('#singleBudgetCodeWrap').style.display = '';
       resetPeriodJFields(modal);
     }
     renderLivePreview(modal);
@@ -689,7 +579,7 @@ async function openEditModal(bill, user, onClose) {
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const val_a = parseMoneyInput(modal.querySelector('#fA').value);
     const val_b = parseMoneyInput(modal.querySelector('#fB').value);
-    const { val_d, perCode } = readDValue(dWrap);
+    const { val_d } = readDValue(dWrap);
     const val_e = parseMoneyInput(modal.querySelector('#fE').value);
     const val_f = parseMoneyInput(modal.querySelector('#fF').value);
     const val_g = parseMoneyInput(modal.querySelector('#fG').value);
@@ -697,9 +587,8 @@ async function openEditModal(bill, user, onClose) {
     const val_h = parseMoneyInput(modal.querySelector('#fH').value);
     const deduction_note = modal.querySelector('#fDeductNote').value.trim();
     const vat_rate = Number(modal.querySelector('#fVat').value);
-    const budget_code = modal.querySelector('#fBudgetCode').value;
 
-    if (!project_id || !partner_id || !contract_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác + Hợp đồng liên kết)', 'error');
+    if (!project_id || !partner_id || !contract_id || !val_a) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác + Hợp đồng liên kết)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
     loading(true);
@@ -713,10 +602,6 @@ async function openEditModal(bill, user, onClose) {
       return toast('Lỗi lưu: ' + error.message, 'error');
     }
 
-    const linesToSave = perCode && perCode.length ? perCode : [{ budget_code, value: val_d }];
-    await supabase.from('bill_budget_lines').delete().eq('bill_id', bill.id);
-    await supabase.from('bill_budget_lines').insert(linesToSave.map((l) => ({ bill_id: bill.id, budget_code: l.budget_code, value: l.value })));
-
     toast('Đã lưu thay đổi', 'success');
     openDetail(bill.id, user, onClose);
   });
@@ -727,7 +612,6 @@ async function openCreateModal(user, onClose) {
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
   const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, vat_rate').neq('status', 'cancelled').order('doc_number');
-  const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const templates = await resolveDefaultTemplates(user.id, 'bill');
 
   modal.innerHTML = `<div class="panel-box" style="max-width:760px;width:95%">
@@ -774,9 +658,6 @@ async function openCreateModal(user, onClose) {
       ${sectionTitleHtml('Xem trước công thức')}
       <div class="card" id="livePreview" style="padding:4px 14px;margin-top:8px;margin-bottom:13px"></div>
 
-      <div id="singleBudgetCodeWrap" style="margin-bottom:13px"><label class="form-label">Chia theo mã ngân sách</label>
-        <select id="fBudgetCode" class="form-input">${(categories || []).map((c) => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select>
-        <div style="font-size:11px;color:var(--gray4);margin-top:4px">"Dự trù tài chính" sẽ tự lấy theo đúng Ngân sách phân bổ của mã này, không cần nhập tay.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
@@ -796,10 +677,10 @@ async function openCreateModal(user, onClose) {
 
   const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
   const dWrap = modal.querySelector('#dSectionWrap');
-  renderDSection(dWrap, null, null); // mặc định: chưa chọn hợp đồng -> D đơn giản
+  renderDSection(dWrap, null); // mặc định: chưa chọn hợp đồng -> D trống
   renderLivePreview(modal);
 
-  // Khi chọn hợp đồng liên kết, tự điền Đối tác + % VAT, và tách D theo mã nếu hợp đồng có nhiều mã.
+  // Khi chọn hợp đồng liên kết, tự điền Đối tác + % VAT.
   // A/B KHÔNG tự lấy theo giá trị hợp đồng gốc nữa — updateKyAndJ() bên dưới sẽ tự kế thừa
   // đúng số QS đã điền ở kỳ liền trước (nếu có); nếu là kỳ đầu tiên thì để trống, QS tự nhập.
   modal.querySelector('#fContract').addEventListener('change', async (e) => {
@@ -807,14 +688,8 @@ async function openCreateModal(user, onClose) {
     if (opt && opt.value) {
       if (opt.dataset.partner) setSearchSelectValue(modal, 'fPartner', partners, opt.dataset.partner, partnerLabelFn, partnerSubFn);
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
-
-      const { data: cLines } = await supabase.from('contract_budget_lines').select('budget_code').eq('contract_id', opt.value);
-      renderDSection(dWrap, cLines, null);
-      modal.querySelector('#singleBudgetCodeWrap').style.display = cLines && cLines.length > 1 ? 'none' : '';
       await updateKyAndJ(modal, opt.value, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     } else {
-      renderDSection(dWrap, null, null);
-      modal.querySelector('#singleBudgetCodeWrap').style.display = '';
       resetPeriodJFields(modal);
     }
     renderLivePreview(modal);
@@ -838,7 +713,7 @@ async function openCreateModal(user, onClose) {
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const val_a = parseMoneyInput(modal.querySelector('#fA').value);
     const val_b = parseMoneyInput(modal.querySelector('#fB').value);
-    const { val_d, perCode } = readDValue(dWrap);
+    const { val_d } = readDValue(dWrap);
     const val_e = parseMoneyInput(modal.querySelector('#fE').value);
     const val_f = parseMoneyInput(modal.querySelector('#fF').value);
     const val_g = parseMoneyInput(modal.querySelector('#fG').value);
@@ -846,10 +721,9 @@ async function openCreateModal(user, onClose) {
     const val_h = parseMoneyInput(modal.querySelector('#fH').value);
     const deduction_note = modal.querySelector('#fDeductNote').value.trim();
     const vat_rate = Number(modal.querySelector('#fVat').value);
-    const budget_code = modal.querySelector('#fBudgetCode').value;
     const template_id = modal.querySelector('#fTemplate').value;
 
-    if (!project_id || !partner_id || !contract_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác + Hợp đồng liên kết)', 'error');
+    if (!project_id || !partner_id || !contract_id || !val_a) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác + Hợp đồng liên kết)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
     // Quy tắc: kỳ N+1 chỉ tạo được khi kỳ N đã DUYỆT XONG (đã thanh toán) — áp dụng đều
@@ -875,8 +749,7 @@ async function openCreateModal(user, onClose) {
     loading(true);
     // Lưu ý: fn_create_bill (RPC) hiện chưa biết tới val_e/val_g (giữ lại/hoàn trả tạm ứng
     // nhập tay bằng VNĐ) — vẫn gửi p_retention_rate = 0 cho đủ tham số hàm cũ (không còn
-    // dùng để tính toán), rồi UPDATE thẳng val_e/val_g ngay sau khi tạo xong — giống hệt
-    // cách bill_budget_lines đang được thêm sau khi có newBillId, không cần sửa RPC.
+    // dùng để tính toán), rồi UPDATE thẳng val_e/val_g ngay sau khi tạo xong (không cần sửa RPC).
     const { data: newBillId, error } = await supabase.rpc('fn_create_bill', {
       p_project_id: project_id,
       p_contract_id: contract_id,
@@ -904,11 +777,6 @@ async function openCreateModal(user, onClose) {
     const newBill = { id: newBillId };
     await supabase.from('bills').update({ val_e, val_g }).eq('id', newBill.id);
 
-    // Chia mã ngân sách: nếu hợp đồng có nhiều mã, lưu đúng từng phần D theo mã (không lưu K —
-    // K là số tiền thanh toán thực tế đã trừ tạm ứng/giữ lại, không phản ánh đúng "đã dùng ngân sách");
-    // nếu chỉ 1 mã, lưu D của mã đó
-    const linesToSave = perCode && perCode.length ? perCode : [{ budget_code, value: val_d }];
-    await supabase.from('bill_budget_lines').insert(linesToSave.map((l) => ({ bill_id: newBill.id, budget_code: l.budget_code, value: l.value })));
     await uploadStagedFiles(filePicker.getFiles(), 'bill', newBill.id, user.id);
 
     if (submitAfter) {
