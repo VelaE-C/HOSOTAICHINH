@@ -130,6 +130,8 @@ async function findLatestValidBill(contractId, projectId, partnerId, excludeBill
 // "chìa khóa" của hợp đồng, tránh gắn nhầm hợp đồng của dự án/đối tác khác vào bill.
 // keepId (nếu có) luôn được giữ trong danh sách dù không khớp lọc — dùng khi render
 // LẦN ĐẦU form Sửa, để không âm thầm "mất" liên kết hợp đồng cũ đã lưu từ trước.
+// Hợp đồng liên kết giờ BẮT BUỘC (không còn "— Chưa liên kết —") — bill mới tạo hoặc
+// bill Nháp/Bị từ chối cũ khi sửa đều phải chọn đúng 1 hợp đồng thật.
 function contractOptionsHtml(contracts, projectId, partnerId, keepId) {
   const filtered = (contracts || []).filter((c) => {
     if (keepId && c.id === keepId) return true;
@@ -137,8 +139,9 @@ function contractOptionsHtml(contracts, projectId, partnerId, keepId) {
     if (partnerId && c.partner_id !== partnerId) return false;
     return true;
   });
+  const placeholder = keepId ? '' : '<option value="" disabled selected>— Chọn hợp đồng (bắt buộc) —</option>';
   return (
-    '<option value="">— Chưa liên kết —</option>' +
+    placeholder +
     filtered.map((c) => `<option value="${c.id}" ${c.id === keepId ? 'selected' : ''} data-partner="${c.partner_id}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')
   );
 }
@@ -188,7 +191,7 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBill
     if (!periodInput.value) periodInput.value = '1';
     periodInput.readOnly = false;
     periodInput.style.background = '';
-    periodInput.title = 'Chưa có bill hợp lệ nào trong hệ thống cho hồ sơ này — nhập đúng kỳ thực tế (VD nếu đã tới Kỳ 4 ngoài đời, nhập 4).';
+    periodInput.title = 'Chưa có bill hợp lệ nào trong hệ thống cho hồ sơ này — nhập đúng đợt thực tế (VD nếu đã tới Đợt 4 ngoài đời, nhập 4).';
     if (!jInput.value) jInput.value = '0';
     jInput.readOnly = false;
     jInput.style.background = '';
@@ -206,11 +209,11 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBill
   if (bInput) bInput.value = formatMoneyInput(latest.val_b);
 
   const okToProceed = latest.status === 'paid';
-  periodInput.title = !okToProceed ? `⚠️ Kỳ ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — chưa trình/lưu được kỳ này cho tới khi kỳ ${latest.period_no} thanh toán xong` : '';
+  periodInput.title = !okToProceed ? `⚠️ Đợt ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — chưa trình/lưu được đợt này cho tới khi đợt ${latest.period_no} thanh toán xong` : '';
   if (noteEl) {
     noteEl.innerHTML = okToProceed
-      ? `<span style="color:var(--red)">⚠️ Kỳ ${latest.period_no + 1} này được lập dựa trên kỳ ${latest.period_no} (đã duyệt xong, lũy kế kỳ trước: ${fmt(latest.val_d)} đ).</span>`
-      : `<span style="color:var(--red);font-weight:600">⚠️ Kỳ ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — phải đợi kỳ ${latest.period_no} thanh toán xong mới lưu/trình được kỳ ${latest.period_no + 1}.</span>`;
+      ? `<span style="color:var(--red)">⚠️ Đợt ${latest.period_no + 1} này được lập dựa trên đợt ${latest.period_no} (đã duyệt xong, lũy kế đợt trước: ${fmt(latest.val_d)} đ).</span>`
+      : `<span style="color:var(--red);font-weight:600">⚠️ Đợt ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — phải đợi đợt ${latest.period_no} thanh toán xong mới lưu/trình được đợt ${latest.period_no + 1}.</span>`;
   }
 
   jInput.value = formatMoneyInput(-Number(latest.val_d));
@@ -253,7 +256,7 @@ export async function render(container, user) {
       <button class="btn btn-primary" id="btnNew" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">+ Trình bill thanh toán</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác</th><th>Giá trị thanh toán</th>' : '<th>Dự án</th><th>Đối tác</th><th>Kỳ bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th>'}</tr></thead><tbody id="billTbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác</th><th>Giá trị thanh toán</th>' : '<th>Dự án</th><th>Đối tác</th><th>Đợt bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th>'}</tr></thead><tbody id="billTbody"></tbody></table></div>
       <div id="billPagination"></div>
     </div>`;
 
@@ -294,10 +297,10 @@ function renderBillRows(list) {
     .map((b) => {
       const { C, K } = calcBill(b);
       if (IS_MOBILE) {
-        return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'} <span style="color:var(--gray4);font-size:11px">(Kỳ ${b.period_no})</span></td><td class="mono">${fmt(K)}</td></tr>`;
+        return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'} <span style="color:var(--gray4);font-size:11px">(Đợt ${b.period_no})</span></td><td class="mono">${fmt(K)}</td></tr>`;
       }
       const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
-      return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Kỳ ${b.period_no}</td>
+      return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Đợt ${b.period_no}</td>
       <td class="mono">${fmt(C)}</td><td class="mono">${fmt(b.val_d)}</td><td class="mono">${fmt(K)}</td>
       <td><div style="font-weight:700;white-space:nowrap;color:${pct == null ? 'var(--gray4)' : budgetColor(pct)}">${pct == null ? '—' : pct + '%'}</div><div style="margin-top:2px">${statusBadge(b.status)}</div></td></tr>`;
     })
@@ -351,7 +354,7 @@ async function openPrintCoverSheet(b, r, assignments, logs) {
       <img class="logo" src="https://raw.githubusercontent.com/VelaE-C/HOSOTAICHINH/refs/heads/main/LOGO%20DUNG.JPEG.png" alt="VELA">
       <table>
         <tr><td colspan="2" class="title">WORKFLOW BILL THANH TOÁN</td></tr>
-        <tr><td class="label">Số bill</td><td>${b.doc_number} — Kỳ ${b.period_no}</td></tr>
+        <tr><td class="label">Số bill</td><td>${b.doc_number} — Đợt ${b.period_no}</td></tr>
         <tr><td class="label">Ngày lập</td><td>${vnDate(b.signed_date)}</td></tr>
         <tr><td class="label">Quy trình duyệt</td><td>${b.document_templates?.name || '—'}</td></tr>
         <tr><td class="label">Đối tác</td><td>${b.partners?.name || '—'}</td></tr>
@@ -442,7 +445,7 @@ export async function openDetail(id, user, onClose) {
   const canExportPdf = b.current_step >= 3 || b.status === 'active';
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
-    <div class="panel-header"><div><div>${b.projects?.name || '—'}</div><div class="meta">${b.partners?.name || '—'}</div><div class="meta">Kỳ ${b.period_no}</div><div class="meta mono">${b.doc_number}</div></div>
+    <div class="panel-header"><div><div>${b.projects?.name || '—'}</div><div class="meta">${b.partners?.name || '—'}</div><div class="meta">Đợt ${b.period_no}</div><div class="meta mono">${b.doc_number}</div></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
         ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditBudgetLines">🧮 Sửa mã ngân sách</button>` : ''}
@@ -574,7 +577,7 @@ async function openEditModal(bill, user, onClose) {
         <select id="fContract" class="form-input">${contractOptionsHtml(contracts, bill.project_id, bill.partner_id, bill.contract_id)}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
         ${searchSelectHtml('fPartner', partners, bill.partner_id, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
-      <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
+      <div style="margin-bottom:13px"><label class="form-label">Đợt số</label>
         <input type="number" id="fPeriod" class="form-input" value="${bill.period_no}" min="1">
         <div id="kyNote" style="font-size:11.5px;margin-top:4px"></div></div>
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
@@ -602,7 +605,7 @@ async function openEditModal(bill, user, onClose) {
           <div style="margin-top:8px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label><input type="text" id="fDeductNote" class="form-input" value="${bill.deduction_note || ''}"></div>
         </div>
         <div><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="text" inputmode="numeric" id="fI" class="form-input money-input" value="${formatMoneyInput(bill.val_i)}">
-          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Kỳ 1: tự nhập tay. Từ kỳ 2: tự khóa, lấy đúng -D của kỳ liền trước.</div></div>
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Đợt 1: tự nhập tay. Từ đợt 2: tự khóa, lấy đúng -D của đợt liền trước.</div></div>
       </div>
 
       ${sectionTitleHtml('Xem trước công thức')}
@@ -680,7 +683,7 @@ async function openEditModal(bill, user, onClose) {
     const vat_rate = Number(modal.querySelector('#fVat').value);
     const budget_code = modal.querySelector('#fBudgetCode').value;
 
-    if (!project_id || !partner_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
+    if (!project_id || !partner_id || !contract_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác + Hợp đồng liên kết)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
     loading(true);
@@ -688,7 +691,11 @@ async function openEditModal(bill, user, onClose) {
       .from('bills')
       .update({ project_id, contract_id, partner_id, period_no, scope, signed_date, val_a, val_b, val_d, val_e, val_f, val_g, val_i, val_h, deduction_note: deduction_note || null, vat_rate })
       .eq('id', bill.id);
-    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+    if (error) {
+      if (error.message.includes('bills_require_contract_when_editable')) return toast('Bill Nháp/Bị từ chối bắt buộc phải chọn Hợp đồng liên kết trước khi lưu.', 'error');
+      if (error.message.includes('bills_doc_number_unique')) return toast('Số bill này đã tồn tại — thử lại (có thể trùng do 2 người thao tác cùng lúc).', 'error');
+      return toast('Lỗi lưu: ' + error.message, 'error');
+    }
 
     const linesToSave = perCode && perCode.length ? perCode : [{ budget_code, value: val_d }];
     await supabase.from('bill_budget_lines').delete().eq('bill_id', bill.id);
@@ -717,7 +724,7 @@ async function openCreateModal(user, onClose) {
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chọn hợp đồng sẽ tự điền A, B, Đối tác, % VAT theo đúng hợp đồng đó.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
         ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
-      <div style="margin-bottom:13px"><label class="form-label">Kỳ số</label>
+      <div style="margin-bottom:13px"><label class="form-label">Đợt số</label>
         <input type="number" id="fPeriod" class="form-input" value="1" min="1">
         <div id="kyNote" style="font-size:11.5px;margin-top:4px"></div></div>
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu / nội dung kỳ này</label>
@@ -745,7 +752,7 @@ async function openCreateModal(user, onClose) {
           <div style="margin-top:8px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label><input type="text" id="fDeductNote" class="form-input" placeholder="VD: Phạt chậm tiến độ 5 ngày"></div>
         </div>
         <div><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="text" inputmode="numeric" id="fI" class="form-input money-input" value="0">
-          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Kỳ 1: tự nhập tay. Từ kỳ 2: tự khóa, lấy đúng -D của kỳ liền trước.</div></div>
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Đợt 1: tự nhập tay. Từ đợt 2: tự khóa, lấy đúng -D của đợt liền trước.</div></div>
       </div>
 
       ${sectionTitleHtml('Xem trước công thức')}
@@ -833,7 +840,7 @@ async function openCreateModal(user, onClose) {
     const budget_code = modal.querySelector('#fBudgetCode').value;
     const template_id = modal.querySelector('#fTemplate').value;
 
-    if (!project_id || !partner_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác)', 'error');
+    if (!project_id || !partner_id || !contract_id || !val_a || (!perCode && !budget_code)) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác + Hợp đồng liên kết)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
 
     // Quy tắc: kỳ N+1 chỉ tạo được khi kỳ N đã DUYỆT XONG (đã thanh toán) — áp dụng đều
@@ -880,7 +887,11 @@ async function openCreateModal(user, onClose) {
       p_checklist_required: 0, // tạm bỏ ô nhập checklist khỏi form — không bắt buộc đính kèm gì cho tới khi bật lại
       p_template_id: template_id || null,
     });
-    if (error) return toast('Lỗi tạo bill: ' + error.message, 'error');
+    if (error) {
+      if (error.message.includes('bills_require_contract_when_editable')) return toast('Bắt buộc phải chọn Hợp đồng liên kết trước khi lưu/trình bill.', 'error');
+      if (error.message.includes('bills_doc_number_unique')) return toast('Số bill này đã tồn tại — thử lại (có thể trùng do 2 người thao tác cùng lúc).', 'error');
+      return toast('Lỗi tạo bill: ' + error.message, 'error');
+    }
     const newBill = { id: newBillId };
     await supabase.from('bills').update({ val_e, val_g }).eq('id', newBill.id);
 
