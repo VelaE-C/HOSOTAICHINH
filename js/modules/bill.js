@@ -299,11 +299,14 @@ function renderBillRows(list) {
 }
 
 function finRow(label, value, code, bold) {
-  // Bỏ cột công thức (code) theo yêu cầu — chỉ còn nhãn (được xuống hàng tự do) và số
-  // tiền (bắt buộc nằm nguyên 1 hàng, không bao giờ được xuống dòng giữa chừng số).
+  // PC vẫn hiện cột công thức (code) cho dễ đọc/đối chiếu — chỉ ẩn trên mobile (màn
+  // hẹp, dễ vỡ layout). Số tiền luôn nằm nguyên 1 hàng, không bao giờ xuống dòng giữa số.
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--gray1);${bold ? 'font-weight:700;' : ''}">
     <span style="font-size:12.5px;color:${bold ? 'var(--gray8)' : 'var(--gray7)'}">${label}</span>
-    <span class="mono" style="font-size:13px;white-space:nowrap;flex-shrink:0;${bold ? 'font-weight:700;color:var(--navy)' : ''}">${value === 0 ? '—' : fmt(value) + ' ₫'}</span>
+    <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <span class="mono" style="font-size:13px;white-space:nowrap;${bold ? 'font-weight:700;color:var(--navy)' : ''}">${value === 0 ? '—' : fmt(value) + ' ₫'}</span>
+      ${!IS_MOBILE && code ? `<span style="font-size:10.5px;color:var(--gray4);white-space:nowrap">${code}</span>` : ''}
+    </span>
   </div>`;
 }
 
