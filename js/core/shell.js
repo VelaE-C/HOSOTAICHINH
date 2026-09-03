@@ -11,8 +11,6 @@ const NAV = [
   { id: 'hopdong', label: 'Hợp đồng', icon: '📄', group: 'HỒ SƠ', bn: true, title: 'Hợp đồng đầu vào', sub: 'Thầu phụ, nhà cung cấp' },
   { id: 'bill', label: 'Bill thanh toán', icon: '💵', group: 'HỒ SƠ', bn: true, title: 'Bill thanh toán theo kỳ', sub: 'Tạm ứng, thanh toán sản lượng, quyết toán' },
   { id: 'totrinh', label: 'Tờ trình chủ trương', icon: '🗂️', group: 'HỒ SƠ', more: true, title: 'Tờ trình phê duyệt chủ trương', sub: 'Căn cứ cho hợp đồng' },
-  { id: 'nganSach', label: 'Ngân sách', icon: '🧮', group: 'QUẢN TRỊ', more: true, title: 'Kiểm soát ngân sách', sub: 'Phân bổ · Cam kết · Thực chi' },
-  { id: 'hopdongdaura', label: 'Hợp đồng đầu ra (CĐT)', icon: '🏦', group: 'QUẢN TRỊ', more: true, title: 'Hợp đồng đầu ra — Doanh thu', sub: 'Chỉ QLCP&HĐ tự nhập' },
   { id: 'doitac', label: 'Đối tác', icon: '🏗️', group: 'QUẢN TRỊ', more: true, title: 'Đối tác NTP / NCC', sub: 'Hồ sơ và lịch sử giao dịch' },
   { id: 'users', label: 'Người dùng', icon: '👤', group: 'QUẢN TRỊ', more: true, title: 'Quản trị hệ thống', sub: 'Dự án, người dùng, mẫu hồ sơ (luồng duyệt)' },
 ];
@@ -22,18 +20,18 @@ const NAV = [
 const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
   CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
-  GDDA: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  GDDA: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
   ChuyenVienPhongBan: ['hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
   TruongPhongChucNang: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
   PhapChe_CV: ['duyet', 'hopdong', 'totrinh', 'doitac', 'hosocuatoi'],
   PhapChe_TP: ['dashboard', 'duyet', 'hopdong', 'totrinh', 'doitac', 'hosocuatoi'],
   KeToan_Vien: ['duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
   KeToan_Truong: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
-  QLCPHD_CV: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
-  QLCPHD_TP: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'users', 'hosocuatoi'],
-  PTGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
-  TGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'hosocuatoi'],
-  Admin: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'nganSach', 'hopdongdaura', 'doitac', 'users', 'hosocuatoi'],
+  QLCPHD_CV: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
+  QLCPHD_TP: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'users', 'hosocuatoi'],
+  PTGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
+  TGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'hosocuatoi'],
+  Admin: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'doitac', 'users', 'hosocuatoi'],
 };
 
 export function accessibleTabs(roles) {
