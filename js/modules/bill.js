@@ -191,11 +191,18 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBill
     if (!periodInput.value) periodInput.value = '1';
     periodInput.readOnly = false;
     periodInput.style.background = '';
-    periodInput.title = 'Chưa có bill hợp lệ nào trong hệ thống cho hồ sơ này — nhập đúng đợt thực tế (VD nếu đã tới Đợt 4 ngoài đời, nhập 4).';
+    periodInput.title = 'Chưa có bill hợp lệ nào trong hệ thống cho đúng hợp đồng này — nhập đúng đợt thực tế (VD nếu đã tới Đợt 4 ngoài đời, nhập 4).';
     if (!jInput.value) jInput.value = '0';
     jInput.readOnly = false;
     jInput.style.background = '';
-    if (noteEl) noteEl.innerHTML = `<span style="color:var(--gray4)">Chưa có kỳ hợp lệ nào trước đó trong hệ thống — nhập đúng kỳ thực tế (bỏ qua bill đã hủy nếu có).</span>`;
+    if (noteEl)
+      noteEl.innerHTML = `<span style="color:var(--amber);font-weight:600">⚠️ Đợt số và J KHÔNG tự điền — đây là bill ĐẦU TIÊN link vào hợp đồng này.</span>
+        <div style="color:var(--gray6);font-weight:400;margin-top:4px">
+          Nếu đây là bill kế tiếp của 1 hợp đồng vừa mới bắt buộc gắn (deal đã có bill từ trước, chỉ là trước đây chưa gắn hợp đồng), tự nhập tay đúng 2 chỗ:<br>
+          • <b>Đợt số</b>: nhập đúng số đợt thực tế ngoài đời (VD đợt trước là Đợt 4 thì đợt này nhập 5)<br>
+          • <b>J (Trừ các đợt thanh toán trước)</b>: mở lại bill đợt liền trước (cũ, chưa gắn hợp đồng) trong danh sách, xem đúng số "Giá trị thực hiện lũy kế", nhập vào đây dưới dạng <b>số âm</b><br>
+          Từ đợt kế tiếp trở đi, hệ thống tự động lại bình thường.
+        </div>`;
     return;
   }
 
