@@ -113,11 +113,17 @@ export async function render(container, user) {
     return;
   }
 
-  const rejectedCount = rows.filter((r) => r.status === 'rejected').length;
+  const rejectedContracts = (contracts || []).filter((c) => c.status === 'rejected').length;
+  const rejectedBills = (bills || []).filter((b) => b.status === 'rejected').length;
+  const rejectedTotrinh = (totrinhs || []).filter((t) => t.status === 'rejected').length;
   const overdueCount = rows.filter(isOverdue).length;
 
   container.innerHTML = `
-    ${rejectedCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:10px">🔴 <b>${rejectedCount} hồ sơ</b> đang bị từ chối — cần sửa và trình lại.</div>` : ''}
+    ${rejectedContracts || rejectedBills || rejectedTotrinh ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      ${rejectedContracts ? `<span style="background:#FEF2F2;color:var(--red);font-size:12.5px;font-weight:700;padding:4px 11px;border-radius:999px;white-space:nowrap">🔴 ${rejectedContracts} hợp đồng bị từ chối</span>` : ''}
+      ${rejectedBills ? `<span style="background:#FEF2F2;color:var(--red);font-size:12.5px;font-weight:700;padding:4px 11px;border-radius:999px;white-space:nowrap">🔴 ${rejectedBills} bill bị từ chối</span>` : ''}
+      ${rejectedTotrinh ? `<span style="background:#FEF2F2;color:var(--red);font-size:12.5px;font-weight:700;padding:4px 11px;border-radius:999px;white-space:nowrap">🔴 ${rejectedTotrinh} tờ trình bị từ chối</span>` : ''}
+    </div>` : ''}
     ${overdueCount ? `<div style="font-size:12.5px;background:#FFF7ED;color:#B8790A;padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang chờ duyệt đã trễ hạn — nên bấm vào nhắc người duyệt.</div>` : ''}
     <div style="margin-bottom:12px"><input type="text" class="form-input" id="partnerFilter" placeholder="🔎 Lọc theo tên Đối tác/NCC..." style="max-width:320px"></div>
     <div class="card" style="padding:0;overflow:hidden">
