@@ -3,7 +3,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE, searchSelectHtml, initSearchSelect, setSearchSelectValue } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, budgetLineRowHtml, wireBudgetLines, readBudgetLines, loadStepPreview } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -181,7 +181,7 @@ export async function openDetail(id, user, onClose) {
 
   const { data: c } = await supabase
     .from('contracts')
-    .select('*, partners(name), projects(name), to_trinh_chu_truong(doc_number, title), contract_budget_lines(budget_code, value), document_templates(name), users!created_by(full_name)')
+    .select('*, partners(name), projects(name), to_trinh_chu_truong(doc_number, title), document_templates(name), users!created_by(full_name)')
     .eq('id', id)
     .single();
   if (!c) {
@@ -203,12 +203,10 @@ export async function openDetail(id, user, onClose) {
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
         ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditDocNumber">🔢 Sửa số hồ sơ</button>` : ''}
         ${canCancel ? `<button class="btn btn-sm btn-danger" id="btnCancel">🗑️ Hủy hồ sơ</button>` : ''}
-        ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditBudgetLines">🧮 Sửa mã ngân sách</button>` : ''}
         ${canExportPdf ? `<button class="btn btn-sm btn-secondary" id="btnExportPdf">🖨️ Xuất PDF (tờ cover)</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
       </div></div>
     <div class="panel-body">
-      ${c.budget_overrun_flag ? `<div class="warn-box">⚠️ <div><b>Case 2 — Cam kết đã vượt Ngân sách phân bổ.</b> Không dùng phụ lục hợp đồng cho trường hợp này — cần QLCP&HĐ ban hành phiên bản ngân sách mới.</div></div>` : ''}
       ${c.pending_addendum_flag ? `<div class="warn-box">⚠️ <div><b>Case 1 — Đang chờ bổ sung phụ lục hợp đồng</b> (bill đã vượt giá trị hợp đồng gốc).</div></div>` : ''}
       <div class="kv">
         <div class="k">Dự án</div><div class="v">${c.projects?.name || '—'}</div>
@@ -217,7 +215,6 @@ export async function openDetail(id, user, onClose) {
         ${c.completed_at ? `<div class="k">Ngày hoàn thành</div><div class="v">${new Date(c.completed_at).toLocaleDateString('vi-VN')}</div>` : ''}
         <div class="k">Tờ trình căn cứ</div><div class="v">${c.to_trinh_chu_truong ? `<span class="code-chip">${c.to_trinh_chu_truong.doc_number}</span>` : '<span style="color:var(--amber);font-size:12px">⚠️ Chưa gắn tờ trình chủ trương</span>'}</div>
         <div class="k">Trạng thái</div><div class="v">${statusBadge(c.status)}</div>
-        <div class="k">Chia mã ngân sách</div><div class="v">${(c.contract_budget_lines || []).map((l) => `<div class="budget-line"><span class="code-chip">${l.budget_code}</span><span class="mono">${fmt(l.value)} ₫</span></div>`).join('') || '<span style="color:var(--gray4)">Chưa chia</span>'}</div>
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
       <div class="card" id="attachArea"></div>
@@ -229,7 +226,6 @@ export async function openDetail(id, user, onClose) {
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(c, user, onClose));
-  box.querySelector('#btnEditBudgetLines')?.addEventListener('click', () => openBudgetLinesEditor(c, user, onClose));
   box.querySelector('#btnCancel')?.addEventListener('click', async () => {
     if (!confirm(`Hủy hồ sơ "${c.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
     const reason = prompt('Lý do hủy (không bắt buộc):') || null;
@@ -268,55 +264,12 @@ export async function openDetail(id, user, onClose) {
   });
 }
 
-async function openBudgetLinesEditor(c, user, onClose) {
-  const modal = ensureModal();
-  const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
-  const { data: currentLines } = await supabase.from('contract_budget_lines').select('budget_code, value').eq('contract_id', c.id);
-
-  modal.innerHTML = `<div class="panel-box">
-    <div class="panel-header"><div>Sửa mã ngân sách — ${c.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
-    <div class="panel-body">
-      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Chỉ sửa cách chia mã ngân sách để phục vụ đối chiếu báo cáo tài chính — không đụng tới nội dung/giá trị hợp đồng hay luồng duyệt.</div>
-      <div class="card" id="budgetLinesWrap" style="padding:12px 14px">
-        <div class="bl-rows">${(currentLines && currentLines.length ? currentLines : [{}]).map((l) => budgetLineRowHtml(categories || [], l.budget_code, l.value)).join('')}</div>
-        <button type="button" class="btn btn-sm btn-secondary bl-add">+ Thêm dòng</button>
-        <div class="bl-total" style="font-size:12px;margin-top:8px;font-weight:600"></div>
-      </div>
-    </div>
-    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu điều chỉnh</button></div>
-  </div>`;
-  showModal(modal, onClose);
-  wireMoneyInputs(modal);
-  modal.querySelector('#pClose').addEventListener('click', () => openDetail(c.id, user, onClose));
-  wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#__no_target__'); // không cần khớp tổng cụ thể
-
-  modal.querySelector('#btnSave').addEventListener('click', async () => {
-    const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
-    if (!lines.length) return toast('Chọn ít nhất 1 mã ngân sách có giá trị', 'error');
-
-    loading(true);
-    await supabase.from('contract_budget_lines').delete().eq('contract_id', c.id);
-    const { error } = await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: c.id, budget_code: l.budget_code, value: l.value })));
-    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
-
-    await supabase.from('approval_logs').insert({ document_type: 'contract', document_id: c.id, user_id: user.id, action: 'edit_budget', comment: 'QLCP&HĐ điều chỉnh chia mã ngân sách' });
-
-    toast('Đã lưu điều chỉnh mã ngân sách', 'success');
-    openDetail(c.id, user, onClose);
-  });
-}
-
 async function openEditModal(c, user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst, abbr').order('name');
-  const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const { data: templates } = await supabase.from('document_templates').select('id, name').eq('doc_type', 'contract');
   const { data: toTrinhList } = await supabase.from('to_trinh_chu_truong').select('id, doc_number, title').order('doc_number');
-  const { data: currentLines } = await supabase.from('contract_budget_lines').select('budget_code, value').eq('contract_id', c.id);
-
-  const initialRows = (currentLines && currentLines.length ? currentLines : [{ budget_code: categories?.[0]?.code, value: c.value }])
-    .map((l) => budgetLineRowHtml(categories || [], l.budget_code, l.value)).join('');
 
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Sửa hợp đồng — ${c.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
@@ -338,12 +291,6 @@ async function openEditModal(c, user, onClose) {
         <div><label class="form-label">Tỉ lệ giữ lại bảo hành (%)</label><input type="number" id="fRetention" class="form-input" value="${c.retention_rate ?? 10}" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="${c.vat_rate ?? 8}" step="0.1"></div>
       </div>
-      <label class="form-label">Chia theo mã ngân sách (1 hợp đồng có thể chia nhiều hạng mục)</label>
-      <div class="card" id="budgetLinesWrap" style="padding:12px 14px;margin-bottom:13px">
-        <div class="bl-rows">${initialRows}</div>
-        <button type="button" class="btn btn-sm btn-secondary bl-add">+ Thêm dòng</button>
-        <div class="bl-total" style="font-size:12px;margin-top:8px;font-weight:600"></div>
-      </div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Tờ trình chủ trương làm căn cứ (không bắt buộc)</label>
@@ -354,7 +301,6 @@ async function openEditModal(c, user, onClose) {
   showModal(modal, onClose);
   wireMoneyInputs(modal);
   modal.querySelector('#pClose').addEventListener('click', () => openDetail(c.id, user, onClose));
-  wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
   initSearchSelect(modal, 'fPartner', partners, { labelFn: partnerLabelFn, subFn: partnerSubFn });
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
@@ -365,13 +311,10 @@ async function openEditModal(c, user, onClose) {
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const retention_rate = Number(modal.querySelector('#fRetention').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
-    const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
     const template_id = modal.querySelector('#fTemplate').value;
     const to_trinh_id = modal.querySelector('#fToTrinh').value || null;
 
-    if (!project_id || !partner_id || !value || !lines.length) return toast('Điền đủ thông tin bắt buộc (kể cả chia mã ngân sách)', 'error');
-    const sumLines = lines.reduce((s, l) => s + l.value, 0);
-    if (Math.abs(sumLines - value) > 1) return toast(`Tổng chia mã ngân sách (${sumLines.toLocaleString('vi-VN')}) phải khớp đúng giá trị hợp đồng (${value.toLocaleString('vi-VN')})`, 'error');
+    if (!project_id || !partner_id || !value) return toast('Điền đủ thông tin bắt buộc', 'error');
 
     loading(true);
     const { error } = await supabase
@@ -379,9 +322,6 @@ async function openEditModal(c, user, onClose) {
       .update({ project_id, partner_id, contract_type, value, signed_date, retention_rate, vat_rate, template_id: template_id || null, to_trinh_id })
       .eq('id', c.id);
     if (error) return toast('Lỗi lưu: ' + error.message, 'error');
-
-    await supabase.from('contract_budget_lines').delete().eq('contract_id', c.id);
-    await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: c.id, budget_code: l.budget_code, value: l.value })));
 
     toast('Đã lưu thay đổi', 'success');
     openDetail(c.id, user, onClose);
@@ -392,7 +332,6 @@ async function openCreateModal(user, onClose) {
   const modal = ensureModal();
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst, abbr').order('name');
-  const { data: categories } = await supabase.from('budget_categories').select('code, name').order('code');
   const templates = await resolveDefaultTemplates(user.id, 'contract');
   const { data: toTrinhList } = await supabase.from('to_trinh_chu_truong').select('id, doc_number, title').order('doc_number');
 
@@ -418,12 +357,6 @@ async function openCreateModal(user, onClose) {
         <div><label class="form-label">Tỉ lệ giữ lại bảo hành (%)</label><input type="number" id="fRetention" class="form-input" value="10" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="8" step="0.1"></div>
       </div>
-      <label class="form-label">Chia theo mã ngân sách (1 hợp đồng có thể chia nhiều hạng mục)</label>
-      <div class="card" id="budgetLinesWrap" style="padding:12px 14px;margin-bottom:13px">
-        <div class="bl-rows">${budgetLineRowHtml(categories || [])}</div>
-        <button type="button" class="btn btn-sm btn-secondary bl-add">+ Thêm dòng</button>
-        <div class="bl-total" style="font-size:12px;margin-top:8px;font-weight:600"></div>
-      </div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
         <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn — không hiện mẫu của phòng ban khác.'}</div></div>
@@ -442,7 +375,6 @@ async function openCreateModal(user, onClose) {
   wireMoneyInputs(modal);
 
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
-  wireBudgetLines(modal.querySelector('#budgetLinesWrap'), categories || [], '#fValue');
   initSearchSelect(modal, 'fPartner', partners, { labelFn: partnerLabelFn, subFn: partnerSubFn });
   const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
 
@@ -471,15 +403,12 @@ async function openCreateModal(user, onClose) {
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const retention_rate = Number(modal.querySelector('#fRetention').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
-    const lines = readBudgetLines(modal.querySelector('#budgetLinesWrap'));
     const template_id = modal.querySelector('#fTemplate').value;
     const to_trinh_id = modal.querySelector('#fToTrinh').value || null;
 
-    if (!project_id || !partner_id || !value || !lines.length) {
-      return toast('Điền đủ thông tin bắt buộc trước khi lưu (kể cả chia mã ngân sách)', 'error');
+    if (!project_id || !partner_id || !value) {
+      return toast('Điền đủ thông tin bắt buộc trước khi lưu', 'error');
     }
-    const sumLines = lines.reduce((s, l) => s + l.value, 0);
-    if (Math.abs(sumLines - value) > 1) return toast(`Tổng chia mã ngân sách (${sumLines.toLocaleString('vi-VN')}) phải khớp đúng giá trị hợp đồng (${value.toLocaleString('vi-VN')})`, 'error');
     loading(true);
 
     const { data: newContractId, error } = await supabase.rpc('fn_create_contract', {
@@ -502,7 +431,6 @@ async function openCreateModal(user, onClose) {
     }
     const newContract = { id: newContractId };
 
-    await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: newContract.id, budget_code: l.budget_code, value: l.value })));
     await uploadStagedFiles(filePicker.getFiles(), 'contract', newContract.id, user.id);
 
     if (submitAfter) {
