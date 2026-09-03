@@ -13,6 +13,11 @@ let VIEW_PAGE = 1;
 const partnerLabelFn = (p) => p.name;
 const partnerSubFn = (p) => `(MST ${p.mst})`;
 
+// Danh sách "Loại hợp đồng" mới — mỗi lựa chọn map thẳng 1-1 với mã trong số hợp đồng
+// (NTP/NCC/ĐTC/Khác). Đã đổi từ nguồn cũ (theo loại Đối tác cố định) sang lấy theo
+// chính hợp đồng đang tạo — vì 1 đối tác có thể làm nhiều vai trò khác nhau tùy hợp đồng.
+const CONTRACT_TYPES = ['Hợp đồng thầu phụ', 'Hợp đồng Nhà cung cấp', 'Hợp đồng Đội thi công', 'Hợp đồng dịch vụ khác'];
+
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
@@ -242,7 +247,12 @@ export async function openDetail(id, user, onClose) {
 
     loading(true);
     const { error } = await supabase.from('contracts').update({ doc_number: trimmed }).eq('id', c.id);
-    if (error) return toast('Lỗi lưu: ' + error.message, 'error');
+    if (error) {
+      if (error.message.includes('contracts_doc_number_unique') || error.message.includes('duplicate key')) {
+        return toast(`Số hồ sơ "${trimmed}" đã được dùng cho hợp đồng khác — chọn số khác.`, 'error');
+      }
+      return toast('Lỗi lưu: ' + error.message, 'error');
+    }
     await supabase.from('approval_logs').insert({
       document_type: 'contract', document_id: c.id, step_no: c.current_step, action: 'edit_doc_number',
       comment: `Đổi số hồ sơ: "${c.doc_number}" → "${trimmed}"`, user_id: user.id,
@@ -317,8 +327,8 @@ async function openEditModal(c, user, onClose) {
         ${searchSelectHtml('fPartner', partners, c.partner_id, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
       <div style="margin-bottom:13px"><label class="form-label">Loại hợp đồng</label>
         <select id="fType" class="form-input">
-          ${['Hợp đồng thầu phụ thi công', 'Hợp đồng giao khoán', 'Hợp đồng NCC vật tư', 'Hợp đồng thuê thiết bị', 'Dịch vụ khác']
-            .map((t) => `<option ${t === c.contract_type ? 'selected' : ''}>${t}</option>`).join('')}
+          ${CONTRACT_TYPES.map((t) => `<option ${t === c.contract_type ? 'selected' : ''}>${t}</option>`).join('')}
+          ${!CONTRACT_TYPES.includes(c.contract_type) ? `<option selected>${c.contract_type}</option>` : ''}
         </select></div>
       <div style="margin-bottom:13px"><label class="form-label">Giá trị hợp đồng (₫, có VAT)</label>
         <input type="text" inputmode="numeric" id="fValue" class="form-input money-input" value="${formatMoneyInput(c.value)}"></div>
@@ -395,17 +405,11 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC)</label>
         ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}
         <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Chưa có đối tác? Vào tab Đối tác để khai báo trước, hệ thống tự chống trùng theo MST.</div></div>
-      <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ</label>
-        <input type="text" id="fDocNumber" class="form-input" placeholder="Chọn Dự án + Đối tác để tự gợi ý số">
-        <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Số tự gợi ý theo đúng Dự án + Đối tác đã chọn — vẫn sửa tay được nếu cần khớp đúng số thật đã có (giai đoạn chuyển đổi số hợp đồng).</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Loại hợp đồng</label>
-        <select id="fType" class="form-input">
-          <option>Hợp đồng thầu phụ thi công</option>
-          <option>Hợp đồng giao khoán</option>
-          <option>Hợp đồng NCC vật tư</option>
-          <option>Hợp đồng thuê thiết bị</option>
-          <option>Dịch vụ khác</option>
-        </select></div>
+        <select id="fType" class="form-input">${CONTRACT_TYPES.map((t) => `<option>${t}</option>`).join('')}</select></div>
+      <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ</label>
+        <input type="text" id="fDocNumber" class="form-input" placeholder="Chọn Dự án + Đối tác + Loại hợp đồng để tự gợi ý số">
+        <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Số tự gợi ý theo đúng Dự án + Loại hợp đồng + Đối tác đã chọn — vẫn sửa tay được nếu cần khớp đúng số thật đã có (giai đoạn chuyển đổi số hợp đồng).</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Giá trị hợp đồng (₫, có VAT)</label>
         <input type="text" inputmode="numeric" id="fValue" class="form-input money-input" placeholder="VD: 2.800.000.000"></div>
       <div style="margin-bottom:13px"><label class="form-label">Ngày ký hồ sơ (ngày lập, trên bản giấy — không bắt buộc)</label>
@@ -442,18 +446,21 @@ async function openCreateModal(user, onClose) {
   initSearchSelect(modal, 'fPartner', partners, { labelFn: partnerLabelFn, subFn: partnerSubFn });
   const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
 
-  // Tự gợi ý số hồ sơ mỗi khi đổi Dự án/Đối tác — vẫn cho sửa tay (giai đoạn chuyển đổi
-  // quy tắc số hợp đồng, xem trước bằng RPC riêng KHÔNG tiêu tốn số của bộ đếm thật)
+  // Tự gợi ý số hồ sơ mỗi khi đổi Dự án/Đối tác/Loại hợp đồng — vẫn cho sửa tay (giai
+  // đoạn chuyển đổi quy tắc số hợp đồng, xem trước bằng RPC riêng KHÔNG tiêu tốn số
+  // của bộ đếm thật)
   async function refreshSuggestedDocNumber() {
     const project_id = modal.querySelector('#fProject').value;
     const partner_id = modal.querySelector('#fPartner').value;
+    const contract_type = modal.querySelector('#fType').value;
     if (!project_id || !partner_id) return;
-    const { data: suggested } = await supabase.rpc('fn_preview_contract_doc_number', { p_project_id: project_id, p_partner_id: partner_id });
+    const { data: suggested } = await supabase.rpc('fn_preview_contract_doc_number', { p_project_id: project_id, p_partner_id: partner_id, p_contract_type: contract_type });
     if (suggested) modal.querySelector('#fDocNumber').value = suggested;
   }
   modal.querySelector('#fProject').addEventListener('change', refreshSuggestedDocNumber);
   modal.querySelector('#fPartner').addEventListener('change', refreshSuggestedDocNumber);
-  refreshSuggestedDocNumber(); // Dự án mặc định đã chọn sẵn dòng đầu -> gợi ý ngay khi vừa mở form (nếu Đối tác cũng đã có)
+  modal.querySelector('#fType').addEventListener('change', refreshSuggestedDocNumber);
+  refreshSuggestedDocNumber(); // Dự án + Loại hợp đồng mặc định đã có sẵn -> gợi ý ngay khi vừa mở form (nếu Đối tác cũng đã có)
 
   async function doSave(submitAfter) {
     const project_id = modal.querySelector('#fProject').value;
@@ -487,7 +494,12 @@ async function openCreateModal(user, onClose) {
       p_to_trinh_id: to_trinh_id,
       p_doc_number: doc_number || null,
     });
-    if (error) return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
+    if (error) {
+      if (error.message.includes('contracts_doc_number_unique') || error.message.includes('duplicate key') || error.message.includes('đã tồn tại')) {
+        return toast(`Số hồ sơ "${doc_number}" đã được dùng cho hợp đồng khác — sửa lại số khác rồi lưu lại.`, 'error');
+      }
+      return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
+    }
     const newContract = { id: newContractId };
 
     await supabase.from('contract_budget_lines').insert(lines.map((l) => ({ contract_id: newContract.id, budget_code: l.budget_code, value: l.value })));
