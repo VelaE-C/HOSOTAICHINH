@@ -395,6 +395,9 @@ async function openCreateModal(user, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC)</label>
         ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}
         <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Chưa có đối tác? Vào tab Đối tác để khai báo trước, hệ thống tự chống trùng theo MST.</div></div>
+      <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ</label>
+        <input type="text" id="fDocNumber" class="form-input" placeholder="Chọn Dự án + Đối tác để tự gợi ý số">
+        <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Số tự gợi ý theo đúng Dự án + Đối tác đã chọn — vẫn sửa tay được nếu cần khớp đúng số thật đã có (giai đoạn chuyển đổi số hợp đồng).</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Loại hợp đồng</label>
         <select id="fType" class="form-input">
           <option>Hợp đồng thầu phụ thi công</option>
@@ -439,10 +442,24 @@ async function openCreateModal(user, onClose) {
   initSearchSelect(modal, 'fPartner', partners, { labelFn: partnerLabelFn, subFn: partnerSubFn });
   const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
 
+  // Tự gợi ý số hồ sơ mỗi khi đổi Dự án/Đối tác — vẫn cho sửa tay (giai đoạn chuyển đổi
+  // quy tắc số hợp đồng, xem trước bằng RPC riêng KHÔNG tiêu tốn số của bộ đếm thật)
+  async function refreshSuggestedDocNumber() {
+    const project_id = modal.querySelector('#fProject').value;
+    const partner_id = modal.querySelector('#fPartner').value;
+    if (!project_id || !partner_id) return;
+    const { data: suggested } = await supabase.rpc('fn_preview_contract_doc_number', { p_project_id: project_id, p_partner_id: partner_id });
+    if (suggested) modal.querySelector('#fDocNumber').value = suggested;
+  }
+  modal.querySelector('#fProject').addEventListener('change', refreshSuggestedDocNumber);
+  modal.querySelector('#fPartner').addEventListener('change', refreshSuggestedDocNumber);
+  refreshSuggestedDocNumber(); // Dự án mặc định đã chọn sẵn dòng đầu -> gợi ý ngay khi vừa mở form (nếu Đối tác cũng đã có)
+
   async function doSave(submitAfter) {
     const project_id = modal.querySelector('#fProject').value;
     const partner_id = modal.querySelector('#fPartner').value;
     const contract_type = modal.querySelector('#fType').value;
+    const doc_number = modal.querySelector('#fDocNumber').value.trim();
     const value = parseMoneyInput(modal.querySelector('#fValue').value);
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const retention_rate = Number(modal.querySelector('#fRetention').value);
@@ -468,6 +485,7 @@ async function openCreateModal(user, onClose) {
       p_vat_rate: vat_rate,
       p_template_id: template_id || null,
       p_to_trinh_id: to_trinh_id,
+      p_doc_number: doc_number || null,
     });
     if (error) return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
     const newContract = { id: newContractId };
