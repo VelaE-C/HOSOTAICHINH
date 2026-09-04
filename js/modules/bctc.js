@@ -123,7 +123,7 @@ export async function render(container, user) {
 // ============================================================
 export async function openDetail(id, user, onClose) {
   const modal = ensureModal();
-  modal.innerHTML = `<div class="panel-box"><div class="empty-note">Đang tải…</div></div>`;
+  modal.innerHTML = `<div class="panel-box" style="max-width:1400px;width:97%"><div class="empty-note">Đang tải…</div></div>`;
   showModal(modal, onClose, `bctc/${id}`);
 
   const { data: rev } = await supabase.from('bctc_revisions').select('*, projects(name), document_templates(name), users!created_by(full_name)').eq('id', id).single();
