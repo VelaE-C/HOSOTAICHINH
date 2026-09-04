@@ -141,12 +141,16 @@ export async function openDetail(id, user, onClose) {
   const canEditNow = rev.created_by === user.id && ['draft', 'rejected'].includes(rev.status);
   const isAdmin = (user.roles || []).includes('Admin');
   const canCancel = isAdmin && ['draft', 'rejected'].includes(rev.status);
+  // Đang "lưu tạm" (Nháp, chưa từng trình) — chủ hồ sơ tự xóa HẲN được, không cần
+  // Admin, không cần qua "Hủy" (Hủy chỉ đổi trạng thái, vẫn giữ lại bản ghi).
+  const canDelete = rev.created_by === user.id && rev.status === 'draft';
 
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
     <div class="panel-header"><div><div>${rev.projects?.name || '—'}</div><div class="meta mono">${rev.doc_number}</div></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
+        ${canDelete ? `<button class="btn btn-sm btn-danger" id="btnDelete">🗑️ Xóa (đang lưu tạm)</button>` : ''}
         ${canCancel ? `<button class="btn btn-sm btn-danger" id="btnCancel">🗑️ Hủy hồ sơ</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
       </div></div>
@@ -173,6 +177,14 @@ export async function openDetail(id, user, onClose) {
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(rev, lines || [], user, onClose));
+  box.querySelector('#btnDelete')?.addEventListener('click', async () => {
+    if (!confirm(`Xóa HẲN "${rev.doc_number}"?\n\nKhác với Hủy — xóa xong sẽ MẤT VĨNH VIỄN, không khôi phục lại được. Chỉ dùng khi đây thật sự là bản lưu tạm chưa dùng tới.`)) return;
+    loading(true);
+    const { error } = await supabase.from('bctc_revisions').delete().eq('id', rev.id);
+    if (error) return toast('Lỗi xóa: ' + error.message, 'error');
+    toast('Đã xóa', 'success');
+    closeModal(modal, onClose);
+  });
   box.querySelector('#btnCancel')?.addEventListener('click', async () => {
     if (!confirm(`Hủy hồ sơ "${rev.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
     const reason = prompt('Lý do hủy (không bắt buộc):') || null;
@@ -302,8 +314,8 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
         <input type="text" class="form-input f-docnum" style="${INP};min-width:100px;display:${linked ? 'none' : 'block'}" value="${esc(l.doc_number_manual)}">
         <span class="f-linked-docnum mono" style="font-size:10.5px;color:var(--gray6);display:${linked ? 'inline' : 'none'}">${linkedDocNumber}</span>
       </td>
-      <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-forecast" style="${INP};min-width:100px;text-align:right" value="${formatMoneyInput(forecast)}" ${linked ? 'readonly' : ''}></td>
-      <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-payment" style="${INP};min-width:100px;text-align:right" value="${formatMoneyInput(payment)}" ${linked ? 'readonly' : ''}></td>
+      <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-forecast" style="${INP};min-width:100px;text-align:right${linked ? ';background:var(--gray1);color:var(--gray6)' : ''}" value="${formatMoneyInput(forecast)}" ${linked ? 'readonly' : ''}></td>
+      <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-payment" style="${INP};min-width:100px;text-align:right${linked ? ';background:var(--gray1);color:var(--gray6)' : ''}" value="${formatMoneyInput(payment)}" ${linked ? 'readonly' : ''}></td>
       <td class="mono f-remaining" style="${CELL};text-align:right;font-weight:600;white-space:nowrap">${fmt(forecast - payment)}</td>
       <td style="${CELL}"><input type="text" class="form-input f-note" style="${INP};min-width:110px" value="${esc(l.status_note)}"></td>
       <td style="${CELL};text-align:center"><button type="button" class="f-remove-row" title="Xóa dòng" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">✕</button></td>
@@ -399,14 +411,26 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
           rowEl.querySelector('.f-linked-docnum').textContent = c.doc_number;
           const forecast = lineForecast({ contract_id: e.target.value }, contractsMap);
           const payment = linePayment({ contract_id: e.target.value }, latestPaidByContract);
-          rowEl.querySelector('.f-forecast').value = formatMoneyInput(forecast);
-          rowEl.querySelector('.f-forecast').readOnly = true;
-          rowEl.querySelector('.f-payment').value = formatMoneyInput(payment);
-          rowEl.querySelector('.f-payment').readOnly = true;
+          const fForecast = rowEl.querySelector('.f-forecast');
+          const fPayment = rowEl.querySelector('.f-payment');
+          fForecast.value = formatMoneyInput(forecast);
+          fForecast.readOnly = true;
+          fForecast.style.background = 'var(--gray1)';
+          fForecast.style.color = 'var(--gray6)';
+          fPayment.value = formatMoneyInput(payment);
+          fPayment.readOnly = true;
+          fPayment.style.background = 'var(--gray1)';
+          fPayment.style.color = 'var(--gray6)';
           rowEl.querySelector('.f-remaining').textContent = fmt(forecast - payment);
         } else {
-          rowEl.querySelector('.f-forecast').readOnly = false;
-          rowEl.querySelector('.f-payment').readOnly = false;
+          const fForecast = rowEl.querySelector('.f-forecast');
+          const fPayment = rowEl.querySelector('.f-payment');
+          fForecast.readOnly = false;
+          fForecast.style.background = '';
+          fForecast.style.color = '';
+          fPayment.readOnly = false;
+          fPayment.style.background = '';
+          fPayment.style.color = '';
         }
       }),
     );
@@ -509,7 +533,7 @@ async function openCreateModal(user, onClose) {
       <div id="editorArea"></div>
     </div>
     <div class="panel-footer">
-      <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu nháp</button>
+      <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu tạm</button>
       <button class="btn btn-primary" id="btnSubmitNew">Trình duyệt</button>
     </div>
   </div>`;
