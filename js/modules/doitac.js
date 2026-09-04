@@ -91,6 +91,22 @@ export async function openDetail(id, user, onClose) {
   }
   const projectRows = Object.values(billsByProject).sort((a, b) => b.total - a.total);
 
+  // Thanh toán (trước thuế) = bill "paid" gần nhất của TỪNG hợp đồng — y hệt công
+  // thức đang dùng ở Báo cáo tài chính, không tính lại riêng.
+  const latestPaidByContract = {};
+  if (contractIds.length) {
+    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, vat_rate').in('contract_id', contractIds).eq('status', 'paid').order('period_no', { ascending: false });
+    (paidBills || []).forEach((b) => {
+      if (!latestPaidByContract[b.contract_id]) latestPaidByContract[b.contract_id] = b; // dòng đầu gặp = period_no cao nhất (đã order DESC)
+    });
+  }
+  function contractPayment(c) {
+    const b = latestPaidByContract[c.id];
+    if (!b) return null;
+    const vatRate = (b.vat_rate ?? 8) / 100;
+    return Number(b.val_d) / (1 + vatRate);
+  }
+
   const statusVN = { draft: 'Nháp', pending: 'Đang duyệt', active: 'Có hiệu lực', rejected: 'Từ chối', closed: 'Đã thanh lý' };
   // Sửa thông tin đối tác (đặc biệt số tài khoản/ngân hàng) chỉ dành cho QLCP&HĐ/Admin
   // — đây là thông tin nhạy cảm, sửa sai/sửa bậy có thể dẫn tới chuyển nhầm tiền.
@@ -118,10 +134,13 @@ export async function openDetail(id, user, onClose) {
         ${projectRows.map((r) => `<tr><td>${r.projectName}</td><td>${r.count}</td><td class="mono">${fmt(r.total)} ₫</td></tr>`).join('')}
         </tbody><tfoot><tr style="font-weight:700"><td>Tổng cộng</td><td></td><td class="mono" style="color:var(--navy)">${fmt(totalBillAmount)} ₫</td></tr></tfoot></table>` : `<div class="empty-note">Chưa có bill nào (đã trình trở lên) từ đối tác này</div>`}
       </div>
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hợp đồng đã ký (${contracts?.length || 0})</div>
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hợp đồng và Bill (${contracts?.length || 0})</div>
       <div class="card" style="padding:0;overflow:hidden">
-        ${contracts && contracts.length ? `<table><thead><tr><th>Dự án</th><th>Số hợp đồng</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
-        ${contracts.map((c) => `<tr><td>${c.projects?.name || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.contract_type}</td><td class="mono">${fmt(c.value)}</td><td><span class="badge idle">${statusVN[c.status] || c.status}</span></td></tr>`).join('')}
+        ${contracts && contracts.length ? `<table><thead><tr><th>Dự án</th><th>Số hợp đồng</th><th>Loại</th><th>Giá trị</th><th>Thanh toán (trước thuế)</th><th>Trạng thái</th></tr></thead><tbody>
+        ${contracts.map((c) => {
+          const paid = contractPayment(c);
+          return `<tr><td>${c.projects?.name || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.contract_type}</td><td class="mono">${fmt(c.value)}</td><td class="mono">${paid == null ? '—' : fmt(paid)}</td><td><span class="badge idle">${statusVN[c.status] || c.status}</span></td></tr>`;
+        }).join('')}
         </tbody></table>` : `<div class="empty-note">Chưa có hợp đồng nào</div>`}
       </div>
       <div style="font-size:11.5px;color:var(--gray4);margin-top:8px">🔒 Đối tác đã dùng trong ít nhất 1 hợp đồng thì không thể xóa khỏi hệ thống.</div>
