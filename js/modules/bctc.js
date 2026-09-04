@@ -136,6 +136,10 @@ export async function openDetail(id, user, onClose) {
   const { data: partnersList } = await supabase.from('partners').select('id, name');
   const partnersMap = Object.fromEntries((partnersList || []).map((p) => [p.id, p.name]));
   const sum = summarizeRev(lines || [], contractsMap, latestPaidByContract);
+  const totalPaymentA = (lines || []).filter((l) => l.item_code === 'A' || l.item_code.startsWith('A.')).reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
+  const totalPaymentB = (lines || []).filter((l) => l.level === 2 && l.item_code.startsWith('B.')).reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
+  const totalPayment = totalPaymentA + totalPaymentB;
+  const totalRemaining = sum.totalA + sum.totalB - totalPayment;
 
   const { assignments, logs } = await loadApprovalState('bctc', id);
   const preview = rev.status === 'pending' ? await loadStepPreview(rev.project_id, rev.template_id, rev.current_step) : {};
@@ -167,6 +171,8 @@ export async function openDetail(id, user, onClose) {
         ${finRowSimple('Tổng Hàng B (Chi phí)', sum.totalB)}
         ${finRowSimple('Hàng C — Lợi nhuận (A-B)', sum.totalC, true)}
         <div style="font-size:12px;color:var(--gray6);padding:6px 0">Tỷ suất lợi nhuận: <b>${sum.totalA ? ((sum.totalC / sum.totalA) * 100).toFixed(2) : '0.00'}%</b></div>
+        ${finRowSimple('Tổng Đã thanh toán (A+B)', totalPayment)}
+        ${finRowSimple('Tổng Còn lại (A+B)', totalRemaining, true)}
       </div>
       ${rev.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, rev.current_step, preview)}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
@@ -219,21 +225,38 @@ function readOnlyTableHeadHtml() {
   const th = (label, extra) => `<th style="position:sticky;top:0;background:#fff;z-index:2;border-bottom:2px solid var(--gray3);padding:5px;font-size:10.5px;text-align:left;white-space:nowrap${extra ? ';' + extra : ''}">${label}</th>`;
   return `<tr>${th('Tên hạng mục')}${th('Hợp đồng liên kết')}${th('Đối tác')}${th('Số HĐ')}${th('Dự trù (trước thuế)', 'text-align:right')}${th('Đã TT (trước thuế)', 'text-align:right')}${th('Còn lại', 'text-align:right')}${th('Ghi chú')}</tr>`;
 }
+// Dòng tổng (Hàng A / Hàng B / từng nhóm B.x) — cả 3 số tổng (Dự trù, Đã TT, Còn
+// lại) phải nằm ĐÚNG cột tương ứng (thẳng hàng với số liệu các dòng chi tiết bên
+// dưới), không gộp colspan hết cả hàng rồi đẩy về mép phải.
+function sectionTotalRowHtml(label, forecastTotal, paymentTotal, style) {
+  const remainingTotal = forecastTotal - paymentTotal;
+  return `<tr>
+    <td colspan="4" style="${style}">${label}</td>
+    <td class="mono" style="${style};text-align:right">${fmt(forecastTotal)} ₫</td>
+    <td class="mono" style="${style};text-align:right">${fmt(paymentTotal)} ₫</td>
+    <td class="mono" style="${style};text-align:right">${fmt(remainingTotal)} ₫</td>
+    <td style="${style}"></td>
+  </tr>`;
+}
 function readOnlyReportTableHtml(allLines, contractsMap, latestPaidByContract, partnersMap, totalA, totalB) {
   const aRows = allLines.filter((l) => l.item_code === 'A' || l.item_code.startsWith('A.'));
   const groups = allLines.filter((l) => l.level === 1 && l.item_code.startsWith('B.'));
 
-  let body = `<tr><td colspan="8" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8">HÀNG A — DOANH THU <span class="mono" style="float:right">${fmt(totalA)} ₫</span></td></tr>`;
+  const paymentA = aRows.reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
+  let body = sectionTotalRowHtml('HÀNG A — DOANH THU', totalA, paymentA, 'background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8');
   body += aRows.length ? aRows.map((l) => readOnlyRowHtml(l, contractsMap, latestPaidByContract, partnersMap)).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--gray4);padding:14px">Chưa có dòng nào</td></tr>`;
 
-  body += `<tr><td colspan="8" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red)">HÀNG B — CHI PHÍ <span class="mono" style="float:right">${fmt(totalB)} ₫</span></td></tr>`;
+  const bDetailRows = allLines.filter((l) => l.level === 2 && l.item_code.startsWith('B.'));
+  const paymentB = bDetailRows.reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
+  body += sectionTotalRowHtml('HÀNG B — CHI PHÍ', totalB, paymentB, 'background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red)');
   if (!groups.length) {
     body += `<tr><td colspan="8" style="text-align:center;color:var(--gray4);padding:14px">Chưa có nhóm chi phí nào</td></tr>`;
   } else {
     groups.forEach((g) => {
       const detailRows = allLines.filter((l) => l.parent_code === g.item_code);
-      const groupTotal = detailRows.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
-      body += `<tr><td colspan="8" style="background:var(--gray1);padding:4px 6px;font-weight:600;font-size:10.5px">${g.item_code} — ${g.ten_hang_muc} <span class="mono" style="float:right">${fmt(groupTotal)} ₫</span></td></tr>`;
+      const groupForecast = detailRows.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
+      const groupPayment = detailRows.reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
+      body += sectionTotalRowHtml(`${g.item_code} — ${g.ten_hang_muc}`, groupForecast, groupPayment, 'background:var(--gray1);padding:4px 6px;font-weight:600;font-size:10.5px');
       body += detailRows.length ? detailRows.map((l) => readOnlyRowHtml(l, contractsMap, latestPaidByContract, partnersMap)).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--gray4);padding:10px;font-size:11px">Chưa có dòng nào</td></tr>`;
     });
   }
@@ -369,11 +392,25 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
     const totalB = state.bGroups.reduce((s, g) => s + g.rows.reduce((s2, l) => s2 + lineForecast(l, contractsMap), 0), 0);
 
     let bodyHtml = '';
-    bodyHtml += `<tr><td colspan="9" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8">HÀNG A — DOANH THU <span class="mono" style="float:right">${fmt(totalA)} ₫</span></td></tr>`;
+    const paymentA = state.aRows.reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
+    bodyHtml += `<tr>
+      <td colspan="4" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8">HÀNG A — DOANH THU</td>
+      <td class="mono" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8;text-align:right">${fmt(totalA)} ₫</td>
+      <td class="mono" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8;text-align:right">${fmt(paymentA)} ₫</td>
+      <td class="mono" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8;text-align:right">${fmt(totalA - paymentA)} ₫</td>
+      <td colspan="2" style="background:var(--lblue)"></td>
+    </tr>`;
     bodyHtml += state.aRows.map((l, i) => rowEditorHtml(l, `a.${i}`)).join('');
     bodyHtml += `<tr><td colspan="9" style="padding:5px 6px"><button type="button" id="btnAddA" style="font-size:10.5px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:2px 7px;cursor:pointer">+ Thêm dòng Hàng A</button></td></tr>`;
 
-    bodyHtml += `<tr><td colspan="9" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red)">HÀNG B — CHI PHÍ <span class="mono" style="float:right">${fmt(totalB)} ₫</span></td></tr>`;
+    const paymentB = state.bGroups.reduce((s, g) => s + g.rows.reduce((s2, l) => s2 + linePayment(l, latestPaidByContract), 0), 0);
+    bodyHtml += `<tr>
+      <td colspan="4" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red)">HÀNG B — CHI PHÍ</td>
+      <td class="mono" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red);text-align:right">${fmt(totalB)} ₫</td>
+      <td class="mono" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red);text-align:right">${fmt(paymentB)} ₫</td>
+      <td class="mono" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red);text-align:right">${fmt(totalB - paymentB)} ₫</td>
+      <td colspan="2" style="background:#FEF2F2"></td>
+    </tr>`;
     state.bGroups.forEach((g, gi) => {
       const groupTotal = g.rows.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
       bodyHtml += groupHeaderRowHtml(g, gi, groupTotal);
