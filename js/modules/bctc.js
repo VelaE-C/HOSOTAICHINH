@@ -133,6 +133,8 @@ export async function openDetail(id, user, onClose) {
   }
   const { data: lines } = await supabase.from('bctc_lines').select('*, partners(name)').eq('revision_id', id).order('item_code');
   const { contractsMap, latestPaidByContract } = await loadFinancialData(rev.project_id, lines || []);
+  const { data: partnersList } = await supabase.from('partners').select('id, name');
+  const partnersMap = Object.fromEntries((partnersList || []).map((p) => [p.id, p.name]));
   const sum = summarizeRev(lines || [], contractsMap, latestPaidByContract);
 
   const { assignments, logs } = await loadApprovalState('bctc', id);
@@ -159,10 +161,7 @@ export async function openDetail(id, user, onClose) {
         <div class="k">Trạng thái</div><div class="v">${statusBadge(rev.status)}</div>
         <div class="k">Ghi chú</div><div class="v">${rev.note || '—'}</div>
       </div>
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hàng A — Doanh thu</div>
-      ${revenueTableHtml((lines || []).filter((l) => l.item_code === 'A' || l.item_code.startsWith('A.')), contractsMap, latestPaidByContract)}
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hàng B — Chi phí</div>
-      ${costTableHtml(lines || [], contractsMap, latestPaidByContract)}
+      ${readOnlyReportTableHtml(lines || [], contractsMap, latestPaidByContract, partnersMap, sum.totalA, sum.totalB)}
       <div class="card" style="background:var(--gray1);border:1px solid var(--gray2);padding:4px 14px;margin-top:10px">
         ${finRowSimple('Tổng Hàng A (Doanh thu)', sum.totalA)}
         ${finRowSimple('Tổng Hàng B (Chi phí)', sum.totalB)}
@@ -197,40 +196,51 @@ export async function openDetail(id, user, onClose) {
   wireActions(box, 'bctc', id, rev.current_step, assignments, () => closeModal(modal, onClose));
 }
 
-// Bảng chỉ để XEM (trang chi tiết) — không có ô nhập
-function revenueTableHtml(rows, contractsMap, latestPaidByContract) {
-  if (!rows.length) return `<div class="empty-note">Chưa có dòng nào ở Hàng A</div>`;
-  return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px"><table><thead><tr><th>Hạng mục</th><th>Đối tác</th><th>Số HĐ</th><th>Dự trù</th><th>Đã TT</th><th>Còn lại</th><th>Ghi chú</th></tr></thead><tbody>
-    ${rows.map((l) => readOnlyRowHtml(l, contractsMap, latestPaidByContract)).join('')}
-  </tbody></table></div>`;
-}
-function costTableHtml(allLines, contractsMap, latestPaidByContract) {
-  const groups = allLines.filter((l) => l.level === 1 && l.item_code.startsWith('B.'));
-  if (!groups.length) return `<div class="empty-note">Chưa có nhóm chi phí nào</div>`;
-  return groups
-    .map((g) => {
-      const detailRows = allLines.filter((l) => l.parent_code === g.item_code);
-      const groupTotal = detailRows.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
-      return `<div class="card-title" style="font-size:11.5px;color:var(--navy);margin-top:10px">${g.item_code} — ${g.ten_hang_muc} <span class="mono" style="float:right">${fmt(groupTotal)} ₫</span></div>
-      <div class="card" style="padding:0;overflow:hidden;margin-bottom:10px"><table><thead><tr><th>Hạng mục</th><th>Đối tác</th><th>Số HĐ</th><th>Dự trù</th><th>Đã TT</th><th>Còn lại</th><th>Ghi chú</th></tr></thead><tbody>
-        ${detailRows.length ? detailRows.map((l) => readOnlyRowHtml(l, contractsMap, latestPaidByContract)).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:14px">Chưa có dòng nào</td></tr>'}
-      </tbody></table></div>`;
-    })
-    .join('');
-}
-function readOnlyRowHtml(l, contractsMap, latestPaidByContract) {
+// Bảng XEM (trang chi tiết) — dựng CÙNG kiểu Excel với lúc nhập (sticky header,
+// gộp chung 1 bảng cuộn riêng), chỉ khác là chữ tĩnh, không có ô nhập.
+function readOnlyRowHtml(l, contractsMap, latestPaidByContract, partnersMap) {
   const forecast = lineForecast(l, contractsMap);
   const payment = linePayment(l, latestPaidByContract);
   const contract = l.contract_id ? contractsMap[l.contract_id] : null;
+  const partnerName = contract ? partnersMap[contract.partner_id] : l.partners?.name;
+  const CELL = 'padding:4px 6px;font-size:11px';
   return `<tr>
-    <td>${l.ten_hang_muc}</td>
-    <td>${l.partners?.name || '—'}</td>
-    <td class="mono" style="font-size:11.5px">${contract ? contract.doc_number : (l.doc_number_manual || '—')}</td>
-    <td class="mono">${fmt(forecast)}</td>
-    <td class="mono">${fmt(payment)}</td>
-    <td class="mono" style="font-weight:600">${fmt(forecast - payment)}</td>
-    <td style="font-size:12px;color:var(--gray5)">${l.status_note || '—'}</td>
+    <td style="${CELL}">${l.ten_hang_muc}</td>
+    <td style="${CELL};text-align:center">${contract ? '<span style="color:var(--navy)">✓</span>' : '<span style="color:var(--gray4)">—</span>'}</td>
+    <td style="${CELL}">${partnerName || '—'}</td>
+    <td class="mono" style="${CELL}">${contract ? contract.doc_number : (l.doc_number_manual || '—')}</td>
+    <td class="mono" style="${CELL};text-align:right">${fmt(forecast)}</td>
+    <td class="mono" style="${CELL};text-align:right">${fmt(payment)}</td>
+    <td class="mono" style="${CELL};text-align:right;font-weight:600">${fmt(forecast - payment)}</td>
+    <td style="${CELL};color:var(--gray5)">${l.status_note || '—'}</td>
   </tr>`;
+}
+function readOnlyTableHeadHtml() {
+  const th = (label, extra) => `<th style="position:sticky;top:0;background:#fff;z-index:2;border-bottom:2px solid var(--gray3);padding:5px;font-size:10.5px;text-align:left;white-space:nowrap${extra ? ';' + extra : ''}">${label}</th>`;
+  return `<tr>${th('Tên hạng mục')}${th('Hợp đồng liên kết')}${th('Đối tác')}${th('Số HĐ')}${th('Dự trù (trước thuế)', 'text-align:right')}${th('Đã TT (trước thuế)', 'text-align:right')}${th('Còn lại', 'text-align:right')}${th('Ghi chú')}</tr>`;
+}
+function readOnlyReportTableHtml(allLines, contractsMap, latestPaidByContract, partnersMap, totalA, totalB) {
+  const aRows = allLines.filter((l) => l.item_code === 'A' || l.item_code.startsWith('A.'));
+  const groups = allLines.filter((l) => l.level === 1 && l.item_code.startsWith('B.'));
+
+  let body = `<tr><td colspan="8" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8">HÀNG A — DOANH THU <span class="mono" style="float:right">${fmt(totalA)} ₫</span></td></tr>`;
+  body += aRows.length ? aRows.map((l) => readOnlyRowHtml(l, contractsMap, latestPaidByContract, partnersMap)).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--gray4);padding:14px">Chưa có dòng nào</td></tr>`;
+
+  body += `<tr><td colspan="8" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red)">HÀNG B — CHI PHÍ <span class="mono" style="float:right">${fmt(totalB)} ₫</span></td></tr>`;
+  if (!groups.length) {
+    body += `<tr><td colspan="8" style="text-align:center;color:var(--gray4);padding:14px">Chưa có nhóm chi phí nào</td></tr>`;
+  } else {
+    groups.forEach((g) => {
+      const detailRows = allLines.filter((l) => l.parent_code === g.item_code);
+      const groupTotal = detailRows.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
+      body += `<tr><td colspan="8" style="background:var(--gray1);padding:4px 6px;font-weight:600;font-size:10.5px">${g.item_code} — ${g.ten_hang_muc} <span class="mono" style="float:right">${fmt(groupTotal)} ₫</span></td></tr>`;
+      body += detailRows.length ? detailRows.map((l) => readOnlyRowHtml(l, contractsMap, latestPaidByContract, partnersMap)).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--gray4);padding:10px;font-size:11px">Chưa có dòng nào</td></tr>`;
+    });
+  }
+
+  return `<div style="max-height:58vh;overflow:auto;border:1px solid var(--gray2);border-radius:8px;margin:10px 0">
+    <table style="width:100%;border-collapse:collapse"><thead>${readOnlyTableHeadHtml()}</thead><tbody>${body}</tbody></table>
+  </div>`;
 }
 function finRowSimple(label, value, bold) {
   return `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray1);${bold ? 'font-weight:700' : ''}">
