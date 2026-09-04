@@ -249,11 +249,28 @@ function finRowSimple(label, value, bold) {
   </div>`;
 }
 
+// Lấy danh sách Hợp đồng GỐC của dự án (KHÔNG gồm PLHĐ — PLHĐ không được chọn link
+// trực tiếp làm "Hợp đồng liên kết" nữa, vì bản thân nó cũng chỉ là 1 dòng trong
+// bảng contracts). value của mỗi hợp đồng gốc đã CỘNG DỒN thêm tổng giá trị các
+// PLHĐ con của nó — đúng công thức A+B (Giá trị dự trù/HĐ/PLHĐ) khớp với cách Bill
+// đang tính C=A+B (Giá trị hợp đồng điều chỉnh).
+async function fetchAdjustedContracts(projectId) {
+  const { data: raw } = await supabase.from('contracts').select('id, doc_number, value, vat_rate, partner_id, parent_contract_id').eq('project_id', projectId).neq('status', 'cancelled');
+  const baseContracts = (raw || []).filter((c) => !c.parent_contract_id).map((c) => ({ ...c, value: Number(c.value) }));
+  const baseMap = Object.fromEntries(baseContracts.map((c) => [c.id, c]));
+  (raw || []).forEach((c) => {
+    if (c.parent_contract_id && baseMap[c.parent_contract_id]) {
+      baseMap[c.parent_contract_id].value += Number(c.value); // PLHĐ kế thừa đúng vat_rate của hợp đồng gốc nên cộng dồn thẳng, chia VAT 1 lần là đúng
+    }
+  });
+  return baseContracts;
+}
+
 // Lấy toàn bộ dữ liệu Hợp đồng của dự án + bill "paid" mới nhất theo từng hợp đồng
 // — dùng chung cho cả xem chi tiết lẫn form nhập, tránh query riêng lẻ từng dòng
 async function loadFinancialData(projectId, lines) {
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, vat_rate, partner_id').eq('project_id', projectId).neq('status', 'cancelled');
-  const contractsMap = Object.fromEntries((contracts || []).map((c) => [c.id, c]));
+  const contracts = await fetchAdjustedContracts(projectId);
+  const contractsMap = Object.fromEntries(contracts.map((c) => [c.id, c]));
 
   const contractIds = [...new Set((lines || []).map((l) => l.contract_id).filter(Boolean))];
   let latestPaidByContract = {};
@@ -263,7 +280,7 @@ async function loadFinancialData(projectId, lines) {
       if (!latestPaidByContract[b.contract_id]) latestPaidByContract[b.contract_id] = b; // dòng đầu tiên gặp = period_no cao nhất (đã order DESC)
     });
   }
-  return { contracts: contracts || [], contractsMap, latestPaidByContract };
+  return { contracts, contractsMap, latestPaidByContract };
 }
 
 // ============================================================
@@ -554,20 +571,20 @@ async function openCreateModal(user, onClose) {
   let editor = null;
 
   async function loadForProject(projectId) {
-    const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, vat_rate, partner_id').eq('project_id', projectId).neq('status', 'cancelled').order('doc_number');
+    const contracts = await fetchAdjustedContracts(projectId);
     const { data: existingRevs } = await supabase.from('bctc_revisions').select('id, doc_number, rev_no').eq('project_id', projectId).neq('status', 'cancelled').order('rev_no', { ascending: false });
     modal.querySelector('#fParentRev').innerHTML = `<option value="">— Làm mới hoàn toàn —</option>` + (existingRevs || []).map((r) => `<option value="${r.id}">${r.doc_number}</option>`).join('');
-    editor = await openLineEditorModal({ modal, projectId, initialLines: [], contracts: contracts || [], partners: partners || [] });
+    editor = await openLineEditorModal({ modal, projectId, initialLines: [], contracts, partners: partners || [] });
   }
 
   async function loadParentLines(parentRevId, projectId) {
-    const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, vat_rate, partner_id').eq('project_id', projectId).neq('status', 'cancelled').order('doc_number');
+    const contracts = await fetchAdjustedContracts(projectId);
     let initialLines = [];
     if (parentRevId) {
       const { data } = await supabase.from('bctc_lines').select('*').eq('revision_id', parentRevId).order('item_code');
       initialLines = data || [];
     }
-    editor = await openLineEditorModal({ modal, projectId, initialLines, contracts: contracts || [], partners: partners || [] });
+    editor = await openLineEditorModal({ modal, projectId, initialLines, contracts, partners: partners || [] });
   }
 
   await loadForProject(modal.querySelector('#fProject').value);
@@ -608,7 +625,7 @@ async function openCreateModal(user, onClose) {
 // ============================================================
 async function openEditModal(rev, currentLines, user, onClose) {
   const modal = ensureModal();
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, vat_rate, partner_id').eq('project_id', rev.project_id).neq('status', 'cancelled').order('doc_number');
+  const contracts = await fetchAdjustedContracts(rev.project_id);
   const { data: partners } = await supabase.from('partners').select('id, name').order('name');
   const { data: templates } = await supabase.from('document_templates').select('id, name').eq('doc_type', 'bctc');
 
