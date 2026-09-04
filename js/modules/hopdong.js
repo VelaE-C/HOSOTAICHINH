@@ -31,8 +31,8 @@ export async function render(container, user) {
   const [{ data: projects }, { data: contracts, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name), projects(name)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name), projects(name)')
+      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name), projects(name, code)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name), projects(name, code)')
     ).neq('status', 'cancelled').order('created_at', { ascending: false }),
   ]);
 
@@ -101,8 +101,8 @@ function renderContractRows(list) {
   return list
     .map((c) =>
       IS_MOBILE
-        ? `<tr class="click" data-id="${c.id}"><td>${c.projects?.name || '—'}</td><td>${c.partners?.name || '—'}</td><td class="mono">${fmt(c.value)}</td></tr>`
-        : `<tr class="click" data-id="${c.id}"><td>${c.projects?.name || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
+        ? `<tr class="click" data-id="${c.id}"><td>${c.projects?.code || '—'}</td><td>${c.partners?.name || '—'}</td><td class="mono">${fmt(c.value)}</td></tr>`
+        : `<tr class="click" data-id="${c.id}"><td>${c.projects?.code || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
     <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td></tr>`,
     )
     .join('');
