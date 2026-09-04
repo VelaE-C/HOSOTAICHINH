@@ -269,6 +269,9 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
   if (!state.bGroups.length) state.bGroups = [{ name: 'Chi phí gián tiếp', rows: [] }];
   if (!state.aRows.length) state.aRows = [newLine({ ten_hang_muc: 'Doanh thu từ CĐT' })];
 
+  const partnersMap = Object.fromEntries((partners || []).map((p) => [p.id, p.name]));
+  const esc = (s) => (s || '').replace(/"/g, '&quot;');
+
   function partnerOptions(selected) {
     return `<option value="">—</option>` + (partners || []).map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${p.name}</option>`).join('');
   }
@@ -276,59 +279,74 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
     return `<option value="">— Không link, nhập tay —</option>` + (contracts || []).map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${c.doc_number}</option>`).join('');
   }
 
+  const CELL = 'padding:3px 5px;font-size:11px';
+  const INP = 'font-size:11px;padding:3px 5px;min-height:auto';
+
+  // Mỗi dòng = 1 <tr> thật (kiểu Excel) — gọn hơn nhiều so với thẻ card khi báo cáo
+  // có 70-100 dòng. Đối tác/Số HĐ có 2 lớp (ô nhập lúc chưa link + chữ tĩnh lúc đã
+  // link), ẩn/hiện qua JS khi đổi Hợp đồng liên kết, không phá layout cột.
   function rowEditorHtml(l, path) {
     const linked = !!l.contract_id;
     const forecast = lineForecast(l, contractsMap);
     const payment = linePayment(l, latestPaidByContract);
-    return `<div class="card bctc-row" data-path="${path}" style="padding:10px 12px;margin-bottom:8px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-        <div><label class="form-label" style="font-size:11px">Tên hạng mục</label><input type="text" class="form-input f-ten" value="${(l.ten_hang_muc || '').replace(/"/g, '&quot;')}"></div>
-        <div><label class="form-label" style="font-size:11px">Hợp đồng liên kết</label><select class="form-input f-contract">${contractOptions(l.contract_id)}</select></div>
-      </div>
-      <div class="f-manual" style="display:${linked ? 'none' : 'grid'};grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-        <div><label class="form-label" style="font-size:11px">Đối tác (không bắt buộc)</label><select class="form-input f-partner">${partnerOptions(l.partner_id)}</select></div>
-        <div><label class="form-label" style="font-size:11px">Số hợp đồng (gõ tay)</label><input type="text" class="form-input f-docnum" value="${(l.doc_number_manual || '').replace(/"/g, '&quot;')}"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">
-        <div><label class="form-label" style="font-size:11px">Dự trù/HĐ/PLHĐ (trước thuế)</label><input type="text" inputmode="numeric" class="form-input money-input f-forecast" value="${formatMoneyInput(forecast)}" ${linked ? 'readonly style="background:var(--gray1)"' : ''}></div>
-        <div><label class="form-label" style="font-size:11px">Dữ liệu thanh toán (trước thuế)</label><input type="text" inputmode="numeric" class="form-input money-input f-payment" value="${formatMoneyInput(payment)}" ${linked ? 'readonly style="background:var(--gray1)"' : ''}></div>
-        <div><label class="form-label" style="font-size:11px">Ghi chú trạng thái</label><input type="text" class="form-input f-note" value="${(l.status_note || '').replace(/"/g, '&quot;')}"></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:11.5px;color:var(--gray5)">Còn lại: <b class="mono">${fmt(forecast - payment)} ₫</b></span>
-        <button type="button" class="btn btn-sm btn-danger f-remove-row">✕ Xóa dòng</button>
-      </div>
-    </div>`;
+    const linkedPartnerName = linked ? partnersMap[contractsMap[l.contract_id]?.partner_id] || '—' : '';
+    const linkedDocNumber = linked ? contractsMap[l.contract_id]?.doc_number || '' : '';
+    return `<tr class="bctc-row" data-path="${path}">
+      <td style="${CELL}"><input type="text" class="form-input f-ten" style="${INP};min-width:150px" value="${esc(l.ten_hang_muc)}"></td>
+      <td style="${CELL}"><select class="form-input f-contract" style="${INP};min-width:140px">${contractOptions(l.contract_id)}</select></td>
+      <td style="${CELL}">
+        <select class="form-input f-partner" style="${INP};min-width:110px;display:${linked ? 'none' : 'block'}">${partnerOptions(l.partner_id)}</select>
+        <span class="f-linked-partner" style="font-size:11px;color:var(--gray6);display:${linked ? 'inline' : 'none'}">${linkedPartnerName}</span>
+      </td>
+      <td style="${CELL}">
+        <input type="text" class="form-input f-docnum" style="${INP};min-width:100px;display:${linked ? 'none' : 'block'}" value="${esc(l.doc_number_manual)}">
+        <span class="f-linked-docnum mono" style="font-size:10.5px;color:var(--gray6);display:${linked ? 'inline' : 'none'}">${linkedDocNumber}</span>
+      </td>
+      <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-forecast" style="${INP};min-width:100px;text-align:right" value="${formatMoneyInput(forecast)}" ${linked ? 'readonly' : ''}></td>
+      <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-payment" style="${INP};min-width:100px;text-align:right" value="${formatMoneyInput(payment)}" ${linked ? 'readonly' : ''}></td>
+      <td class="mono f-remaining" style="${CELL};text-align:right;font-weight:600;white-space:nowrap">${fmt(forecast - payment)}</td>
+      <td style="${CELL}"><input type="text" class="form-input f-note" style="${INP};min-width:110px" value="${esc(l.status_note)}"></td>
+      <td style="${CELL};text-align:center"><button type="button" class="f-remove-row" title="Xóa dòng" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">✕</button></td>
+    </tr>`;
+  }
+
+  function tableHeadHtml() {
+    const th = (label, extra) => `<th style="position:sticky;top:0;background:#fff;z-index:2;border-bottom:2px solid var(--gray3);padding:5px;font-size:10.5px;text-align:left;white-space:nowrap${extra ? ';' + extra : ''}">${label}</th>`;
+    return `<tr>${th('Tên hạng mục')}${th('Hợp đồng liên kết')}${th('Đối tác')}${th('Số HĐ')}${th('Dự trù (trước thuế)', 'text-align:right')}${th('Đã TT (trước thuế)', 'text-align:right')}${th('Còn lại', 'text-align:right')}${th('Ghi chú')}${th('', 'width:26px')}</tr>`;
+  }
+  function groupHeaderRowHtml(g, gi, groupTotal) {
+    return `<tr class="bctc-group-header" data-group="${gi}"><td colspan="9" style="background:var(--gray1);padding:5px 6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <b style="font-size:10.5px;color:var(--gray6);white-space:nowrap">B.${gi + 1}</b>
+        <input type="text" class="form-input f-group-name" style="flex:1;font-weight:600;font-size:11px;padding:3px 6px" value="${esc(g.name)}" placeholder="Tên nhóm chi phí, VD: Chi phí gián tiếp">
+        <span class="mono" style="font-weight:700;color:var(--navy);white-space:nowrap;font-size:11px">${fmt(groupTotal)} ₫</span>
+        <button type="button" class="f-add-row" data-group="${gi}" style="font-size:10.5px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:2px 7px;cursor:pointer;white-space:nowrap">+ Dòng</button>
+        ${gi > 0 || true ? `<button type="button" class="f-remove-group" data-group="${gi}" title="Xóa cả nhóm" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px">✕</button>` : ''}
+      </div></td></tr>`;
   }
 
   function renderAll() {
     const totalA = state.aRows.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
     const totalB = state.bGroups.reduce((s, g) => s + g.rows.reduce((s2, l) => s2 + lineForecast(l, contractsMap), 0), 0);
+
+    let bodyHtml = '';
+    bodyHtml += `<tr><td colspan="9" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8">HÀNG A — DOANH THU <span class="mono" style="float:right">${fmt(totalA)} ₫</span></td></tr>`;
+    bodyHtml += state.aRows.map((l, i) => rowEditorHtml(l, `a.${i}`)).join('');
+    bodyHtml += `<tr><td colspan="9" style="padding:5px 6px"><button type="button" id="btnAddA" style="font-size:10.5px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:2px 7px;cursor:pointer">+ Thêm dòng Hàng A</button></td></tr>`;
+
+    bodyHtml += `<tr><td colspan="9" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red)">HÀNG B — CHI PHÍ <span class="mono" style="float:right">${fmt(totalB)} ₫</span></td></tr>`;
+    state.bGroups.forEach((g, gi) => {
+      const groupTotal = g.rows.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
+      bodyHtml += groupHeaderRowHtml(g, gi, groupTotal);
+      bodyHtml += g.rows.map((l, i) => rowEditorHtml(l, `b.${gi}.${i}`)).join('');
+    });
+    bodyHtml += `<tr><td colspan="9" style="padding:5px 6px"><button type="button" id="btnAddGroup" style="font-size:10.5px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:2px 7px;cursor:pointer">+ Thêm nhóm chi phí (B.x)</button></td></tr>`;
+
     modal.querySelector('#editorArea').innerHTML = `
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hàng A — Doanh thu <span class="mono" style="float:right;font-weight:700;color:var(--navy)">${fmt(totalA)} ₫</span></div>
-      <div id="aRowsWrap">${state.aRows.map((l, i) => rowEditorHtml(l, `a.${i}`)).join('')}</div>
-      <button type="button" class="btn btn-sm btn-secondary" id="btnAddA">+ Thêm dòng Hàng A</button>
-
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Hàng B — Chi phí <span class="mono" style="float:right;font-weight:700;color:var(--navy)">${fmt(totalB)} ₫</span></div>
-      <div id="bGroupsWrap">
-        ${state.bGroups
-          .map((g, gi) => {
-            const groupTotal = g.rows.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
-            return `<div class="card" style="padding:12px;margin-bottom:10px;background:var(--gray1)" data-group="${gi}">
-              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-                <input type="text" class="form-input f-group-name" style="flex:1;font-weight:600" value="${(g.name || '').replace(/"/g, '&quot;')}" placeholder="Tên nhóm chi phí, VD: Chi phí gián tiếp">
-                <span class="mono" style="font-weight:700;color:var(--navy);white-space:nowrap">${fmt(groupTotal)} ₫</span>
-                ${state.bGroups.length > 1 ? `<button type="button" class="btn btn-sm btn-danger f-remove-group">✕ Xóa nhóm</button>` : ''}
-              </div>
-              <div class="b-rows-wrap">${g.rows.map((l, i) => rowEditorHtml(l, `b.${gi}.${i}`)).join('')}</div>
-              <button type="button" class="btn btn-sm btn-secondary f-add-row">+ Thêm dòng chi tiết</button>
-            </div>`;
-          })
-          .join('')}
+      <div style="max-height:58vh;overflow:auto;border:1px solid var(--gray2);border-radius:8px;margin-bottom:12px">
+        <table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml()}</thead><tbody>${bodyHtml}</tbody></table>
       </div>
-      <button type="button" class="btn btn-sm btn-secondary" id="btnAddGroup">+ Thêm nhóm chi phí (B.x)</button>
-
-      <div class="card" style="background:var(--gray1);border:1px solid var(--gray2);padding:4px 14px;margin-top:14px">
+      <div class="card" style="background:var(--gray1);border:1px solid var(--gray2);padding:4px 14px">
         ${finRowSimple('Tổng Hàng A', totalA)}
         ${finRowSimple('Tổng Hàng B', totalB)}
         ${finRowSimple('Hàng C — Lợi nhuận (A-B)', totalA - totalB, true)}
@@ -353,17 +371,16 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
   }
 
   // Đồng bộ state từ DOM hiện tại (trước khi thêm/xóa dòng hoặc Lưu) — tránh mất dữ
-  // liệu người dùng vừa gõ dở ở các dòng khác
+  // liệu người dùng vừa gõ dở ở các dòng khác. Dùng data-path/data-group trực tiếp
+  // (không còn lồng theo cấu trúc DOM cha-con vì giờ mọi dòng nằm chung 1 <table>).
   function syncStateFromDom() {
-    modal.querySelectorAll('#aRowsWrap > .bctc-row').forEach((rowEl, i) => {
-      state.aRows[i] = readRowFromDom(rowEl, state.aRows[i]);
+    modal.querySelectorAll('.bctc-row').forEach((rowEl) => {
+      const parts = rowEl.dataset.path.split('.');
+      if (parts[0] === 'a') state.aRows[Number(parts[1])] = readRowFromDom(rowEl, state.aRows[Number(parts[1])]);
+      else state.bGroups[Number(parts[1])].rows[Number(parts[2])] = readRowFromDom(rowEl, state.bGroups[Number(parts[1])].rows[Number(parts[2])]);
     });
-    modal.querySelectorAll('#bGroupsWrap > [data-group]').forEach((groupEl) => {
-      const gi = Number(groupEl.dataset.group);
-      state.bGroups[gi].name = groupEl.querySelector('.f-group-name').value.trim();
-      groupEl.querySelectorAll('.b-rows-wrap > .bctc-row').forEach((rowEl, i) => {
-        state.bGroups[gi].rows[i] = readRowFromDom(rowEl, state.bGroups[gi].rows[i]);
-      });
+    modal.querySelectorAll('.bctc-group-header').forEach((el) => {
+      state.bGroups[Number(el.dataset.group)].name = el.querySelector('.f-group-name').value.trim();
     });
   }
 
@@ -372,22 +389,24 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
       sel.addEventListener('change', (e) => {
         const rowEl = e.target.closest('.bctc-row');
         const linked = !!e.target.value;
-        rowEl.querySelector('.f-manual').style.display = linked ? 'none' : 'grid';
+        rowEl.querySelector('.f-partner').style.display = linked ? 'none' : 'block';
+        rowEl.querySelector('.f-linked-partner').style.display = linked ? 'inline' : 'none';
+        rowEl.querySelector('.f-docnum').style.display = linked ? 'none' : 'block';
+        rowEl.querySelector('.f-linked-docnum').style.display = linked ? 'inline' : 'none';
         const c = linked ? contractsMap[e.target.value] : null;
         if (c) {
+          rowEl.querySelector('.f-linked-partner').textContent = partnersMap[c.partner_id] || '—';
+          rowEl.querySelector('.f-linked-docnum').textContent = c.doc_number;
           const forecast = lineForecast({ contract_id: e.target.value }, contractsMap);
           const payment = linePayment({ contract_id: e.target.value }, latestPaidByContract);
           rowEl.querySelector('.f-forecast').value = formatMoneyInput(forecast);
           rowEl.querySelector('.f-forecast').readOnly = true;
-          rowEl.querySelector('.f-forecast').style.background = 'var(--gray1)';
           rowEl.querySelector('.f-payment').value = formatMoneyInput(payment);
           rowEl.querySelector('.f-payment').readOnly = true;
-          rowEl.querySelector('.f-payment').style.background = 'var(--gray1)';
+          rowEl.querySelector('.f-remaining').textContent = fmt(forecast - payment);
         } else {
           rowEl.querySelector('.f-forecast').readOnly = false;
-          rowEl.querySelector('.f-forecast').style.background = '';
           rowEl.querySelector('.f-payment').readOnly = false;
-          rowEl.querySelector('.f-payment').style.background = '';
         }
       }),
     );
@@ -404,24 +423,22 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
     modal.querySelectorAll('.f-add-row').forEach((btn) =>
       btn.addEventListener('click', (e) => {
         syncStateFromDom();
-        const gi = Number(e.target.closest('[data-group]').dataset.group);
-        state.bGroups[gi].rows.push(newLine());
+        state.bGroups[Number(e.target.dataset.group)].rows.push(newLine());
         renderAll();
       }),
     );
     modal.querySelectorAll('.f-remove-group').forEach((btn) =>
       btn.addEventListener('click', (e) => {
+        if (state.bGroups.length <= 1) return toast('Phải giữ lại ít nhất 1 nhóm chi phí', 'error');
         syncStateFromDom();
-        const gi = Number(e.target.closest('[data-group]').dataset.group);
-        state.bGroups.splice(gi, 1);
+        state.bGroups.splice(Number(e.target.dataset.group), 1);
         renderAll();
       }),
     );
     modal.querySelectorAll('.f-remove-row').forEach((btn) =>
       btn.addEventListener('click', (e) => {
         syncStateFromDom();
-        const path = e.target.closest('.bctc-row').dataset.path;
-        const parts = path.split('.');
+        const parts = e.target.closest('.bctc-row').dataset.path.split('.');
         if (parts[0] === 'a') state.aRows.splice(Number(parts[1]), 1);
         else state.bGroups[Number(parts[1])].rows.splice(Number(parts[2]), 1);
         renderAll();
@@ -477,7 +494,7 @@ async function openCreateModal(user, onClose) {
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const templates = await resolveDefaultTemplates(user.id, 'bctc');
 
-  modal.innerHTML = `<div class="panel-box" style="max-width:820px;width:96%">
+  modal.innerHTML = `<div class="panel-box" style="max-width:1400px;width:97%">
     <div class="panel-header"><div>Trình Báo cáo tài chính mới</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
@@ -561,7 +578,7 @@ async function openEditModal(rev, currentLines, user, onClose) {
   const { data: partners } = await supabase.from('partners').select('id, name').order('name');
   const { data: templates } = await supabase.from('document_templates').select('id, name').eq('doc_type', 'bctc');
 
-  modal.innerHTML = `<div class="panel-box" style="max-width:820px;width:96%">
+  modal.innerHTML = `<div class="panel-box" style="max-width:1400px;width:97%">
     <div class="panel-header"><div>Sửa BCTC — ${rev.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="margin-bottom:13px"><label class="form-label">Ghi chú (không bắt buộc)</label>
