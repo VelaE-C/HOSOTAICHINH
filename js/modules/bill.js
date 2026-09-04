@@ -229,13 +229,16 @@ export async function render(container, user) {
   }
 
   // Người đang đứng duyệt (đúng bước hiện tại) của từng bill đang "pending" — query
-  // gộp 1 lần cho cả danh sách, không lặp truy vấn riêng từng dòng
+  // gộp 1 lần cho cả danh sách, không lặp truy vấn riêng từng dòng. Kèm luôn thời
+  // điểm bắt đầu bước (created_at sớm nhất) để tính trễ hạn — đúng quy tắc SLA đang
+  // dùng ở "Hồ sơ của tôi": Bước 1-2 hạn 48h, Bước 3-4 hạn 24h.
   const pendingBillIds = (bills || []).filter((b) => b.status === 'pending').map((b) => b.id);
   const approversByBill = {};
+  const stepStartByBill = {};
   if (pendingBillIds.length) {
     const { data: assigns } = await supabase
       .from('approval_assignments')
-      .select('document_id, step_no, user_id, users(full_name)')
+      .select('document_id, step_no, user_id, created_at, users(full_name)')
       .eq('document_type', 'bill')
       .eq('status', 'pending')
       .in('document_id', pendingBillIds);
@@ -243,7 +246,15 @@ export async function render(container, user) {
     (assigns || []).forEach((a) => {
       if (a.step_no !== stepByBill[a.document_id]) return; // chỉ lấy đúng người ở bước hiện tại, bỏ qua các bước đã qua
       (approversByBill[a.document_id] ||= []).push(a.users?.full_name || '—');
+      if (!stepStartByBill[a.document_id] || new Date(a.created_at) < new Date(stepStartByBill[a.document_id])) {
+        stepStartByBill[a.document_id] = a.created_at;
+      }
     });
+  }
+  function isBillOverdue(b) {
+    if (b.status !== 'pending' || !stepStartByBill[b.id]) return false;
+    const slaHours = b.current_step <= 2 ? 48 : 24;
+    return (Date.now() - new Date(stepStartByBill[b.id]).getTime()) / 3600000 > slaHours;
   }
 
   const sorted = [...(bills || [])].sort((a, b) => {
@@ -275,7 +286,7 @@ export async function render(container, user) {
     const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
     VIEW_PAGE = Math.min(Math.max(1, VIEW_PAGE), totalPages);
     const pageItems = currentList.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
-    container.querySelector('#billTbody').innerHTML = renderBillRows(pageItems, approversByBill);
+    container.querySelector('#billTbody').innerHTML = renderBillRows(pageItems, approversByBill, isBillOverdue);
     container.querySelector('#billPagination').innerHTML = paginationHtml(VIEW_PAGE, currentList.length);
     wirePagination(container.querySelector('#billPagination'), VIEW_PAGE, currentList.length, (p) => {
       VIEW_PAGE = p;
@@ -300,7 +311,7 @@ export async function render(container, user) {
   draw();
 }
 
-function renderBillRows(list, approversByBill) {
+function renderBillRows(list, approversByBill, isBillOverdue) {
   if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 8}" style="text-align:center;color:var(--gray4);padding:20px">Không có bill nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
   return list
     .map((b) => {
@@ -310,10 +321,11 @@ function renderBillRows(list, approversByBill) {
       }
       const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
       const approvers = approversByBill?.[b.id];
+      const overdue = isBillOverdue?.(b);
       return `<tr class="click" data-id="${b.id}"><td>${b.projects?.code || '—'}</td><td>${b.partners?.name || '—'}</td><td>Đợt ${b.period_no}</td>
       <td class="mono">${fmt(C)}</td><td class="mono">${fmt(b.val_d)}</td><td class="mono">${fmt(K)}</td>
       <td><div style="font-weight:700;white-space:nowrap;color:${pct == null ? 'var(--gray4)' : budgetColor(pct)}">${pct == null ? '—' : pct + '%'}</div><div style="margin-top:2px">${statusBadge(b.status)}</div></td>
-      <td style="font-size:12px;color:var(--gray6)">${approvers && approvers.length ? approvers.join(', ') : '—'}</td></tr>`;
+      <td style="font-size:12px;color:var(--gray6)">${approvers && approvers.length ? approvers.join(', ') : '—'}${overdue ? ' <span style="color:var(--red);font-weight:700">⚠️ Trễ</span>' : ''}</td></tr>`;
     })
     .join('');
 }
