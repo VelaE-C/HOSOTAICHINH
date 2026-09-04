@@ -4,7 +4,8 @@
 // (đã có trigger chặn ở tầng database, module này chỉ ẩn nút xóa cho gọn).
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, toast, loading, pushModalHistory, popModalHistory } from '../core/utils.js';
+import { fmt, toast, loading, pushModalHistory, popModalHistory, normalizeSearchText } from '../core/utils.js';
+import { calcBill } from './bill.js'; // dùng chung ĐÚNG 1 công thức tính K với trang Bill — tránh lệch số
 
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
@@ -23,17 +24,35 @@ export async function render(container, user) {
   (contractCounts || []).forEach((c) => (countMap[c.partner_id] = (countMap[c.partner_id] || 0) + 1));
 
   container.innerHTML = `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap">
+      <input type="text" class="form-input" id="nameFilter" placeholder="🔎 Lọc theo tên Đối tác..." style="max-width:320px">
       <button class="btn btn-primary" id="btnNew">+ Khai báo đối tác mới</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Đối tác</th><th>Mã viết tắt</th><th>MST</th><th>Loại</th><th>Số hợp đồng</th></tr></thead><tbody>
-    ${partners && partners.length ? partners.map((p) => `<tr class="click" data-id="${p.id}"><td>${p.name}</td><td><span class="code-chip">${p.abbr}</span></td><td class="mono">${p.mst}</td>
-    <td><span class="badge ${p.type === 'NCC' ? 'info' : 'done'}">${p.type}</span></td><td>${countMap[p.id] || 0}</td></tr>`).join('') :
-    `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Chưa có đối tác nào</td></tr>`}
-    </tbody></table></div>`;
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Đối tác</th><th>Mã viết tắt</th><th>MST</th><th>Loại</th><th>Số hợp đồng</th></tr></thead><tbody id="partnerTbody"></tbody></table></div>`;
+
+  function renderRows(list) {
+    if (!list.length) return `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Không có đối tác nào khớp bộ lọc</td></tr>`;
+    return list
+      .map((p) => `<tr class="click" data-id="${p.id}"><td>${p.name}</td><td><span class="code-chip">${p.abbr}</span></td><td class="mono">${p.mst}</td>
+    <td><span class="badge ${p.type === 'NCC' ? 'info' : 'done'}">${p.type}</span></td><td>${countMap[p.id] || 0}</td></tr>`)
+      .join('');
+  }
+
+  function wireRowClicks() {
+    container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
+  }
+
+  container.querySelector('#partnerTbody').innerHTML = renderRows(partners || []);
+  wireRowClicks();
+
+  container.querySelector('#nameFilter').addEventListener('input', (e) => {
+    const q = normalizeSearchText(e.target.value);
+    const filtered = q ? (partners || []).filter((p) => normalizeSearchText(p.name).includes(q)) : partners || [];
+    container.querySelector('#partnerTbody').innerHTML = renderRows(filtered);
+    wireRowClicks();
+  });
 
   container.querySelector('#btnNew').addEventListener('click', () => openCreateModal(user, () => render(container, user)));
-  container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
 }
 
 export async function openDetail(id, user, onClose) {
@@ -46,7 +65,31 @@ export async function openDetail(id, user, onClose) {
     modal.querySelector('.panel-box').innerHTML = `<div class="empty-note">Không tải được đối tác.</div>`;
     return;
   }
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, status, contract_type').eq('partner_id', id).order('created_at', { ascending: false });
+  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, status, contract_type, project_id, projects(name)').eq('partner_id', id).order('created_at', { ascending: false });
+
+  // Tổng đã lên Bill — gộp từ MỌI hợp đồng, MỌI dự án của đối tác này (không riêng
+  // 1 hợp đồng như bảng "Hợp đồng đã ký" bên dưới). Bỏ bill Nháp (chưa thật sự "lên
+  // bill") và bill Hủy (không tính).
+  const contractIds = (contracts || []).map((c) => c.id);
+  let billsByProject = {};
+  let totalBillAmount = 0;
+  if (contractIds.length) {
+    const { data: bills } = await supabase
+      .from('bills')
+      .select('id, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, vat_rate, status, project_id, projects(name)')
+      .in('contract_id', contractIds)
+      .neq('status', 'draft')
+      .neq('status', 'cancelled');
+    (bills || []).forEach((b) => {
+      const { K } = calcBill(b);
+      const key = b.project_id;
+      if (!billsByProject[key]) billsByProject[key] = { projectName: b.projects?.name || '—', count: 0, total: 0 };
+      billsByProject[key].count += 1;
+      billsByProject[key].total += K;
+      totalBillAmount += K;
+    });
+  }
+  const projectRows = Object.values(billsByProject).sort((a, b) => b.total - a.total);
 
   const statusVN = { draft: 'Nháp', pending: 'Đang duyệt', active: 'Có hiệu lực', rejected: 'Từ chối', closed: 'Đã thanh lý' };
   // Sửa thông tin đối tác (đặc biệt số tài khoản/ngân hàng) chỉ dành cho QLCP&HĐ/Admin
@@ -69,10 +112,16 @@ export async function openDetail(id, user, onClose) {
         <div class="k">Ngân hàng</div><div class="v">${p.bank_name || '—'}</div>
         <div class="k">Số tài khoản</div><div class="v mono">${p.bank_account || '—'}</div>
       </div>
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Tổng đã lên Bill (gộp mọi Hợp đồng, mọi Dự án)</div>
+      <div class="card" style="background:var(--gray1);border:1px solid var(--gray2);padding:0;overflow:hidden;margin-bottom:14px">
+        ${projectRows.length ? `<table><thead><tr><th>Dự án</th><th>Số bill</th><th>Tổng đề nghị (K)</th></tr></thead><tbody>
+        ${projectRows.map((r) => `<tr><td>${r.projectName}</td><td>${r.count}</td><td class="mono">${fmt(r.total)} ₫</td></tr>`).join('')}
+        </tbody><tfoot><tr style="font-weight:700"><td>Tổng cộng</td><td></td><td class="mono" style="color:var(--navy)">${fmt(totalBillAmount)} ₫</td></tr></tfoot></table>` : `<div class="empty-note">Chưa có bill nào (đã trình trở lên) từ đối tác này</div>`}
+      </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hợp đồng đã ký (${contracts?.length || 0})</div>
       <div class="card" style="padding:0;overflow:hidden">
-        ${contracts && contracts.length ? `<table><thead><tr><th>Số hợp đồng</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
-        ${contracts.map((c) => `<tr><td class="mono">${c.doc_number}</td><td>${c.contract_type}</td><td class="mono">${fmt(c.value)}</td><td><span class="badge idle">${statusVN[c.status] || c.status}</span></td></tr>`).join('')}
+        ${contracts && contracts.length ? `<table><thead><tr><th>Dự án</th><th>Số hợp đồng</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
+        ${contracts.map((c) => `<tr><td>${c.projects?.name || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.contract_type}</td><td class="mono">${fmt(c.value)}</td><td><span class="badge idle">${statusVN[c.status] || c.status}</span></td></tr>`).join('')}
         </tbody></table>` : `<div class="empty-note">Chưa có hợp đồng nào</div>`}
       </div>
       <div style="font-size:11.5px;color:var(--gray4);margin-top:8px">🔒 Đối tác đã dùng trong ít nhất 1 hợp đồng thì không thể xóa khỏi hệ thống.</div>
