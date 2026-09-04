@@ -57,7 +57,7 @@ export async function render(container, user) {
 
 export async function openDetail(id, user, onClose) {
   const modal = ensureModal();
-  modal.innerHTML = `<div class="panel-box"><div class="empty-note">Đang tải…</div></div>`;
+  modal.innerHTML = `<div class="panel-box" style="max-width:1200px;width:96%"><div class="empty-note">Đang tải…</div></div>`;
   showModal(modal, onClose);
 
   const { data: p } = await supabase.from('partners').select('*').eq('id', id).single();
@@ -65,7 +65,7 @@ export async function openDetail(id, user, onClose) {
     modal.querySelector('.panel-box').innerHTML = `<div class="empty-note">Không tải được đối tác.</div>`;
     return;
   }
-  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, status, contract_type, project_id, projects(name)').eq('partner_id', id).order('created_at', { ascending: false });
+  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, status, contract_type, project_id, projects(code)').eq('partner_id', id).order('created_at', { ascending: false });
 
   // Tổng đã lên Bill — gộp từ MỌI hợp đồng, MỌI dự án của đối tác này (không riêng
   // 1 hợp đồng như bảng "Hợp đồng đã ký" bên dưới). Bỏ bill Nháp (chưa thật sự "lên
@@ -76,14 +76,14 @@ export async function openDetail(id, user, onClose) {
   if (contractIds.length) {
     const { data: bills } = await supabase
       .from('bills')
-      .select('id, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, vat_rate, status, project_id, projects(name)')
+      .select('id, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, vat_rate, status, project_id, projects(code)')
       .in('contract_id', contractIds)
       .neq('status', 'draft')
       .neq('status', 'cancelled');
     (bills || []).forEach((b) => {
       const { K } = calcBill(b);
       const key = b.project_id;
-      if (!billsByProject[key]) billsByProject[key] = { projectName: b.projects?.name || '—', count: 0, total: 0 };
+      if (!billsByProject[key]) billsByProject[key] = { projectName: b.projects?.code || '—', count: 0, total: 0 };
       billsByProject[key].count += 1;
       billsByProject[key].total += K;
       totalBillAmount += K;
@@ -139,7 +139,7 @@ export async function openDetail(id, user, onClose) {
         ${contracts && contracts.length ? `<table><thead><tr><th>Dự án</th><th>Số hợp đồng</th><th>Loại</th><th>Giá trị</th><th>Thanh toán (trước thuế)</th><th>Trạng thái</th></tr></thead><tbody>
         ${contracts.map((c) => {
           const paid = contractPayment(c);
-          return `<tr><td>${c.projects?.name || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.contract_type}</td><td class="mono">${fmt(c.value)}</td><td class="mono">${paid == null ? '—' : fmt(paid)}</td><td><span class="badge idle">${statusVN[c.status] || c.status}</span></td></tr>`;
+          return `<tr><td>${c.projects?.code || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.contract_type}</td><td class="mono">${fmt(c.value)}</td><td class="mono">${paid == null ? '—' : fmt(paid)}</td><td><span class="badge idle">${statusVN[c.status] || c.status}</span></td></tr>`;
         }).join('')}
         </tbody></table>` : `<div class="empty-note">Chưa có hợp đồng nào</div>`}
       </div>
