@@ -18,6 +18,13 @@ const partnerSubFn = (p) => `(MST ${p.mst})`;
 // chính hợp đồng đang tạo — vì 1 đối tác có thể làm nhiều vai trò khác nhau tùy hợp đồng.
 const CONTRACT_TYPES = ['Hợp đồng thầu phụ', 'Hợp đồng Nhà cung cấp', 'Hợp đồng Đội thi công', 'Hợp đồng dịch vụ khác'];
 
+// Tách số thứ tự PLHĐ (VD "01") từ cuối doc_number dạng "...HĐTB/VELA-X/PLHD01"
+// — trigger sinh số đã có sẵn hậu tố này, chỉ cần bóc ra hiển thị rõ ràng hơn.
+function plhdSeqLabel(docNumber) {
+  const m = (docNumber || '').match(/PLHD(\d+)$/);
+  return m ? `PLHĐ số ${m[1]}` : '—';
+}
+
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
@@ -214,10 +221,12 @@ export async function openDetail(id, user, onClose) {
       </div></div>
     <div class="panel-body">
       ${c.parent_contract_id ? `<div class="card" style="background:var(--lblue);border:1px solid #BFDBFE;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#1D4ED8;cursor:pointer" id="btnGoParent">📎 Đây là PLHĐ của hợp đồng <b>${c.parent?.doc_number || '—'}</b> — bấm để xem hợp đồng gốc</div>` : ''}
+      ${c.parent_contract_id && c.change_note ? `<div class="card" style="padding:10px 14px;margin-bottom:12px"><div style="font-size:11px;text-transform:uppercase;color:var(--gray5);margin-bottom:4px">Nội dung thay đổi so với HĐ cũ</div><div style="font-size:13px;white-space:pre-wrap">${c.change_note}</div></div>` : ''}
       ${c.pending_addendum_flag ? `<div class="warn-box">⚠️ <div><b>Case 1 — Đang chờ bổ sung phụ lục hợp đồng</b> (bill đã vượt giá trị hợp đồng gốc).</div></div>` : ''}
       <div class="kv">
         <div class="k">Dự án</div><div class="v">${c.projects?.name || '—'}</div>
         <div class="k">${c.parent_contract_id ? 'Giá trị điều chỉnh (PLHĐ)' : 'Giá trị hợp đồng'}</div><div class="v mono" style="font-weight:700">${fmt(c.value)} ₫</div>
+        ${c.parent_contract_id ? `<div class="k">Số PLHĐ</div><div class="v"><span class="code-chip">${plhdSeqLabel(c.doc_number)}</span></div>` : ''}
         <div class="k">Ngày ký hồ sơ</div><div class="v">${c.signed_date ? new Date(c.signed_date).toLocaleDateString('vi-VN') : '<span style="color:var(--gray4)">Chưa ghi</span>'}</div>
         ${c.completed_at ? `<div class="k">Ngày hoàn thành</div><div class="v">${new Date(c.completed_at).toLocaleDateString('vi-VN')}</div>` : ''}
         <div class="k">Tờ trình căn cứ</div><div class="v">${c.to_trinh_chu_truong ? `<span class="code-chip">${c.to_trinh_chu_truong.doc_number}</span>` : '<span style="color:var(--amber);font-size:12px">⚠️ Chưa gắn tờ trình chủ trương</span>'}</div>
@@ -225,8 +234,8 @@ export async function openDetail(id, user, onClose) {
       </div>
       ${!c.parent_contract_id ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Phụ lục hợp đồng (${addendums?.length || 0})</div>
       <div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
-        ${addendums && addendums.length ? `<table><thead><tr><th>Số PLHĐ</th><th>Giá trị điều chỉnh</th><th>Trạng thái</th></tr></thead><tbody>
-        ${addendums.map((a) => `<tr class="click" data-plhd-id="${a.id}"><td class="mono">${a.doc_number}</td><td class="mono">${fmt(a.value)} ₫</td><td>${statusBadge(a.status)}</td></tr>`).join('')}
+        ${addendums && addendums.length ? `<table><thead><tr><th>STT</th><th>Số PLHĐ (đầy đủ)</th><th>Giá trị điều chỉnh</th><th>Trạng thái</th></tr></thead><tbody>
+        ${addendums.map((a) => `<tr class="click" data-plhd-id="${a.id}"><td class="mono" style="font-weight:700">${plhdSeqLabel(a.doc_number)}</td><td class="mono">${a.doc_number}</td><td class="mono">${fmt(a.value)} ₫</td><td>${statusBadge(a.status)}</td></tr>`).join('')}
         </tbody></table>` : `<div class="empty-note">Chưa có PLHĐ nào</div>`}
       </div>` : ''}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
@@ -288,18 +297,25 @@ export async function openDetail(id, user, onClose) {
 async function openCreatePLHDModal(parent, user, onClose) {
   const modal = ensureModal();
   const templates = await resolveDefaultTemplates(user.id, 'contract');
+  // Đếm khớp CHÍNH XÁC theo cách trigger sinh số thật đang đếm (không loại bỏ PLHĐ
+  // đã hủy — trigger đếm tất cả, kể cả đã hủy) để số dự kiến này luôn đúng thực tế.
+  const { count: existingCount } = await supabase.from('contracts').select('id', { count: 'exact', head: true }).eq('parent_contract_id', parent.id);
+  const nextSeq = (existingCount || 0) + 1;
 
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Tạo PLHĐ cho ${parent.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Dự án, Đối tác, Loại hợp đồng kế thừa nguyên từ hợp đồng gốc, không đổi được — chỉ nhập giá trị điều chỉnh.</div>
       <div class="kv" style="margin-bottom:13px">
+        <div class="k">Số PLHĐ (dự kiến)</div><div class="v"><span class="code-chip" style="font-weight:700">PLHĐ số ${String(nextSeq).padStart(2, '0')}</span> <span style="font-size:11px;color:var(--gray4)">— tự sinh số thật khi lưu, đây chỉ là số dự kiến</span></div>
         <div class="k">Dự án</div><div class="v">${parent.projects?.name || '—'}</div>
         <div class="k">Đối tác</div><div class="v">${parent.partners?.name || '—'}</div>
         <div class="k">Loại hợp đồng</div><div class="v">${parent.contract_type}</div>
       </div>
       <div style="margin-bottom:13px"><label class="form-label">Giá trị điều chỉnh (₫) — nhập số âm nếu là điều chỉnh GIẢM</label>
         <input type="text" inputmode="numeric" id="fValue" class="form-input money-input"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Nội dung thay đổi so với HĐ cũ</label>
+        <textarea id="fChangeNote" class="form-input" rows="3" placeholder="VD: Bổ sung hạng mục lắp đặt tủ điện, điều chỉnh đơn giá thép..."></textarea></div>
       <div style="margin-bottom:13px"><label class="form-label">Ngày ký PLHĐ (không bắt buộc)</label>
         <input type="date" id="fSignedDate" class="form-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
@@ -320,6 +336,7 @@ async function openCreatePLHDModal(parent, user, onClose) {
 
   async function doSave(submitAfter) {
     const value = parseMoneyInput(modal.querySelector('#fValue').value);
+    const change_note = modal.querySelector('#fChangeNote').value.trim();
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const template_id = modal.querySelector('#fTemplate').value || null;
     if (!value) return toast('Nhập giá trị điều chỉnh trước khi lưu', 'error');
@@ -337,6 +354,7 @@ async function openCreatePLHDModal(parent, user, onClose) {
       p_to_trinh_id: null,
       p_doc_number: null,
       p_parent_contract_id: parent.id,
+      p_change_note: change_note || null,
     });
     if (error) return toast('Lỗi tạo PLHĐ: ' + error.message, 'error');
     const newPlhd = { id: newId };
