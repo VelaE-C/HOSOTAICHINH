@@ -181,13 +181,18 @@ export async function openDetail(id, user, onClose) {
 
   const { data: c } = await supabase
     .from('contracts')
-    .select('*, partners(name), projects(name), to_trinh_chu_truong(doc_number, title), document_templates(name), users!created_by(full_name)')
+    .select('*, partners(name), projects(name), to_trinh_chu_truong(doc_number, title), document_templates(name), users!created_by(full_name), parent:parent_contract_id(id, doc_number)')
     .eq('id', id)
     .single();
   if (!c) {
     modal.querySelector('.panel-box').innerHTML = `<div class="empty-note">Không tải được hồ sơ (có thể không còn quyền xem).</div>`;
     return;
   }
+  // PLHĐ con của đúng hợp đồng này (chỉ hợp đồng GỐC mới có, PLHĐ không có PLHĐ con lồng nhau)
+  const { data: addendums } = !c.parent_contract_id
+    ? await supabase.from('contracts').select('id, doc_number, value, status, created_at').eq('parent_contract_id', id).neq('status', 'cancelled').order('created_at')
+    : { data: [] };
+
   const { assignments, logs } = await loadApprovalState('contract', id);
   const preview = c.status === 'pending' ? await loadStepPreview(c.project_id, c.template_id, c.current_step) : {};
 
@@ -201,21 +206,29 @@ export async function openDetail(id, user, onClose) {
     <div class="panel-header"><div><div id="docNumberDisplay">${c.doc_number}</div><div class="meta">${c.contract_type} · ${c.partners?.name || '—'}</div></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
+        ${!c.parent_contract_id ? `<button class="btn btn-sm btn-secondary" id="btnAddPLHD">📎 + Tạo PLHĐ</button>` : ''}
         ${isKscp ? `<button class="btn btn-sm btn-secondary" id="btnEditDocNumber">🔢 Sửa số hồ sơ</button>` : ''}
         ${canCancel ? `<button class="btn btn-sm btn-danger" id="btnCancel">🗑️ Hủy hồ sơ</button>` : ''}
         ${canExportPdf ? `<button class="btn btn-sm btn-secondary" id="btnExportPdf">🖨️ Xuất PDF (tờ cover)</button>` : ''}
         <button class="panel-close" id="pClose">✕</button>
       </div></div>
     <div class="panel-body">
+      ${c.parent_contract_id ? `<div class="card" style="background:var(--lblue);border:1px solid #BFDBFE;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#1D4ED8;cursor:pointer" id="btnGoParent">📎 Đây là PLHĐ của hợp đồng <b>${c.parent?.doc_number || '—'}</b> — bấm để xem hợp đồng gốc</div>` : ''}
       ${c.pending_addendum_flag ? `<div class="warn-box">⚠️ <div><b>Case 1 — Đang chờ bổ sung phụ lục hợp đồng</b> (bill đã vượt giá trị hợp đồng gốc).</div></div>` : ''}
       <div class="kv">
         <div class="k">Dự án</div><div class="v">${c.projects?.name || '—'}</div>
-        <div class="k">Giá trị hợp đồng</div><div class="v mono" style="font-weight:700">${fmt(c.value)} ₫</div>
+        <div class="k">${c.parent_contract_id ? 'Giá trị điều chỉnh (PLHĐ)' : 'Giá trị hợp đồng'}</div><div class="v mono" style="font-weight:700">${fmt(c.value)} ₫</div>
         <div class="k">Ngày ký hồ sơ</div><div class="v">${c.signed_date ? new Date(c.signed_date).toLocaleDateString('vi-VN') : '<span style="color:var(--gray4)">Chưa ghi</span>'}</div>
         ${c.completed_at ? `<div class="k">Ngày hoàn thành</div><div class="v">${new Date(c.completed_at).toLocaleDateString('vi-VN')}</div>` : ''}
         <div class="k">Tờ trình căn cứ</div><div class="v">${c.to_trinh_chu_truong ? `<span class="code-chip">${c.to_trinh_chu_truong.doc_number}</span>` : '<span style="color:var(--amber);font-size:12px">⚠️ Chưa gắn tờ trình chủ trương</span>'}</div>
         <div class="k">Trạng thái</div><div class="v">${statusBadge(c.status)}</div>
       </div>
+      ${!c.parent_contract_id ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Phụ lục hợp đồng (${addendums?.length || 0})</div>
+      <div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+        ${addendums && addendums.length ? `<table><thead><tr><th>Số PLHĐ</th><th>Giá trị điều chỉnh</th><th>Trạng thái</th></tr></thead><tbody>
+        ${addendums.map((a) => `<tr class="click" data-plhd-id="${a.id}"><td class="mono">${a.doc_number}</td><td class="mono">${fmt(a.value)} ₫</td><td>${statusBadge(a.status)}</td></tr>`).join('')}
+        </tbody></table>` : `<div class="empty-note">Chưa có PLHĐ nào</div>`}
+      </div>` : ''}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
       <div class="card" id="attachArea"></div>
       ${c.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, c.current_step, preview)}
@@ -226,6 +239,9 @@ export async function openDetail(id, user, onClose) {
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(c, user, onClose));
+  box.querySelector('#btnGoParent')?.addEventListener('click', () => openDetail(c.parent_contract_id, user, onClose));
+  box.querySelector('#btnAddPLHD')?.addEventListener('click', () => openCreatePLHDModal(c, user, onClose));
+  box.querySelectorAll('[data-plhd-id]').forEach((row) => row.addEventListener('click', () => openDetail(row.dataset.plhdId, user, onClose)));
   box.querySelector('#btnCancel')?.addEventListener('click', async () => {
     if (!confirm(`Hủy hồ sơ "${c.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
     const reason = prompt('Lý do hủy (không bắt buộc):') || null;
@@ -262,6 +278,84 @@ export async function openDetail(id, user, onClose) {
   wireActions(box, 'contract', id, c.current_step, assignments, () => {
     closeModal(modal, onClose);
   });
+}
+
+// PLHĐ (Phụ lục hợp đồng) — chỉ là 1 dòng contracts bình thường, có gắn
+// parent_contract_id trỏ về hợp đồng gốc. Dự án + Đối tác + Loại hợp đồng + VAT
+// + Tỉ lệ giữ lại KẾ THỪA nguyên từ hợp đồng cha (không cho đổi, tránh PLHĐ lạc
+// sang dự án/đối tác khác) — chỉ cần nhập Giá trị điều chỉnh (tăng/giảm) + Ngày ký
+// + Mẫu hồ sơ. Số PLHĐ tự sinh dạng [Số HĐ cha]/PLHD01, PLHD02... (đã có sẵn trigger).
+async function openCreatePLHDModal(parent, user, onClose) {
+  const modal = ensureModal();
+  const templates = await resolveDefaultTemplates(user.id, 'contract');
+
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Tạo PLHĐ cho ${parent.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Dự án, Đối tác, Loại hợp đồng kế thừa nguyên từ hợp đồng gốc, không đổi được — chỉ nhập giá trị điều chỉnh.</div>
+      <div class="kv" style="margin-bottom:13px">
+        <div class="k">Dự án</div><div class="v">${parent.projects?.name || '—'}</div>
+        <div class="k">Đối tác</div><div class="v">${parent.partners?.name || '—'}</div>
+        <div class="k">Loại hợp đồng</div><div class="v">${parent.contract_type}</div>
+      </div>
+      <div style="margin-bottom:13px"><label class="form-label">Giá trị điều chỉnh (₫) — nhập số âm nếu là điều chỉnh GIẢM</label>
+        <input type="text" inputmode="numeric" id="fValue" class="form-input money-input"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Ngày ký PLHĐ (không bắt buộc)</label>
+        <input type="date" id="fSignedDate" class="form-input"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
+        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+      <label class="form-label">Hồ sơ đính kèm</label>
+      <div class="card" id="filePickerWrap" style="padding:12px 14px;margin-bottom:13px"></div>
+    </div>
+    <div class="panel-footer">
+      <button class="btn btn-secondary" id="btnSaveDraft">💾 Lưu nháp</button>
+      <button class="btn btn-primary" id="btnSubmitNew">Trình duyệt</button>
+    </div>
+  </div>`;
+  showModal(modal, onClose);
+  wireMoneyInputs(modal);
+  modal.querySelector('#pClose').addEventListener('click', () => openDetail(parent.id, user, onClose));
+
+  const filePicker = renderFilePicker(modal.querySelector('#filePickerWrap'));
+
+  async function doSave(submitAfter) {
+    const value = parseMoneyInput(modal.querySelector('#fValue').value);
+    const signed_date = modal.querySelector('#fSignedDate').value || null;
+    const template_id = modal.querySelector('#fTemplate').value || null;
+    if (!value) return toast('Nhập giá trị điều chỉnh trước khi lưu', 'error');
+
+    loading(true);
+    const { data: newId, error } = await supabase.rpc('fn_create_contract', {
+      p_project_id: parent.project_id,
+      p_partner_id: parent.partner_id,
+      p_contract_type: parent.contract_type,
+      p_value: value,
+      p_signed_date: signed_date,
+      p_retention_rate: parent.retention_rate,
+      p_vat_rate: parent.vat_rate,
+      p_template_id: template_id,
+      p_to_trinh_id: null,
+      p_doc_number: null,
+      p_parent_contract_id: parent.id,
+    });
+    if (error) return toast('Lỗi tạo PLHĐ: ' + error.message, 'error');
+    const newPlhd = { id: newId };
+
+    await uploadStagedFiles(filePicker.getFiles(), 'contract', newPlhd.id, user.id);
+
+    if (submitAfter) {
+      const { error: subErr } = await supabase.rpc('fn_submit_document', { p_doc_type: 'contract', p_doc_id: newPlhd.id });
+      if (subErr) return toast('Đã lưu nháp, nhưng trình lỗi: ' + subErr.message, 'error');
+      toast('Đã trình PLHĐ', 'success');
+      closeModal(modal, onClose);
+    } else {
+      toast('Đã lưu nháp — mở lại hồ sơ để đính kèm file', 'success');
+      closeModal(modal, () => {});
+      openDetail(newPlhd.id, user, onClose);
+    }
+  }
+  modal.querySelector('#btnSaveDraft').addEventListener('click', () => doSave(false));
+  modal.querySelector('#btnSubmitNew').addEventListener('click', () => doSave(true));
 }
 
 async function openEditModal(c, user, onClose) {
