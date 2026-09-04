@@ -218,14 +218,32 @@ export async function render(container, user) {
   const [{ data: projects }, { data: bills, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name), projects(name)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name), projects(name)')
+      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name), projects(name, code)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name), projects(name, code)')
     ).neq('status', 'cancelled').order('created_at', { ascending: false }),
   ]);
 
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Lỗi tải dữ liệu: ${error.message}</div>`;
     return;
+  }
+
+  // Người đang đứng duyệt (đúng bước hiện tại) của từng bill đang "pending" — query
+  // gộp 1 lần cho cả danh sách, không lặp truy vấn riêng từng dòng
+  const pendingBillIds = (bills || []).filter((b) => b.status === 'pending').map((b) => b.id);
+  const approversByBill = {};
+  if (pendingBillIds.length) {
+    const { data: assigns } = await supabase
+      .from('approval_assignments')
+      .select('document_id, step_no, user_id, users(full_name)')
+      .eq('document_type', 'bill')
+      .eq('status', 'pending')
+      .in('document_id', pendingBillIds);
+    const stepByBill = Object.fromEntries((bills || []).map((b) => [b.id, b.current_step]));
+    (assigns || []).forEach((a) => {
+      if (a.step_no !== stepByBill[a.document_id]) return; // chỉ lấy đúng người ở bước hiện tại, bỏ qua các bước đã qua
+      (approversByBill[a.document_id] ||= []).push(a.users?.full_name || '—');
+    });
   }
 
   const sorted = [...(bills || [])].sort((a, b) => {
@@ -247,7 +265,7 @@ export async function render(container, user) {
       <button class="btn btn-primary" id="btnNew" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">+ Trình bill thanh toán</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác</th><th>Giá trị thanh toán</th>' : '<th>Dự án</th><th>Đối tác</th><th>Đợt bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th>'}</tr></thead><tbody id="billTbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác</th><th>Giá trị thanh toán</th>' : '<th>Dự án</th><th>Đối tác</th><th>Đợt bill</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th><th>Người duyệt</th>'}</tr></thead><tbody id="billTbody"></tbody></table></div>
       <div id="billPagination"></div>
     </div>`;
 
@@ -257,7 +275,7 @@ export async function render(container, user) {
     const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
     VIEW_PAGE = Math.min(Math.max(1, VIEW_PAGE), totalPages);
     const pageItems = currentList.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
-    container.querySelector('#billTbody').innerHTML = renderBillRows(pageItems);
+    container.querySelector('#billTbody').innerHTML = renderBillRows(pageItems, approversByBill);
     container.querySelector('#billPagination').innerHTML = paginationHtml(VIEW_PAGE, currentList.length);
     wirePagination(container.querySelector('#billPagination'), VIEW_PAGE, currentList.length, (p) => {
       VIEW_PAGE = p;
@@ -282,18 +300,20 @@ export async function render(container, user) {
   draw();
 }
 
-function renderBillRows(list) {
-  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 7}" style="text-align:center;color:var(--gray4);padding:20px">Không có bill nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
+function renderBillRows(list, approversByBill) {
+  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 8}" style="text-align:center;color:var(--gray4);padding:20px">Không có bill nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
   return list
     .map((b) => {
       const { C, K } = calcBill(b);
       if (IS_MOBILE) {
-        return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'} <span style="color:var(--gray4);font-size:11px">(Đợt ${b.period_no})</span></td><td class="mono">${fmt(K)}</td></tr>`;
+        return `<tr class="click" data-id="${b.id}"><td>${b.projects?.code || '—'}</td><td>${b.partners?.name || '—'} <span style="color:var(--gray4);font-size:11px">(Đợt ${b.period_no})</span></td><td class="mono">${fmt(K)}</td></tr>`;
       }
       const pct = C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null;
-      return `<tr class="click" data-id="${b.id}"><td>${b.projects?.name || '—'}</td><td>${b.partners?.name || '—'}</td><td>Đợt ${b.period_no}</td>
+      const approvers = approversByBill?.[b.id];
+      return `<tr class="click" data-id="${b.id}"><td>${b.projects?.code || '—'}</td><td>${b.partners?.name || '—'}</td><td>Đợt ${b.period_no}</td>
       <td class="mono">${fmt(C)}</td><td class="mono">${fmt(b.val_d)}</td><td class="mono">${fmt(K)}</td>
-      <td><div style="font-weight:700;white-space:nowrap;color:${pct == null ? 'var(--gray4)' : budgetColor(pct)}">${pct == null ? '—' : pct + '%'}</div><div style="margin-top:2px">${statusBadge(b.status)}</div></td></tr>`;
+      <td><div style="font-weight:700;white-space:nowrap;color:${pct == null ? 'var(--gray4)' : budgetColor(pct)}">${pct == null ? '—' : pct + '%'}</div><div style="margin-top:2px">${statusBadge(b.status)}</div></td>
+      <td style="font-size:12px;color:var(--gray6)">${approvers && approvers.length ? approvers.join(', ') : '—'}</td></tr>`;
     })
     .join('');
 }
