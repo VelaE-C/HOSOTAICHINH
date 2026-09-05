@@ -72,8 +72,17 @@ async function downloadFile(url, fileName) {
 }
 
 // Gọi hàm này để vẽ + gắn toàn bộ chức năng vào 1 khung <div>
-// canEdit = false -> chỉ xem/tải file, ẩn hẳn nút Thêm/Xóa (hồ sơ đang duyệt hoặc đã hoàn tất)
-export async function renderAttachments(container, ownerType, ownerId, currentUserId, canEdit = true) {
+// canEdit = false -> hồ sơ đang duyệt/đã hoàn tất; nếu canAddWhilePending cũng false
+//   thì khóa cứng hoàn toàn (chỉ xem/tải file, không thêm/xóa gì).
+// canAddWhilePending = true -> hồ sơ đang "Đang duyệt" NHƯNG người xem chính là QS đã
+//   tạo hồ sơ này -> mở riêng nút "+ Thêm file" (KHÔNG mở xóa/sửa file cũ), và mỗi lần
+//   thêm sẽ tự ghi 1 dòng vào Lịch sử duyệt (approval_logs) để mọi người biết đã bổ
+//   sung thêm hồ sơ gì trong lúc đang chờ duyệt.
+// docType/currentStep: dùng để ghi đúng Lịch sử khi canAddWhilePending — bằng đúng
+// ownerType/ownerId nên không cần truyền thêm, chỉ cần currentStep của hồ sơ.
+export async function renderAttachments(container, ownerType, ownerId, currentUserId, canEdit = true, canAddWhilePending = false, currentStep = 0) {
+  const canAdd = canEdit || canAddWhilePending;
+
   await refresh();
 
   async function refresh() {
@@ -90,8 +99,13 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
     }
 
     const count = files?.length || 0;
+    const lockNote = !canEdit
+      ? canAddWhilePending
+        ? `<div style="font-size:11.5px;color:var(--amber);margin-bottom:8px">🔒 Hồ sơ đang duyệt — bạn chỉ được <b>thêm file mới</b> (không sửa/xóa file cũ được). Mỗi lần thêm sẽ tự ghi vào Lịch sử duyệt.</div>`
+        : `<div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">🔒 Hồ sơ đang khóa (đang duyệt hoặc đã hoàn tất) — chỉ xem, không thêm/xóa được.</div>`
+      : '';
     container.innerHTML = `
-      ${!canEdit ? `<div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">🔒 Hồ sơ đang khóa (đang duyệt hoặc đã hoàn tất) — chỉ xem, không thêm/xóa được.</div>` : ''}
+      ${lockNote}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
         ${count ? files.map((f) => `
           <span class="linked-chip" style="background:var(--gray1);color:var(--gray7);cursor:pointer" data-open-file="${f.id}" data-path="${f.file_url}" data-name="${f.file_name.replace(/"/g, '&quot;')}" ${!IS_MOBILE && IS_EXCEL(f.file_name) ? 'title="Bấm để tải file Excel về máy — không xem trước được trên PC"' : ''}>
@@ -100,7 +114,7 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
             ${canEdit && f.uploaded_by === currentUserId ? `<span data-del-file="${f.id}" data-path="${f.file_url}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:2px">✕</span>` : ''}
           </span>`).join('') : '<span style="color:var(--gray4);font-size:12px">Chưa có file đính kèm</span>'}
       </div>
-      ${canEdit ? `
+      ${canAdd ? `
       <input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg">
       <button class="btn btn-sm btn-secondary" id="btnAddFile" ${count >= MAX_FILES ? 'disabled' : ''}>+ Thêm file (PDF, Word, Excel, ảnh)</button>
       <div style="font-size:11px;color:var(--gray4);margin-top:5px">${count}/${MAX_FILES} file — tối đa ${MAX_FILES} file mỗi hồ sơ.</div>` : ''}
@@ -177,6 +191,18 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
     if (insErr) {
       toast(`Đã tải file lên nhưng lỗi ghi nhận: ${insErr.message}`, 'error');
       return;
+    }
+    // Đang ở chế độ "chỉ thêm file lúc hồ sơ đang duyệt" (canEdit=false nhưng được
+    // phép thêm) -> ghi lại vào Lịch sử duyệt để mọi người biết đã bổ sung gì
+    if (!canEdit && canAddWhilePending) {
+      await supabase.from('approval_logs').insert({
+        document_type: ownerType,
+        document_id: ownerId,
+        step_no: currentStep,
+        user_id: currentUserId,
+        action: 'add_attachment',
+        comment: `Bổ sung file đính kèm trong lúc đang duyệt: "${file.name}"`,
+      });
     }
     toast(`Đã thêm "${file.name}"`, 'success');
   }
