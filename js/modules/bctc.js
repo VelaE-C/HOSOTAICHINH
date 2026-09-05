@@ -31,6 +31,14 @@ let VIEW_PAGE = 1;
 // đó người dùng sửa thoải mái, giá trị đã sửa được lưu lại y nguyên.
 // Dòng CŨ (lưu từ trước khi có tính năng này) chưa từng có forecast_value_manual
 // dù đã link hợp đồng -> vẫn tự tính từ hợp đồng như cũ để không mất dữ liệu.
+// Chặn phòng thủ: nếu % VAT trong dữ liệu bị sai lệch (âm, quá lớn, không phải số)
+// khiến mẫu số (1+VAT%) gần bằng 0 hoặc âm, phép chia sẽ nổ ra số khổng lồ vô lý —
+// luôn kẹp về khoảng hợp lý (0-30%), sai thì tự rơi về mặc định 8%.
+function safeVatDivisor(rawVatRate) {
+  const v = Number(rawVatRate);
+  if (!isFinite(v) || v < 0 || v >= 30) return 1.08;
+  return 1 + v / 100;
+}
 function lineForecast(line, contractsMap) {
   if (line.forecast_value_manual != null && Number(line.forecast_value_manual) !== 0) {
     return Number(line.forecast_value_manual);
@@ -38,8 +46,7 @@ function lineForecast(line, contractsMap) {
   if (line.contract_id) {
     const c = contractsMap[line.contract_id];
     if (!c) return 0;
-    const vatRate = (c.vat_rate ?? 8) / 100;
-    return Number(c.value) / (1 + vatRate);
+    return Number(c.value) / safeVatDivisor(c.vat_rate);
   }
   return 0;
 }
@@ -47,8 +54,7 @@ function linePayment(line, latestPaidByContract) {
   if (line.contract_id) {
     const b = latestPaidByContract[line.contract_id];
     if (!b) return 0;
-    const vatRate = (b.vat_rate ?? 8) / 100;
-    return Number(b.val_d) / (1 + vatRate);
+    return Number(b.val_d) / safeVatDivisor(b.vat_rate);
   }
   return Number(line.payment_data_manual) || 0;
 }
