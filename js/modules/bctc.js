@@ -357,8 +357,18 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
   function partnerOptions(selected) {
     return `<option value="">—</option>` + (partners || []).map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${p.name}</option>`).join('');
   }
-  function contractOptions(selected) {
-    return `<option value="">— Không link, nhập tay —</option>` + (contracts || []).map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${c.doc_number}</option>`).join('');
+  function contractOptions(selected, excludeIds) {
+    const available = (contracts || []).filter((c) => c.id === selected || !excludeIds.has(c.id));
+    return `<option value="">— Không link, nhập tay —</option>` + available.map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${c.doc_number}</option>`).join('');
+  }
+  // Hợp đồng đã được link ở DÒNG KHÁC (bất kỳ Hàng A/B nào) -> loại khỏi dropdown
+  // của các dòng còn lại, tránh link trùng 1 hợp đồng vào 2 dòng gây tính đúp giá
+  // trị. Dòng đang xét vẫn giữ được lựa chọn hiện tại của chính nó (excludePath).
+  function collectUsedContractIds(excludePath) {
+    const ids = new Set();
+    state.aRows.forEach((l, i) => { if (l.contract_id && `a.${i}` !== excludePath) ids.add(l.contract_id); });
+    state.bGroups.forEach((g, gi) => g.rows.forEach((l, i) => { if (l.contract_id && `b.${gi}.${i}` !== excludePath) ids.add(l.contract_id); }));
+    return ids;
   }
 
   const CELL = 'padding:3px 5px;font-size:11px';
@@ -373,9 +383,10 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
     const payment = linePayment(l, latestPaidByContract);
     const linkedPartnerName = linked ? partnersMap[contractsMap[l.contract_id]?.partner_id] || '—' : '';
     const linkedDocNumber = linked ? contractsMap[l.contract_id]?.doc_number || '' : '';
+    const excludeIds = collectUsedContractIds(path);
     return `<tr class="bctc-row" data-path="${path}">
       <td style="${CELL}"><input type="text" class="form-input f-ten" style="${INP};min-width:150px" value="${esc(l.ten_hang_muc)}"></td>
-      <td style="${CELL}"><select class="form-input f-contract" style="${INP};min-width:140px">${contractOptions(l.contract_id)}</select></td>
+      <td style="${CELL}"><select class="form-input f-contract" style="${INP};min-width:140px">${contractOptions(l.contract_id, excludeIds)}</select></td>
       <td style="${CELL}">
         <select class="form-input f-partner" style="${INP};min-width:110px;display:${linked ? 'none' : 'block'}">${partnerOptions(l.partner_id)}</select>
         <span class="f-linked-partner" style="font-size:11px;color:var(--gray6);display:${linked ? 'inline' : 'none'}">${linkedPartnerName}</span>
@@ -484,31 +495,17 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
     modal.querySelectorAll('.f-contract').forEach((sel) =>
       sel.addEventListener('change', (e) => {
         const rowEl = e.target.closest('.bctc-row');
-        const linked = !!e.target.value;
-        rowEl.querySelector('.f-partner').style.display = linked ? 'none' : 'block';
-        rowEl.querySelector('.f-linked-partner').style.display = linked ? 'inline' : 'none';
-        rowEl.querySelector('.f-docnum').style.display = linked ? 'none' : 'block';
-        rowEl.querySelector('.f-linked-docnum').style.display = linked ? 'inline' : 'none';
-        const c = linked ? contractsMap[e.target.value] : null;
-        if (c) {
-          rowEl.querySelector('.f-linked-partner').textContent = partnersMap[c.partner_id] || '—';
-          rowEl.querySelector('.f-linked-docnum').textContent = c.doc_number;
+        if (e.target.value) {
+          // Điền sẵn số GỢI Ý từ hợp đồng vừa chọn vào ô Dự trù của đúng dòng này
+          // TRƯỚC khi đồng bộ state — để giá trị gợi ý được giữ lại, không bị mất
           const forecast = lineForecast({ contract_id: e.target.value }, contractsMap);
-          const payment = linePayment({ contract_id: e.target.value }, latestPaidByContract);
-          const fForecast = rowEl.querySelector('.f-forecast');
-          const fPayment = rowEl.querySelector('.f-payment');
-          fForecast.value = formatMoneyInput(forecast); // chỉ là số GỢI Ý điền sẵn — vẫn sửa tay được, không khóa
-          fPayment.value = formatMoneyInput(payment);
-          fPayment.readOnly = true;
-          fPayment.style.background = 'var(--gray1)';
-          fPayment.style.color = 'var(--gray6)';
-          rowEl.querySelector('.f-remaining').textContent = fmt(forecast - payment);
-        } else {
-          const fPayment = rowEl.querySelector('.f-payment');
-          fPayment.readOnly = false;
-          fPayment.style.background = '';
-          fPayment.style.color = '';
+          rowEl.querySelector('.f-forecast').value = formatMoneyInput(forecast);
         }
+        // Đồng bộ toàn bộ state rồi vẽ lại cả bảng — đảm bảo dropdown "Hợp đồng liên
+        // kết" ở MỌI dòng khác cũng cập nhật ngay, loại bỏ hợp đồng vừa chọn khỏi
+        // danh sách của chúng (tránh link trùng 1 hợp đồng vào 2 dòng).
+        syncStateFromDom();
+        renderAll();
       }),
     );
     // Gõ tay vào Dự trù (dù đang link hay không) -> cập nhật ngay ô "Còn lại" cùng dòng
