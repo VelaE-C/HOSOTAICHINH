@@ -34,6 +34,14 @@ let VIEW_PAGE = 1;
 // Chặn phòng thủ: nếu % VAT trong dữ liệu bị sai lệch (âm, quá lớn, không phải số)
 // khiến mẫu số (1+VAT%) gần bằng 0 hoặc âm, phép chia sẽ nổ ra số khổng lồ vô lý —
 // luôn kẹp về khoảng hợp lý (0-30%), sai thì tự rơi về mặc định 8%.
+//
+// QUAN TRỌNG: mọi phép chia VAT dưới đây PHẢI làm tròn (Math.round) ngay sau khi
+// chia — vì hầu hết phép chia không hết (VD 4 tỷ ÷ 1.08 = 3.703.703.703,7037...),
+// còn formatMoneyInput()/parseMoneyInput() ở utils.js được viết cho SỐ NGUYÊN VNĐ
+// (chỉ xóa ký tự không phải chữ số) — nếu đưa số có phần thập phân vào, dấu chấm
+// thập phân bị xóa mất, dính liền phần lẻ vào coi như số nguyên, thổi phồng số lên
+// gấp hàng nghìn/hàng triệu lần. Không sửa 2 hàm đó (dùng chung toàn app, chỉ cần
+// đúng cho số nguyên) — chỉ cần đảm bảo bctc.js luôn đưa số nguyên vào là đủ.
 function safeVatDivisor(rawVatRate) {
   const v = Number(rawVatRate);
   if (!isFinite(v) || v < 0 || v >= 30) return 1.08;
@@ -46,7 +54,7 @@ function lineForecast(line, contractsMap) {
   if (line.contract_id) {
     const c = contractsMap[line.contract_id];
     if (!c) return 0;
-    return Number(c.value) / safeVatDivisor(c.vat_rate);
+    return Math.round(Number(c.value) / safeVatDivisor(c.vat_rate));
   }
   return 0;
 }
@@ -54,7 +62,7 @@ function linePayment(line, latestPaidByContract) {
   if (line.contract_id) {
     const b = latestPaidByContract[line.contract_id];
     if (!b) return 0;
-    return Number(b.val_d) / safeVatDivisor(b.vat_rate);
+    return Math.round(Number(b.val_d) / safeVatDivisor(b.vat_rate));
   }
   return Number(line.payment_data_manual) || 0;
 }
