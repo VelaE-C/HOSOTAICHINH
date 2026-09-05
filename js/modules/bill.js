@@ -472,7 +472,7 @@ export async function openDetail(id, user, onClose) {
         <div class="k">Ngày ký hồ sơ</div><div class="v">${b.signed_date ? new Date(b.signed_date).toLocaleDateString('vi-VN') : '<span style="color:var(--gray4)">Chưa ghi</span>'}</div>
         ${b.completed_at ? `<div class="k">Ngày hoàn thành</div><div class="v">${new Date(b.completed_at).toLocaleDateString('vi-VN')}</div>` : ''}
         <div class="k">Trạng thái</div><div class="v">${statusBadge(b.status)}</div>
-        <div class="k">Hợp đồng liên kết</div><div class="v">${b.contracts ? `<span class="code-chip">${b.contracts.doc_number}</span>` : '<span style="color:var(--amber)">⚠️ Chưa gắn hợp đồng</span>'}</div>
+        <div class="k">Hợp đồng liên kết</div><div class="v">${b.contracts ? `<span class="code-chip">${b.contracts.doc_number}</span>` : `<span style="color:var(--amber)">⚠️ Chưa gắn hợp đồng</span>${isAdmin ? ` <button class="btn btn-sm btn-secondary" id="btnLinkContract" style="margin-left:8px">🔗 Gắn hợp đồng</button>` : ''}`}</div>
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Chi tiết hợp đồng</div>
       <div class="card" style="padding:4px 14px">
@@ -505,6 +505,7 @@ export async function openDetail(id, user, onClose) {
   `;
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(b, user, onClose));
+  box.querySelector('#btnLinkContract')?.addEventListener('click', () => openLinkContractModal(b, user, onClose));
   box.querySelector('#btnCancel')?.addEventListener('click', async () => {
     if (!confirm(`Hủy hồ sơ "${b.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
     const reason = prompt('Lý do hủy (không bắt buộc):') || null;
@@ -518,6 +519,45 @@ export async function openDetail(id, user, onClose) {
   const canEditAttach = b.created_by === user.id && ['draft', 'rejected'].includes(b.status);
   renderAttachments(box.querySelector('#attachArea'), 'bill', id, user.id, canEditAttach);
   wireActions(box, 'bill', id, b.current_step, assignments, () => closeModal(modal, onClose));
+}
+
+// Chỉ Admin — gắn hợp đồng cho bill CŨ (đã trình từ trước khi bắt buộc liên kết
+// hợp đồng), ở BẤT KỲ trạng thái nào (Đang duyệt/Đã duyệt/Bị từ chối/Nháp), miễn
+// chưa từng gắn. KHÔNG đụng gì tới các số liệu khác của bill (A/B/D/E/F/G/H...) —
+// chỉ đúng 1 việc là gắn contract_id, giữ nguyên mọi thứ khác đã duyệt/đã có.
+async function openLinkContractModal(bill, user, onClose) {
+  const modal = ensureModal();
+  const { data: contracts } = await supabase.from('contracts').select('id, doc_number, partner_id').eq('project_id', bill.project_id).eq('partner_id', bill.partner_id).neq('status', 'cancelled').order('doc_number');
+
+  modal.innerHTML = `<div class="panel-box">
+    <div class="panel-header"><div>Gắn hợp đồng cho bill cũ</div><button class="panel-close" id="pClose">✕</button></div>
+    <div class="panel-body">
+      <div style="font-size:12px;background:#FFF7ED;color:#B8790A;padding:9px 12px;border-radius:7px;margin-bottom:14px">⚠️ Bill này đã trình từ trước khi có tính năng bắt buộc liên kết hợp đồng. Chỉ gắn đúng liên kết — KHÔNG đổi bất kỳ số liệu nào khác của bill.</div>
+      <div style="margin-bottom:13px"><label class="form-label">Hợp đồng (cùng Dự án + Đối tác của bill này)</label>
+        <select id="fContract" class="form-input">
+          <option value="" disabled selected>— Chọn hợp đồng —</option>
+          ${(contracts || []).map((c) => `<option value="${c.id}">${c.doc_number}</option>`).join('')}
+        </select>
+        ${!contracts || !contracts.length ? `<div style="font-size:11.5px;color:var(--red);margin-top:4px">Chưa có hợp đồng nào cùng Dự án + Đối tác này — vào tab Hợp đồng tạo trước.</div>` : ''}</div>
+      <div style="margin-bottom:13px"><label class="form-label">Ghi chú (không bắt buộc)</label>
+        <input type="text" id="fReason" class="form-input" placeholder="VD: Bill cũ trước khi bắt buộc liên kết hợp đồng"></div>
+    </div>
+    <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">🔗 Gắn hợp đồng</button></div>
+  </div>`;
+  showModal(modal, onClose);
+  modal.querySelector('#pClose').addEventListener('click', () => openDetail(bill.id, user, onClose));
+
+  modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const contract_id = modal.querySelector('#fContract').value;
+    const reason = modal.querySelector('#fReason').value.trim();
+    if (!contract_id) return toast('Chọn 1 hợp đồng trước khi gắn', 'error');
+
+    loading(true);
+    const { error } = await supabase.rpc('fn_admin_link_bill_contract', { p_bill_id: bill.id, p_contract_id: contract_id, p_reason: reason || null });
+    if (error) return toast('Lỗi: ' + error.message, 'error');
+    toast('Đã gắn hợp đồng', 'success');
+    openDetail(bill.id, user, onClose);
+  });
 }
 
 async function openEditModal(bill, user, onClose) {
