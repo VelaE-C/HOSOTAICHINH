@@ -343,7 +343,11 @@ function newLine(overrides = {}) {
 
 async function openLineEditorModal({ modal, projectId, initialLines, initialTitle, onSave, contracts, partners }) {
   const contractsMap = Object.fromEntries((contracts || []).map((c) => [c.id, c]));
-  let contractIds = initialLines.filter((l) => l.contract_id).map((l) => l.contract_id);
+  // Tải sẵn dữ liệu thanh toán cho TOÀN BỘ hợp đồng của dự án (không chỉ những hợp
+  // đồng đã link sẵn từ initialLines) — vì lúc mới "Trình BCTC mới", initialLines
+  // luôn rỗng, nhưng người dùng sẽ CHỌN hợp đồng dần dần ngay trong lúc nhập, nếu
+  // chỉ tải theo initialLines thì mọi hợp đồng mới chọn sau đó sẽ mãi ra "Đã TT = 0".
+  let contractIds = (contracts || []).map((c) => c.id);
   let latestPaidByContract = {};
   if (contractIds.length) {
     const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, vat_rate').in('contract_id', contractIds).neq('status', 'draft').neq('status', 'cancelled').order('period_no', { ascending: false });
