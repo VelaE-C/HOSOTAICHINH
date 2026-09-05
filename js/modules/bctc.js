@@ -24,14 +24,24 @@ let VIEW_PAGE = 1;
 // trễ so với thực tế công trường (giữ tên biến "PaidByContract" cho đỡ đổi nhiều
 // chỗ, nhưng bản chất giờ là "bill mới nhất còn hợp lệ", không riêng gì đã trả tiền).
 // ============================================================
+// Dự trù giờ LUÔN cho sửa tay, kể cả khi có link Hợp đồng — vì thực tế ngân sách
+// cùng 1 hạng mục (VD bê tông) chia cho nhiều NCC không cố định, cần san sẻ qua
+// lại giữa các NCC miễn giữ đúng tổng ngân sách ban đầu. Lúc CHỌN hợp đồng, số
+// tính từ hợp đồng chỉ là GIÁ TRỊ GỢI Ý điền sẵn vào forecast_value_manual — sau
+// đó người dùng sửa thoải mái, giá trị đã sửa được lưu lại y nguyên.
+// Dòng CŨ (lưu từ trước khi có tính năng này) chưa từng có forecast_value_manual
+// dù đã link hợp đồng -> vẫn tự tính từ hợp đồng như cũ để không mất dữ liệu.
 function lineForecast(line, contractsMap) {
+  if (line.forecast_value_manual != null && Number(line.forecast_value_manual) !== 0) {
+    return Number(line.forecast_value_manual);
+  }
   if (line.contract_id) {
     const c = contractsMap[line.contract_id];
     if (!c) return 0;
     const vatRate = (c.vat_rate ?? 8) / 100;
     return Number(c.value) / (1 + vatRate);
   }
-  return Number(line.forecast_value_manual) || 0;
+  return 0;
 }
 function linePayment(line, latestPaidByContract) {
   if (line.contract_id) {
@@ -368,7 +378,7 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
         <input type="text" class="form-input f-docnum" style="${INP};min-width:100px;display:${linked ? 'none' : 'block'}" value="${esc(l.doc_number_manual)}">
         <span class="f-linked-docnum mono" style="font-size:10.5px;color:var(--gray6);display:${linked ? 'inline' : 'none'}">${linkedDocNumber}</span>
       </td>
-      <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-forecast" style="${INP};min-width:100px;text-align:right${linked ? ';background:var(--gray1);color:var(--gray6)' : ''}" value="${formatMoneyInput(forecast)}" ${linked ? 'readonly' : ''}></td>
+      <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-forecast" style="${INP};min-width:100px;text-align:right" value="${formatMoneyInput(forecast)}" title="Số gợi ý từ hợp đồng lúc chọn — vẫn sửa tay thoải mái được"></td>
       <td style="${CELL}"><input type="text" inputmode="numeric" class="form-input money-input f-payment" style="${INP};min-width:100px;text-align:right${linked ? ';background:var(--gray1);color:var(--gray6)' : ''}" value="${formatMoneyInput(payment)}" ${linked ? 'readonly' : ''}></td>
       <td class="mono f-remaining" style="${CELL};text-align:right;font-weight:600;white-space:nowrap">${fmt(forecast - payment)}</td>
       <td style="${CELL}"><input type="text" class="form-input f-note" style="${INP};min-width:110px" value="${esc(l.status_note)}"></td>
@@ -444,7 +454,7 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
       contract_id,
       partner_id: contract_id ? null : (rowEl.querySelector('.f-partner').value || null),
       doc_number_manual: contract_id ? null : rowEl.querySelector('.f-docnum').value.trim(),
-      forecast_value_manual: contract_id ? null : parseMoneyInput(rowEl.querySelector('.f-forecast').value),
+      forecast_value_manual: parseMoneyInput(rowEl.querySelector('.f-forecast').value),
       payment_data_manual: contract_id ? null : parseMoneyInput(rowEl.querySelector('.f-payment').value),
       status_note: rowEl.querySelector('.f-note').value.trim(),
     };
@@ -481,25 +491,27 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
           const payment = linePayment({ contract_id: e.target.value }, latestPaidByContract);
           const fForecast = rowEl.querySelector('.f-forecast');
           const fPayment = rowEl.querySelector('.f-payment');
-          fForecast.value = formatMoneyInput(forecast);
-          fForecast.readOnly = true;
-          fForecast.style.background = 'var(--gray1)';
-          fForecast.style.color = 'var(--gray6)';
+          fForecast.value = formatMoneyInput(forecast); // chỉ là số GỢI Ý điền sẵn — vẫn sửa tay được, không khóa
           fPayment.value = formatMoneyInput(payment);
           fPayment.readOnly = true;
           fPayment.style.background = 'var(--gray1)';
           fPayment.style.color = 'var(--gray6)';
           rowEl.querySelector('.f-remaining').textContent = fmt(forecast - payment);
         } else {
-          const fForecast = rowEl.querySelector('.f-forecast');
           const fPayment = rowEl.querySelector('.f-payment');
-          fForecast.readOnly = false;
-          fForecast.style.background = '';
-          fForecast.style.color = '';
           fPayment.readOnly = false;
           fPayment.style.background = '';
           fPayment.style.color = '';
         }
+      }),
+    );
+    // Gõ tay vào Dự trù (dù đang link hay không) -> cập nhật ngay ô "Còn lại" cùng dòng
+    modal.querySelectorAll('.f-forecast').forEach((inp) =>
+      inp.addEventListener('input', (e) => {
+        const rowEl = e.target.closest('.bctc-row');
+        const forecast = parseMoneyInput(e.target.value);
+        const payment = parseMoneyInput(rowEl.querySelector('.f-payment').value);
+        rowEl.querySelector('.f-remaining').textContent = fmt(forecast - payment);
       }),
     );
     modal.querySelector('#btnAddA')?.addEventListener('click', () => {
@@ -572,7 +584,7 @@ function pickLineFields(l) {
     partner_id: l.partner_id || null,
     doc_number_manual: l.doc_number_manual || null,
     signed_date_manual: l.signed_date_manual || null,
-    forecast_value_manual: l.contract_id ? null : (l.forecast_value_manual || 0),
+    forecast_value_manual: l.forecast_value_manual || 0,
     payment_data_manual: l.contract_id ? null : (l.payment_data_manual || 0),
     status_note: l.status_note || null,
   };
