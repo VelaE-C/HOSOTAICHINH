@@ -18,7 +18,11 @@ let VIEW_PAGE = 1;
 // ============================================================
 // Tính "Giá trị dự trù" và "Dữ liệu thanh toán" cho 1 dòng — CÓ link hợp đồng thì
 // lấy tươi từ dữ liệu gốc (tách VAT), KHÔNG link thì lấy đúng số đã nhập tay.
-// latestPaidByContract: map contract_id -> { val_d, vat_rate } của bill "paid" mới nhất.
+// latestPaidByContract: map contract_id -> bill KỲ MỚI NHẤT (bất kể Đang duyệt/Bị
+// từ chối/Đã thanh toán — chỉ loại Nháp và Đã hủy) của hợp đồng đó. Lấy sớm ngay từ
+// lúc bill còn đang duyệt, không chờ tới lúc "paid" mới lên số — tránh báo cáo bị
+// trễ so với thực tế công trường (giữ tên biến "PaidByContract" cho đỡ đổi nhiều
+// chỗ, nhưng bản chất giờ là "bill mới nhất còn hợp lệ", không riêng gì đã trả tiền).
 // ============================================================
 function lineForecast(line, contractsMap) {
   if (line.contract_id) {
@@ -298,7 +302,7 @@ async function loadFinancialData(projectId, lines) {
   const contractIds = [...new Set((lines || []).map((l) => l.contract_id).filter(Boolean))];
   let latestPaidByContract = {};
   if (contractIds.length) {
-    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, vat_rate').in('contract_id', contractIds).eq('status', 'paid').order('period_no', { ascending: false });
+    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, vat_rate').in('contract_id', contractIds).neq('status', 'draft').neq('status', 'cancelled').order('period_no', { ascending: false });
     (paidBills || []).forEach((b) => {
       if (!latestPaidByContract[b.contract_id]) latestPaidByContract[b.contract_id] = b; // dòng đầu tiên gặp = period_no cao nhất (đã order DESC)
     });
@@ -318,7 +322,7 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
   let contractIds = initialLines.filter((l) => l.contract_id).map((l) => l.contract_id);
   let latestPaidByContract = {};
   if (contractIds.length) {
-    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, vat_rate').in('contract_id', contractIds).eq('status', 'paid').order('period_no', { ascending: false });
+    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, vat_rate').in('contract_id', contractIds).neq('status', 'draft').neq('status', 'cancelled').order('period_no', { ascending: false });
     (paidBills || []).forEach((b) => { if (!latestPaidByContract[b.contract_id]) latestPaidByContract[b.contract_id] = b; });
   }
 
