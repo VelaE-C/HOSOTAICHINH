@@ -228,7 +228,8 @@ export async function openDetail(id, user, onClose) {
     toast('Đã hủy hồ sơ', 'success');
     closeModal(modal, onClose);
   });
-  renderAttachments(box.querySelector('#attachArea'), 'totrinh', id, user.id, canEditNow);
+  const canAddWhilePending = t.created_by === user.id && t.status === 'pending';
+  renderAttachments(box.querySelector('#attachArea'), 'totrinh', id, user.id, canEditNow, canAddWhilePending, t.current_step);
   wireActions(box, 'totrinh', id, t.current_step, assignments, () => closeModal(modal, onClose));
 }
 
