@@ -283,7 +283,10 @@ export async function openDetail(id, user, onClose) {
   });
   box.querySelector('#btnExportPdf')?.addEventListener('click', () => openPrintCoverSheet(c, assignments, logs));
   const canEditAttach = canEditNow;
-  renderAttachments(box.querySelector('#attachArea'), 'contract', id, user.id, canEditAttach);
+  // Đang duyệt (pending) NHƯNG chính người tạo hồ sơ này -> mở riêng nút "+ Thêm
+  // file" (không mở xóa/sửa file cũ), ghi vào Lịch sử mỗi lần thêm.
+  const canAddWhilePending = c.created_by === user.id && c.status === 'pending';
+  renderAttachments(box.querySelector('#attachArea'), 'contract', id, user.id, canEditAttach, canAddWhilePending, c.current_step);
   wireActions(box, 'contract', id, c.current_step, assignments, () => {
     closeModal(modal, onClose);
   });
