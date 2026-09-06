@@ -149,12 +149,26 @@ function resetPeriodJFields(modal) {
   if (noteEl) noteEl.innerHTML = '';
 }
 
+// Tự điền A (giá trị hợp đồng gốc) + B (tổng toàn bộ PLHĐ của hợp đồng đó) — tính
+// TƯƠI mỗi lần chọn/đổi Hợp đồng liên kết, không lấy lại từ kỳ trước (tránh đúng
+// lỗi đã gặp: PLHĐ mới phát sinh sau không được cộng vào vì B "đứng yên" theo kỳ
+// cũ). Vẫn là số GỢI Ý — QS/CCM sửa tay thoải mái sau đó nếu cần (hợp đồng nguyên
+// tắc, điều chỉnh riêng...).
+async function fillAAndBFromContract(modal, contractId) {
+  const aInput = modal.querySelector('#fA');
+  const bInput = modal.querySelector('#fB');
+  if (!contractId) return;
+  const { data: c } = await supabase.from('contracts').select('value').eq('id', contractId).single();
+  if (aInput && c) aInput.value = formatMoneyInput(c.value);
+  const { data: plhds } = await supabase.from('contracts').select('value').eq('parent_contract_id', contractId).neq('status', 'cancelled');
+  const totalPlhd = (plhds || []).reduce((s, p) => s + Number(p.value), 0);
+  if (bInput) bInput.value = formatMoneyInput(totalPlhd);
+}
+
 async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBillId) {
   const periodInput = modal.querySelector('#fPeriod');
   const jInput = modal.querySelector('#fI');
   const noteEl = modal.querySelector('#kyNote');
-  const aInput = modal.querySelector('#fA');
-  const bInput = modal.querySelector('#fB');
 
   if (!contractId && !(projectId && partnerId)) {
     periodInput.readOnly = false;
@@ -194,10 +208,10 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBill
   periodInput.readOnly = true;
   periodInput.style.background = 'var(--gray1)';
 
-  // A, B kế thừa đúng số kỳ liền trước (QS đã điền thật, không lấy lại theo hợp đồng gốc
-  // nữa) — vẫn để sửa được bình thường nếu hợp đồng có điều chỉnh mới trong kỳ này
-  if (aInput) aInput.value = formatMoneyInput(latest.val_a);
-  if (bInput) bInput.value = formatMoneyInput(latest.val_b);
+  // A/B giờ KHÔNG kế thừa từ kỳ trước nữa (dòng cũ ở đây từng gây lỗi: PLHĐ mới
+  // phát sinh sau kỳ trước sẽ không được tính vào, phải nhớ tay cập nhật) — xem
+  // fillAAndBFromContract(), luôn gọi lúc chọn hợp đồng, tính TƯƠI theo đúng
+  // Hợp đồng + toàn bộ PLHĐ hiện có tại thời điểm đó.
 
   const okToProceed = latest.status === 'paid';
   periodInput.title = !okToProceed ? `⚠️ Đợt ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — chưa trình/lưu được đợt này cho tới khi đợt ${latest.period_no} thanh toán xong` : '';
@@ -624,11 +638,11 @@ async function openEditModal(bill, user, onClose) {
   modal.querySelector('#fContract').addEventListener('change', async (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
-      // A, B KHÔNG còn tự lấy theo giá trị hợp đồng gốc nữa — updateKyAndJ() bên dưới sẽ
-      // tự kế thừa đúng số QS đã điền ở kỳ liền trước (nếu có); nếu là kỳ đầu tiên thì để
-      // trống, QS tự nhập theo đúng số thực tế của bill này.
+      // A/B tự tính TƯƠI theo Hợp đồng + toàn bộ PLHĐ hiện có ngay lúc chọn (xem
+      // fillAAndBFromContract) — vẫn là số gợi ý, sửa tay được sau đó.
       if (opt.dataset.partner) setSearchSelectValue(modal, 'fPartner', partners, opt.dataset.partner, partnerLabelFn, partnerSubFn);
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
+      await fillAAndBFromContract(modal, opt.value);
       await updateKyAndJ(modal, opt.value, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value, bill.id);
     } else {
       resetPeriodJFields(modal);
@@ -755,14 +769,14 @@ async function openCreateModal(user, onClose) {
   renderDSection(dWrap, null); // mặc định: chưa chọn hợp đồng -> D trống
   renderLivePreview(modal);
 
-  // Khi chọn hợp đồng liên kết, tự điền Đối tác + % VAT.
-  // A/B KHÔNG tự lấy theo giá trị hợp đồng gốc nữa — updateKyAndJ() bên dưới sẽ tự kế thừa
-  // đúng số QS đã điền ở kỳ liền trước (nếu có); nếu là kỳ đầu tiên thì để trống, QS tự nhập.
+  // Khi chọn hợp đồng liên kết, tự điền Đối tác + % VAT + A/B (theo Hợp đồng+PLHĐ
+  // hiện có, tính tươi — xem fillAAndBFromContract). Vẫn là số gợi ý, sửa tay được.
   modal.querySelector('#fContract').addEventListener('change', async (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
       if (opt.dataset.partner) setSearchSelectValue(modal, 'fPartner', partners, opt.dataset.partner, partnerLabelFn, partnerSubFn);
       if (opt.dataset.vat) modal.querySelector('#fVat').value = opt.dataset.vat;
+      await fillAAndBFromContract(modal, opt.value);
       await updateKyAndJ(modal, opt.value, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
     } else {
       resetPeriodJFields(modal);
