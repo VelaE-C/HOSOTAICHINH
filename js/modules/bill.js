@@ -531,7 +531,8 @@ export async function openDetail(id, user, onClose) {
   });
   box.querySelector('#btnExportPdf')?.addEventListener('click', () => openPrintCoverSheet(b, r, assignments, logs));
   const canEditAttach = b.created_by === user.id && ['draft', 'rejected'].includes(b.status);
-  renderAttachments(box.querySelector('#attachArea'), 'bill', id, user.id, canEditAttach);
+  const canAddWhilePending = b.created_by === user.id && b.status === 'pending';
+  renderAttachments(box.querySelector('#attachArea'), 'bill', id, user.id, canEditAttach, canAddWhilePending, b.current_step);
   wireActions(box, 'bill', id, b.current_step, assignments, () => closeModal(modal, onClose));
 }
 
