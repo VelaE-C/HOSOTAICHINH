@@ -502,6 +502,8 @@ const OTHER_PROJECT_ROLES = ['QS', 'TGD', 'ChuyenVienPhongBan', 'TruongPhongChuc
 async function openProjectAssignModal(projectId, projectName, currentUser, onClose) {
   const modal = ensureModal();
   const today = new Date().toISOString().slice(0, 10);
+  const isAdmin = (currentUser.roles || []).includes('Admin');
+  const { data: projectFull } = await supabase.from('projects').select('*').eq('id', projectId).single();
   const { data: assignments, error: assignErr } = await supabase
     .from('project_role_assignments')
     .select('id, role_type, user_id, effective_from, users!user_id(full_name, email)')
@@ -526,7 +528,11 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
       <label class="form-label">${roleLabel[role]}</label>
       <div style="font-size:12.5px;color:${cur ? 'var(--gray8)' : 'var(--gray4)'};margin-bottom:6px">${cur ? `Hiện tại: <b>${cur.users?.full_name}</b> (${cur.users?.email}) — từ ${new Date(cur.effective_from).toLocaleDateString('vi-VN')}` : 'Chưa gán'}</div>
       <div style="display:flex;gap:8px">
-        <select class="form-input reassign-select" data-role="${role}" style="flex:1">${userOptions}</select>
+        <select class="form-input reassign-select" data-role="${role}" style="flex:1">
+          <option value="">— Chọn người —</option>
+          <option value="__EMPTY__">— Để trống (bỏ vai trò này, coi như không có ai) —</option>
+          ${(users || []).map((u) => `<option value="${u.id}">${u.full_name} (${u.email})</option>`).join('')}
+        </select>
         <button class="btn btn-sm btn-secondary reassign-btn" data-role="${role}">Đổi</button>
       </div>
     </div>`;
@@ -536,7 +542,24 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Người phụ trách dự án — ${projectName}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
-      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:16px">ℹ️ Đổi người (CHT/GĐDA/PTGD) sẽ tự động chuyển giao hồ sơ đang chờ duyệt của dự án này sang người mới (nếu có), không bị treo.</div>
+      ${isAdmin ? `
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Thông tin dự án (chỉ Admin sửa được)</div>
+      <div class="card" style="padding:12px 14px;margin-bottom:20px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div><label class="form-label">Mã viết tắt</label><input type="text" id="fProjCode" class="form-input" value="${projectFull?.code || ''}"></div>
+          <div><label class="form-label">Tên dự án</label><input type="text" id="fProjName" class="form-input" value="${projectFull?.name || ''}"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div><label class="form-label">Chủ đầu tư</label><input type="text" id="fProjInvestor" class="form-input" value="${projectFull?.investor || ''}"></div>
+          <div><label class="form-label">Địa điểm</label><input type="text" id="fProjLocation" class="form-input" value="${projectFull?.location || ''}"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div><label class="form-label">Loại hình</label><input type="text" id="fProjType" class="form-input" value="${projectFull?.project_type || ''}"></div>
+          <div><label class="form-label">Số căn</label><input type="number" id="fProjUnitCount" class="form-input" value="${projectFull?.unit_count ?? ''}"></div>
+        </div>
+        <button class="btn btn-sm btn-primary" id="btnSaveProjectInfo">💾 Lưu thông tin dự án</button>
+      </div>` : ''}
+      <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:16px">ℹ️ Đổi người (CHT/GĐDA/PTGD) sẽ tự động chuyển giao hồ sơ đang chờ duyệt của dự án này sang người mới (nếu có), không bị treo. Chọn "Để trống" sẽ bỏ hẳn người đang giữ vai trò đó — bước duyệt tương ứng của dự án này sẽ tự động bị bỏ qua.</div>
       ${rows}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Các vai trò khác — đích danh theo dự án (nhiều người/vai trò cùng lúc)</div>
       <div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">QS bắt buộc phải gán mới trình được hồ sơ cho dự án này. Các vai trò khác (Pháp chế, Kế toán, QLCP&HĐ...) không bắt buộc — nếu không chỉ đích danh ở đây, hồ sơ dự án đó tự động gửi cho cả nhóm giữ vai trò đó.</div>
@@ -558,6 +581,23 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
 
+  modal.querySelector('#btnSaveProjectInfo')?.addEventListener('click', async () => {
+    const code = modal.querySelector('#fProjCode').value.trim();
+    const name = modal.querySelector('#fProjName').value.trim();
+    const investor = modal.querySelector('#fProjInvestor').value.trim() || null;
+    const location = modal.querySelector('#fProjLocation').value.trim() || null;
+    const project_type = modal.querySelector('#fProjType').value.trim() || null;
+    const unit_countRaw = modal.querySelector('#fProjUnitCount').value.trim();
+    const unit_count = unit_countRaw ? Number(unit_countRaw) : null;
+    if (!code || !name) return toast('Điền đủ Mã và Tên dự án', 'error');
+
+    loading(true);
+    const { error } = await supabase.from('projects').update({ code, name, investor, location, project_type, unit_count }).eq('id', projectId);
+    if (error) return toast('Lỗi lưu (có thể mã đã trùng): ' + error.message, 'error');
+    toast('Đã lưu thông tin dự án', 'success');
+    openProjectAssignModal(projectId, name, currentUser, onClose);
+  });
+
   modal.querySelectorAll('.reassign-btn').forEach((btn) =>
     btn.addEventListener('click', async () => {
       const role = btn.dataset.role;
@@ -566,6 +606,22 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
       if (!newUserId) return toast('Chọn người trước khi đổi', 'error');
 
       loading(true);
+      if (newUserId === '__EMPTY__') {
+        // Để trống — chỉ kết thúc phân công hiện tại (nếu có), KHÔNG gán ai thay
+        // thế. Từ hồ sơ mới trở đi, vai trò này coi như "không có ai" ở dự án này
+        // -> tự động bỏ qua bước tương ứng, đúng cơ chế đã có sẵn.
+        const cur = currentByRole[role];
+        if (!cur) {
+          toast('Vai trò này vốn đã đang để trống rồi', 'info');
+          return;
+        }
+        const { error } = await supabase.from('project_role_assignments').update({ effective_to: today }).eq('id', cur.id);
+        if (error) return toast('Lỗi: ' + error.message, 'error');
+        toast(`Đã bỏ ${roleLabel[role]} — không gán ai thay thế, hồ sơ mới sẽ tự bỏ qua bước này`, 'success');
+        openProjectAssignModal(projectId, projectName, currentUser, onClose);
+        return;
+      }
+
       const { data, error } = await supabase.rpc('fn_reassign_project_role', {
         p_project_id: projectId, p_role_type: role, p_new_user_id: newUserId, p_actor_id: currentUser.id,
       });
