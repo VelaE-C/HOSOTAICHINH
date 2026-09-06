@@ -609,13 +609,18 @@ async function openProjectAssignModal(projectId, projectName, currentUser, onClo
       if (newUserId === '__EMPTY__') {
         // Để trống — chỉ kết thúc phân công hiện tại (nếu có), KHÔNG gán ai thay
         // thế. Từ hồ sơ mới trở đi, vai trò này coi như "không có ai" ở dự án này
-        // -> tự động bỏ qua bước tương ứng, đúng cơ chế đã có sẵn.
+        // -> tự động bỏ qua bước tương ứng, đúng cơ chế đã có sẵn. Dùng effective_to
+        // = HÔM QUA (không phải hôm nay) — khớp đúng cách fn_reassign_project_role
+        // đang làm, để có hiệu lực NGAY LẬP TỨC (câu truy vấn "còn hiệu lực" ở khắp
+        // nơi dùng >= hôm nay, nên nếu đặt = hôm nay thì vẫn còn tính là hiệu lực
+        // cho tới hết hôm nay, phải qua ngày mai mới thật sự trống).
         const cur = currentByRole[role];
         if (!cur) {
           toast('Vai trò này vốn đã đang để trống rồi', 'info');
           return;
         }
-        const { error } = await supabase.from('project_role_assignments').update({ effective_to: today }).eq('id', cur.id);
+        const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+        const { error } = await supabase.from('project_role_assignments').update({ effective_to: yesterday }).eq('id', cur.id);
         if (error) return toast('Lỗi: ' + error.message, 'error');
         toast(`Đã bỏ ${roleLabel[role]} — không gán ai thay thế, hồ sơ mới sẽ tự bỏ qua bước này`, 'success');
         openProjectAssignModal(projectId, projectName, currentUser, onClose);
