@@ -315,7 +315,7 @@ async function openCreatePLHDModal(parent, user, onClose) {
         <div class="k">Đối tác</div><div class="v">${parent.partners?.name || '—'}</div>
         <div class="k">Loại hợp đồng</div><div class="v">${parent.contract_type}</div>
       </div>
-      <div style="margin-bottom:13px"><label class="form-label">Giá trị điều chỉnh (₫) — nhập số âm nếu là điều chỉnh GIẢM</label>
+      <div style="margin-bottom:13px"><label class="form-label">Giá trị điều chỉnh (₫) — nhập số âm nếu là điều chỉnh GIẢM, để 0 nếu PLHĐ chỉ đổi điều khoản/nội dung, không đổi giá trị</label>
         <input type="text" inputmode="numeric" id="fValue" class="form-input money-input"></div>
       <div style="margin-bottom:13px"><label class="form-label">Nội dung thay đổi so với HĐ cũ</label>
         <textarea id="fChangeNote" class="form-input" rows="3" placeholder="VD: Bổ sung hạng mục lắp đặt tủ điện, điều chỉnh đơn giá thép..."></textarea></div>
@@ -342,7 +342,10 @@ async function openCreatePLHDModal(parent, user, onClose) {
     const change_note = modal.querySelector('#fChangeNote').value.trim();
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const template_id = modal.querySelector('#fTemplate').value || null;
-    if (!value) return toast('Nhập giá trị điều chỉnh trước khi lưu', 'error');
+    // Giá trị điều chỉnh CHO PHÉP = 0 — một số PLHĐ chỉ đổi điều khoản thanh toán/nội
+    // dung, không đổi giá trị hợp đồng. Bắt buộc phải ghi rõ nội dung thay đổi trong
+    // trường hợp này, để không tạo ra 1 PLHĐ "rỗng" không ai hiểu để làm gì.
+    if (value === 0 && !change_note) return toast('Giá trị điều chỉnh = 0 thì bắt buộc ghi rõ "Nội dung thay đổi" (VD: chỉ đổi điều khoản thanh toán)', 'error');
 
     loading(true);
     const { data: newId, error } = await supabase.rpc('fn_create_contract', {
