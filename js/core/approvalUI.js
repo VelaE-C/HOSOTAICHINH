@@ -5,10 +5,13 @@
 // ============================================================
 import { supabase } from './config.js';
 import { toast, loading, fmtDateTime, formatMoneyInput, parseMoneyInput } from './utils.js';
+import { uploadLogAttachment, offerAttachOneFile, getFileUrl } from './attachments.js';
 
 const STEP_LABEL = { 1: 'Bước 1', 2: 'Bước 2', 3: 'Bước 3', 4: 'Bước 4' };
 
 // Lấy trạng thái duyệt hiện tại (theo từng người) + lịch sử thao tác của 1 hồ sơ
+// + ảnh/file đính kèm riêng theo từng dòng lịch sử (nếu có, VD ảnh minh họa lúc
+// Từ chối) — gộp vào 1 map logId -> [file...] để timelineHtml() vẽ ra thumbnail.
 export async function loadApprovalState(docType, docId) {
   const [{ data: assignments, error: e1 }, { data: logs, error: e2 }] = await Promise.all([
     supabase
@@ -19,14 +22,24 @@ export async function loadApprovalState(docType, docId) {
       .order('step_no'),
     supabase
       .from('approval_logs')
-      .select('step_no, action, comment, created_at, users(full_name)')
+      .select('id, step_no, action, comment, created_at, users(full_name)')
       .eq('document_type', docType)
       .eq('document_id', docId)
       .order('created_at'),
   ]);
   if (e1) console.error('Lỗi tải luồng phê duyệt (approval_assignments):', e1);
   if (e2) console.error('Lỗi tải lịch sử (approval_logs):', e2);
-  return { assignments: assignments || [], logs: logs || [] };
+
+  const logAttachments = {};
+  const logIds = (logs || []).map((l) => l.id).filter(Boolean);
+  if (logIds.length) {
+    const { data: atts } = await supabase.from('attachments').select('id, approval_log_id, file_name, file_url, file_size_kb').in('approval_log_id', logIds);
+    (atts || []).forEach((a) => {
+      (logAttachments[a.approval_log_id] ||= []).push(a);
+    });
+  }
+
+  return { assignments: assignments || [], logs: logs || [], logAttachments };
 }
 
 // Vẽ rail 4 bước — mỗi bước liệt kê từng người + trạng thái duyệt của riêng họ
@@ -84,7 +97,7 @@ export function railHtml(assignments, currentStep, preview = {}) {
     .join('')}</div>`;
 }
 
-export function timelineHtml(logs) {
+export function timelineHtml(logs, logAttachments = {}) {
   if (!logs.length) return `<div class="empty-note" style="padding:16px 0">Chưa có lịch sử</div>`;
   const actionLabel = {
     submit: 'Trình hồ sơ',
@@ -98,15 +111,32 @@ export function timelineHtml(logs) {
     cancel: 'Đã hủy hồ sơ (Admin)',
   };
   return logs
-    .map(
-      (l) => `<div class="tl-item">
+    .map((l) => {
+      const atts = logAttachments[l.id] || [];
+      return `<div class="tl-item">
       <div class="tl-dot ${l.action === 'reject' || l.action === 'reject_on_behalf' ? 'danger' : 'done'}"></div>
       <div class="tl-body"><b>${l.users?.full_name || '—'}</b> — ${actionLabel[l.action] || l.action}
         <div class="tl-time">${fmtDateTime(l.created_at)}</div>
         ${l.comment ? `<div class="tl-comment">"${l.comment}"</div>` : ''}
-      </div></div>`,
-    )
+        ${atts.length ? atts.map((a) => `<span class="tl-attach" data-att-path="${a.file_url}" style="margin-top:6px;display:inline-flex;align-items:center;gap:4px;background:var(--gray1);padding:4px 9px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--gray7)">🖼️ ${a.file_name}</span>`).join('') : ''}
+      </div></div>`;
+    })
     .join('');
+}
+
+// Gọi SAU KHI đã chèn timelineHtml(...) vào DOM — gắn sự kiện bấm mở ảnh/file đính
+// kèm theo từng dòng Lịch sử (nếu có).
+export function wireTimelineAttachments(container) {
+  container.querySelectorAll('.tl-attach').forEach((el) =>
+    el.addEventListener('click', async () => {
+      try {
+        const url = await getFileUrl(el.dataset.attPath);
+        window.open(url, '_blank');
+      } catch (err) {
+        toast('Không mở được file: ' + err.message, 'error');
+      }
+    }),
+  );
 }
 
 // Tự nhận diện đúng Mẫu hồ sơ phù hợp với người đang tạo hồ sơ — không bắt họ
@@ -241,8 +271,11 @@ export function actionFooterHtml(doc, docType, user, assignments, isAdmin = fals
   return html || `<div class="panel-footer"><span style="font-size:12.5px;color:var(--gray5)">Không có hành động nào khả dụng cho bạn ở hồ sơ này.</span></div>`;
 }
 
-// Gắn sự kiện cho các nút trên — gọi thẳng 4 hàm RPC đã viết ở database
-export function wireActions(container, docType, docId, currentStep, assignments, onDone) {
+// Gắn sự kiện cho các nút trên — gọi thẳng 4 hàm RPC đã viết ở database.
+// currentUserId: dùng để ghi "uploaded_by" khi có đính kèm ảnh minh họa lúc Từ
+// chối (không đổi được RPC fn_reject_document — chỉ truy vấn lại đúng dòng Lịch
+// sử VỪA tạo, ngay sau khi Từ chối thành công, để gắn ảnh vào đúng chỗ).
+export function wireActions(container, docType, docId, currentStep, assignments, onDone, currentUserId) {
   container.querySelector('#btnSubmit')?.addEventListener('click', async () => {
     loading(true);
     const { error } = await supabase.rpc('fn_submit_document', { p_doc_type: docType, p_doc_id: docId });
@@ -268,6 +301,21 @@ export function wireActions(container, docType, docId, currentStep, assignments,
     onDone();
   });
 
+  // Lấy đúng dòng Lịch sử vừa tạo (mới nhất, đúng loại reject) để gắn ảnh minh
+  // họa (nếu có chọn) — không cần sửa RPC, chỉ truy vấn lại ngay sau khi thành công.
+  async function findJustCreatedRejectLogId(actionType) {
+    const { data } = await supabase
+      .from('approval_logs')
+      .select('id')
+      .eq('document_type', docType)
+      .eq('document_id', docId)
+      .eq('action', actionType)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data?.id || null;
+  }
+
   container.querySelector('#btnReject')?.addEventListener('click', async () => {
     const comment = prompt('Lý do từ chối (bắt buộc):');
     if (!comment || !comment.trim()) return toast('Phải nhập lý do từ chối', 'error');
@@ -275,6 +323,10 @@ export function wireActions(container, docType, docId, currentStep, assignments,
     const { error } = await supabase.rpc('fn_reject_document', { p_doc_type: docType, p_doc_id: docId, p_comment: comment });
     if (error) return toast('Lỗi: ' + error.message, 'error');
     toast('Đã từ chối — quay về người trình', 'success');
+    const logId = await findJustCreatedRejectLogId('reject');
+    if (logId && confirm('Đính kèm ảnh minh họa cho lý do từ chối này? (không bắt buộc)')) {
+      await offerAttachOneFile(docType, docId, logId, currentUserId);
+    }
     onDone();
   });
 
@@ -315,6 +367,10 @@ export function wireActions(container, docType, docId, currentStep, assignments,
     const { error } = await supabase.rpc('fn_reject_document', { p_doc_type: docType, p_doc_id: docId, p_comment: reason, p_on_behalf_user_id: onBehalfUserId });
     if (error) return toast('Lỗi: ' + error.message, 'error');
     toast('Đã từ chối thay — quay về người trình', 'success');
+    const logId = await findJustCreatedRejectLogId('reject_on_behalf');
+    if (logId && confirm('Đính kèm ảnh minh họa cho lý do từ chối này? (không bắt buộc)')) {
+      await offerAttachOneFile(docType, docId, logId, currentUserId);
+    }
     onDone();
   });
 }
