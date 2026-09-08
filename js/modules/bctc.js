@@ -10,7 +10,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, wireTimelineAttachments, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 
 let VIEW_PROJECT = 'ALL';
 let VIEW_PAGE = 1;
@@ -180,7 +180,7 @@ export async function openDetail(id, user, onClose) {
   const totalPayment = totalPaymentA + totalPaymentB;
   const totalRemaining = sum.totalA + sum.totalB - totalPayment;
 
-  const { assignments, logs } = await loadApprovalState('bctc', id);
+  const { assignments, logs, logAttachments } = await loadApprovalState('bctc', id);
   const preview = rev.status === 'pending' ? await loadStepPreview(rev.project_id, rev.template_id, rev.current_step) : {};
 
   const canEditNow = rev.created_by === user.id && ['draft', 'rejected'].includes(rev.status);
@@ -214,7 +214,7 @@ export async function openDetail(id, user, onClose) {
         ${finRowSimple('Tổng Còn lại (A+B)', totalRemaining, true)}
       </div>
       ${rev.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, rev.current_step, preview)}
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs, logAttachments)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
     </div>
     ${actionFooterHtml(rev, 'bctc', user, assignments, (user.roles || []).includes('Admin'))}
   `;
@@ -238,7 +238,8 @@ export async function openDetail(id, user, onClose) {
     toast('Đã hủy hồ sơ', 'success');
     closeModal(modal, onClose);
   });
-  wireActions(box, 'bctc', id, rev.current_step, assignments, () => closeModal(modal, onClose));
+  wireTimelineAttachments(box);
+  wireActions(box, 'bctc', id, rev.current_step, assignments, () => closeModal(modal, onClose), user.id);
 }
 
 // Bảng XEM (trang chi tiết) — dựng CÙNG kiểu Excel với lúc nhập (sticky header,
