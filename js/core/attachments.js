@@ -23,6 +23,7 @@ function fileIcon(name) {
   if (/\.(xlsx|xls|csv)$/i.test(name)) return '📗';
   if (/\.(docx?|)$/i.test(name) && /\.docx?$/i.test(name)) return '📘';
   if (/\.(png|jpe?g|gif|webp)$/i.test(name)) return '🖼️';
+  if (/\.zip$/i.test(name)) return '🗜️';
   return '📄';
 }
 function fmtSize(kb) {
@@ -51,6 +52,13 @@ function viewableUrl(path, signedUrl) {
 // vì đang chạy tốt. Trên điện thoại vẫn mở link gốc như cũ (Quick Look/Xem sẵn có
 // của hệ điều hành đọc Excel tốt hơn tải về).
 const IS_EXCEL = (path) => /\.(xlsx|xls|csv)$/i.test(path);
+
+// ZIP không xem trước được ở BẤT KỲ đâu (không như Excel còn có Quick Look/Xem sẵn
+// trên di động) — luôn tải về máy, mọi nền tảng, không cố mở xem.
+const IS_ZIP = (path) => /\.zip$/i.test(path);
+function needsForceDownload(path) {
+  return IS_ZIP(path) || (!IS_MOBILE && IS_EXCEL(path));
+}
 
 async function downloadFile(url, fileName) {
   loading(true, `Đang tải xuống: ${fileName}`);
@@ -108,15 +116,15 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
       ${lockNote}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
         ${count ? files.map((f) => `
-          <span class="linked-chip" style="background:var(--gray1);color:var(--gray7);cursor:pointer" data-open-file="${f.id}" data-path="${f.file_url}" data-name="${f.file_name.replace(/"/g, '&quot;')}" ${!IS_MOBILE && IS_EXCEL(f.file_name) ? 'title="Bấm để tải file Excel về máy — không xem trước được trên PC"' : ''}>
-            ${fileIcon(f.file_name)} ${f.file_name}${!IS_MOBILE && IS_EXCEL(f.file_name) ? ' ⬇' : ''}
+          <span class="linked-chip" style="background:var(--gray1);color:var(--gray7);cursor:pointer" data-open-file="${f.id}" data-path="${f.file_url}" data-name="${f.file_name.replace(/"/g, '&quot;')}" ${needsForceDownload(f.file_name) ? 'title="Bấm để tải file về máy — không xem trước được"' : ''}>
+            ${fileIcon(f.file_name)} ${f.file_name}${needsForceDownload(f.file_name) ? ' ⬇' : ''}
             <span style="color:var(--gray4);font-weight:400;font-size:11px">(${fmtSize(f.file_size_kb)})</span>
             ${canEdit && f.uploaded_by === currentUserId ? `<span data-del-file="${f.id}" data-path="${f.file_url}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:2px">✕</span>` : ''}
           </span>`).join('') : '<span style="color:var(--gray4);font-size:12px">Chưa có file đính kèm</span>'}
       </div>
       ${canAdd ? `
-      <input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg">
-      <button class="btn btn-sm btn-secondary" id="btnAddFile" ${count >= MAX_FILES ? 'disabled' : ''}>+ Thêm file (PDF, Word, Excel, ảnh)</button>
+      <input type="file" id="fileInput" style="display:none" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.zip">
+      <button class="btn btn-sm btn-secondary" id="btnAddFile" ${count >= MAX_FILES ? 'disabled' : ''}>+ Thêm file (PDF, Word, Excel, ảnh, ZIP)</button>
       <div style="font-size:11px;color:var(--gray4);margin-top:5px">${count}/${MAX_FILES} file — tối đa ${MAX_FILES} file mỗi hồ sơ.</div>` : ''}
     `;
 
@@ -138,7 +146,7 @@ export async function renderAttachments(container, ownerType, ownerId, currentUs
         if (e.target.closest('[data-del-file]')) return; // bấm nút xóa thì không mở file
         try {
           const { url } = await r2Call('get-url', el.dataset.path);
-          if (!IS_MOBILE && IS_EXCEL(el.dataset.path)) {
+          if (needsForceDownload(el.dataset.path)) {
             await downloadFile(url, el.dataset.name || el.dataset.path.split('/').pop());
           } else {
             window.open(viewableUrl(el.dataset.path, url), '_blank');
@@ -229,8 +237,8 @@ export function renderFilePicker(wrapEl) {
             <span data-rm-staged="${i}" style="cursor:pointer;color:var(--red);font-weight:700;margin-left:2px">✕</span>
           </span>`).join('') : '<span style="color:var(--gray4);font-size:12px">Chưa chọn file nào</span>'}
       </div>
-      <input type="file" id="filePickerInput" style="display:none" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg">
-      <button type="button" class="btn btn-sm btn-secondary" id="btnPickFiles" ${staged.length >= MAX_FILES ? 'disabled' : ''}>+ Chọn file (PDF, Word, Excel, ảnh)</button>
+      <input type="file" id="filePickerInput" style="display:none" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.zip">
+      <button type="button" class="btn btn-sm btn-secondary" id="btnPickFiles" ${staged.length >= MAX_FILES ? 'disabled' : ''}>+ Chọn file (PDF, Word, Excel, ảnh, ZIP)</button>
       <div style="font-size:11px;color:var(--gray4);margin-top:5px">${staged.length}/${MAX_FILES} file đã chọn — sẽ tải lên khi bấm Lưu nháp/Trình duyệt, không phải ngay bây giờ.</div>
     `;
 
