@@ -18,6 +18,13 @@ async function r2Call(action, path, contentType) {
   return data;
 }
 
+// Lấy link tạm (signed URL) để mở/tải 1 file — dùng ở nơi khác (VD approvalUI.js
+// mở ảnh đính kèm trong Lịch sử) mà không cần biết chi tiết cơ chế R2 bên trong.
+export async function getFileUrl(path) {
+  const { url } = await r2Call('get-url', path);
+  return url;
+}
+
 function fileIcon(name) {
   if (/\.pdf$/i.test(name)) return '📕';
   if (/\.(xlsx|xls|csv)$/i.test(name)) return '📗';
@@ -296,4 +303,72 @@ export async function uploadStagedFiles(files, ownerType, ownerId, uploaderId) {
     });
     if (insErr) toast(`Đã tải "${file.name}" lên nhưng lỗi ghi nhận: ${insErr.message}`, 'error');
   }
+}
+
+// ============================================================
+// Đính kèm 1 ảnh/file NGAY LÚC DUYỆT/TỪ CHỐI — gắn trực tiếp vào đúng 1 dòng Lịch
+// sử (approval_log_id), khác với đính kèm chung của cả hồ sơ. Dùng cho tình huống:
+// người duyệt trả hồ sơ về, muốn kèm luôn ảnh minh họa (VD chụp màn hình khoanh đỏ
+// chỗ sai) để người trình lại (hoặc chính mình xem lại sau) hiểu ngay không cần hỏi.
+// ============================================================
+export async function uploadLogAttachment(file, ownerType, ownerId, approvalLogId, uploaderId) {
+  if (file.size > 20 * 1024 * 1024) {
+    toast(`File "${file.name}" vượt quá 20MB, không tải lên được`, 'error');
+    return false;
+  }
+  loading(true, `Đang tải lên: ${file.name}`);
+  const path = `${ownerType}/${ownerId}/${Date.now()}_${file.name.replace(/[^\w.\-]/g, '_')}`;
+  try {
+    const { uploadUrl } = await r2Call('upload-url', path, file.type || 'application/octet-stream');
+    const putRes = await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } });
+    if (!putRes.ok) throw new Error(`Kho lưu trữ từ chối (mã ${putRes.status})`);
+  } catch (err) {
+    toast(`Lỗi tải file "${file.name}": ${err.message}`, 'error');
+    return false;
+  }
+  const { error: insErr } = await supabase.from('attachments').insert({
+    owner_type: ownerType,
+    owner_id: ownerId,
+    approval_log_id: approvalLogId,
+    file_name: file.name,
+    file_url: path,
+    file_size_kb: Math.round(file.size / 1024),
+    uploaded_by: uploaderId,
+  });
+  if (insErr) {
+    toast(`Đã tải file lên nhưng lỗi ghi nhận: ${insErr.message}`, 'error');
+    return false;
+  }
+  toast(`Đã đính kèm "${file.name}" vào lịch sử`, 'success');
+  return true;
+}
+
+// Mở hộp thoại chọn file 1 lần (không bắt buộc chọn) — dùng ngay sau khi Duyệt/Từ
+// chối để hỏi "có muốn đính kèm ảnh minh họa không". Trả về Promise, tự resolve dù
+// người dùng có chọn file hay bấm Hủy.
+export function offerAttachOneFile(ownerType, ownerId, approvalLogId, uploaderId) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.png,.jpg,.jpeg';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    let settled = false;
+    const cleanup = async (uploaded) => {
+      if (settled) return;
+      settled = true;
+      input.remove();
+      resolve(uploaded);
+    };
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file) return cleanup(false);
+      const ok = await uploadLogAttachment(file, ownerType, ownerId, approvalLogId, uploaderId);
+      cleanup(ok);
+    });
+    // Bấm Hủy trên hộp thoại chọn file — hỗ trợ tốt trên Chrome/Edge hiện đại, để
+    // dọn input ẩn ngay, không chờ người dùng thao tác gì thêm.
+    input.addEventListener('cancel', () => cleanup(false));
+    input.click();
+  });
 }
