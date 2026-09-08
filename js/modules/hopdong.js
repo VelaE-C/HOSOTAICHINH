@@ -3,7 +3,7 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE, searchSelectHtml, initSearchSelect, setSearchSelectValue } from '../core/utils.js';
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, wireTimelineAttachments, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -200,7 +200,7 @@ export async function openDetail(id, user, onClose) {
     ? await supabase.from('contracts').select('id, doc_number, value, status, created_at').eq('parent_contract_id', id).neq('status', 'cancelled').order('created_at')
     : { data: [] };
 
-  const { assignments, logs } = await loadApprovalState('contract', id);
+  const { assignments, logs, logAttachments } = await loadApprovalState('contract', id);
   const preview = c.status === 'pending' ? await loadStepPreview(c.project_id, c.template_id, c.current_step) : {};
 
   const canEditNow = c.created_by === user.id && ['draft', 'rejected'].includes(c.status);
@@ -241,7 +241,7 @@ export async function openDetail(id, user, onClose) {
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Hồ sơ đính kèm</div>
       <div class="card" id="attachArea"></div>
       ${c.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, c.current_step, preview)}
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs, logAttachments)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
     </div>
     ${actionFooterHtml(c, 'contract', user, assignments, (user.roles || []).includes('Admin'))}
   `;
@@ -287,9 +287,10 @@ export async function openDetail(id, user, onClose) {
   // file" (không mở xóa/sửa file cũ), ghi vào Lịch sử mỗi lần thêm.
   const canAddWhilePending = c.created_by === user.id && c.status === 'pending';
   renderAttachments(box.querySelector('#attachArea'), 'contract', id, user.id, canEditAttach, canAddWhilePending, c.current_step);
+  wireTimelineAttachments(box);
   wireActions(box, 'contract', id, c.current_step, assignments, () => {
     closeModal(modal, onClose);
-  });
+  }, user.id);
 }
 
 // PLHĐ (Phụ lục hợp đồng) — chỉ là 1 dòng contracts bình thường, có gắn
