@@ -8,7 +8,7 @@ import { fmt, toast, loading, statusBadge, budgetColor, wireMoneyInputs, parseMo
 // Đối tác dùng chung cho ô gõ-tìm ở cả 2 form (Tạo mới / Sửa)
 const partnerLabelFn = (p) => p.name;
 const partnerSubFn = (p) => `(MST ${p.mst})`;
-import { loadApprovalState, railHtml, timelineHtml, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
+import { loadApprovalState, railHtml, timelineHtml, wireTimelineAttachments, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 
 let VIEW_PROJECT = 'ALL';
@@ -460,7 +460,7 @@ export async function openDetail(id, user, onClose) {
     return;
   }
   const r = calcBill(b, b.contracts);
-  const { assignments, logs } = await loadApprovalState('bill', id);
+  const { assignments, logs, logAttachments } = await loadApprovalState('bill', id);
   const preview = b.status === 'pending' ? await loadStepPreview(b.project_id, b.template_id, b.current_step) : {};
   const req = b.checklist_required || 0;
   const { count: attachCount } = await supabase.from('attachments').select('id', { count: 'exact', head: true }).eq('owner_type', 'bill').eq('owner_id', id);
@@ -513,7 +513,7 @@ export async function openDetail(id, user, onClose) {
       <div class="card"><div style="font-size:13px">${req ? `${done}/${req} hồ sơ bắt buộc đã có (tự đếm theo số file đính kèm ở trên)` : 'Chưa thiết lập checklist cho bill này'}</div>
       <div class="bar-track" style="margin-top:8px"><div class="bar-fill" style="width:${req ? (done / req * 100) : 0}%;background:${done >= req && req ? 'var(--green)' : 'var(--amber)'}"></div></div></div>
       ${b.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, b.current_step, preview)}
-      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp.</div>`}
+      <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs, logAttachments)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp.</div>`}
     </div>
     ${actionFooterHtml(b, 'bill', user, assignments, (user.roles || []).includes('Admin'))}
   `;
@@ -533,7 +533,8 @@ export async function openDetail(id, user, onClose) {
   const canEditAttach = b.created_by === user.id && ['draft', 'rejected'].includes(b.status);
   const canAddWhilePending = b.created_by === user.id && b.status === 'pending';
   renderAttachments(box.querySelector('#attachArea'), 'bill', id, user.id, canEditAttach, canAddWhilePending, b.current_step);
-  wireActions(box, 'bill', id, b.current_step, assignments, () => closeModal(modal, onClose));
+  wireTimelineAttachments(box);
+  wireActions(box, 'bill', id, b.current_step, assignments, () => closeModal(modal, onClose), user.id);
 }
 
 // Chỉ Admin — gắn hợp đồng cho bill CŨ (đã trình từ trước khi bắt buộc liên kết
