@@ -72,30 +72,57 @@ export async function render(container, user) {
 
   const overdueCount = rows.filter(isOverdue).length;
 
+  // Tách theo đúng thứ tự cố định: Hợp đồng -> Bill thanh toán -> Tờ trình chủ
+  // trương — mỗi loại 1 khung riêng, cuộn riêng bên trong, không còn gộp chung 1
+  // bảng dài như trước (khỏi phải lướt qua Hợp đồng mới tới được Bill).
+  const byType = { contract: [], bill: [], totrinh: [] };
+  rows.forEach((r) => byType[r.document_type]?.push(r));
+
+  const CELL = 'padding:3px 8px;font-size:12px;line-height:1.3'; // dòng gọn còn ~nửa chiều cao mặc định
+  function rowHtml(r) {
+    // Trạng thái + "Trễ" nằm CHUNG 1 dòng (không xuống hàng) để không đội thêm
+    // chiều cao dòng — khác cách làm trước đây dùng <div> tách riêng.
+    const statusCell = `${statusBadge(r.status)}${isOverdue(r) ? ' <span style="color:var(--red);font-weight:700;font-size:10.5px;white-space:nowrap">⚠️ Trễ</span>' : ''}`;
+    if (IS_MOBILE) {
+      return `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
+      <td style="${CELL}"><span class="badge idle">${r.projectCode || '—'}</span></td>
+      <td style="${CELL}">${r.partner || '—'}</td>
+      <td style="${CELL}">${statusCell}</td>
+    </tr>`;
+    }
+    return `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
+      <td style="${CELL}"><span class="badge idle">${r.projectCode || '—'}</span></td>
+      <td class="mono" style="${CELL}">${r.docNumber}</td>
+      <td style="${CELL}">${r.partner || '—'}</td>
+      <td class="mono" style="${CELL}">${r.contractValue != null ? fmt(r.contractValue) : '—'}</td>
+      <td class="mono" style="${CELL}">${r.sanLuong != null ? fmt(r.sanLuong) : '—'}</td>
+      <td class="mono" style="${CELL}">${r.deNghi != null ? fmt(r.deNghi) : '—'}</td>
+      <td style="${CELL};white-space:nowrap">${statusCell}</td>
+    </tr>`;
+  }
+
+  function sectionHtml(title, items) {
+    const head = IS_MOBILE
+      ? `<tr><th style="${CELL}">Dự án</th><th style="${CELL}">Đối tác</th><th style="${CELL}">Trạng thái</th></tr>`
+      : `<tr><th style="${CELL}">Dự án</th><th style="${CELL}">Số hồ sơ</th><th style="${CELL}">Đối tác</th><th style="${CELL}">Giá trị Hợp đồng</th><th style="${CELL}">Tổng sản lượng</th><th style="${CELL}">Đề nghị đợt này</th><th style="${CELL}">Trạng thái</th></tr>`;
+    return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+      <div style="padding:9px 14px;border-bottom:1px solid var(--gray1);font-weight:700;font-size:13px;display:flex;justify-content:space-between;align-items:center">
+        <span>${title}</span><span class="badge idle">${items.length}</span>
+      </div>
+      <div style="max-height:360px;overflow-y:auto;overflow-x:auto">
+        <table><thead>${head}</thead><tbody>
+        ${items.length ? items.map(rowHtml).join('') : `<tr><td colspan="${IS_MOBILE ? 3 : 7}" style="text-align:center;color:var(--gray4);padding:16px">Không có hồ sơ nào</td></tr>`}
+        </tbody></table>
+      </div>
+    </div>`;
+  }
+
   container.innerHTML = `
     ${overdueCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang trễ hạn duyệt — xem các dòng có nhãn đỏ bên dưới.</div>` : ''}
-    <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Loại hồ sơ</th><th>Đối tác</th>' : '<th>Dự án</th><th>Số hồ sơ</th><th>Loại</th><th>Đối tác</th><th>Giá trị Hợp đồng</th><th>Tổng sản lượng</th><th>Đề nghị đợt này</th><th>Trạng thái</th>'}</tr></thead><tbody>
-    ${rows
-      .map((r) =>
-        IS_MOBILE
-          ? `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
-      <td><span class="badge idle">${r.projectCode || '—'}</span></td>
-      <td>${r.label}${isOverdue(r) ? ' <span style="color:var(--red);font-weight:700;font-size:11px">⚠️ Trễ</span>' : ''}</td>
-      <td>${r.partner || '—'}</td>
-    </tr>`
-          : `<tr class="click" data-type="${r.document_type}" data-id="${r.document_id}">
-      <td><span class="badge idle">${r.projectCode || '—'}</span></td>
-      <td class="mono">${r.docNumber}</td>
-      <td>${r.label}</td>
-      <td>${r.partner || '—'}</td>
-      <td class="mono">${r.contractValue != null ? fmt(r.contractValue) : '—'}</td>
-      <td class="mono">${r.sanLuong != null ? fmt(r.sanLuong) : '—'}</td>
-      <td class="mono">${r.deNghi != null ? fmt(r.deNghi) : '—'}</td>
-      <td>${statusBadge(r.status)}${isOverdue(r) ? '<div style="color:var(--red);font-weight:700;font-size:11px;margin-top:2px">⚠️ Trễ</div>' : ''}</td>
-    </tr>`,
-      )
-      .join('')}
-    </tbody></table></div></div>`;
+    ${sectionHtml('Hợp đồng', byType.contract)}
+    ${sectionHtml('Bill thanh toán', byType.bill)}
+    ${sectionHtml('Tờ trình chủ trương', byType.totrinh)}
+  `;
 
   container.querySelectorAll('[data-type]').forEach((row) =>
     row.addEventListener('click', async () => {
