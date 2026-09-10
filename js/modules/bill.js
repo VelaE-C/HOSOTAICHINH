@@ -708,6 +708,9 @@ async function openCreateModal(user, onClose) {
   modal.innerHTML = `<div class="panel-box" style="max-width:760px;width:95%">
     <div class="panel-header"><div>Trình bill thanh toán mới</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
+        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
@@ -749,9 +752,6 @@ async function openCreateModal(user, onClose) {
       ${sectionTitleHtml('Xem trước công thức')}
       <div class="card" id="livePreview" style="padding:4px 14px;margin-top:8px;margin-bottom:13px"></div>
 
-      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
-        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
-        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
       <label class="form-label">Hồ sơ đính kèm</label>
       <div class="card" id="filePickerWrap" style="padding:12px 14px;margin-bottom:13px"></div>
     </div>
