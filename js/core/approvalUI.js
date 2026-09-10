@@ -145,25 +145,39 @@ export async function resolveDefaultTemplates(userId, docType) {
   const { data: myRoles } = await supabase.from('user_roles').select('role_type, department').eq('user_id', userId);
   const depts = (myRoles || []).filter((r) => r.role_type === 'ChuyenVienPhongBan' && r.department).map((r) => r.department);
 
-  let templates = [];
+  let deptTemplates = [];
   if (depts.length) {
+    // Lấy TẤT CẢ bước "ChuyenVienPhongBan" của đúng loại hồ sơ này trước, rồi lọc
+    // lại ở đây — KHÔNG lọc department ngay trong câu truy vấn nữa. Lý do: 1 mẫu
+    // hồ sơ có thể để department = NULL (dùng CHUNG được cho MỌI phòng ban, VD
+    // "Luồng 1"/"Luồng 2" khối văn phòng) — nếu lọc .in('department', depts) ngay
+    // trong SQL thì NULL sẽ KHÔNG BAO GIỜ khớp được (đúng hành vi SQL), khiến các
+    // mẫu dùng chung này biến mất khỏi danh sách của mọi Chuyên viên.
     const { data: matchSteps } = await supabase
       .from('template_steps')
-      .select('template_id, document_templates!inner(id, name, doc_type, is_active)')
+      .select('template_id, department, document_templates!inner(id, name, doc_type, is_active)')
       .eq('role_type', 'ChuyenVienPhongBan')
-      .in('department', depts)
       .eq('document_templates.doc_type', docType)
       .eq('document_templates.is_active', true);
-    const ids = [...new Set((matchSteps || []).map((s) => s.template_id))];
+    // department NULL = dùng chung mọi phòng ban -> luôn khớp.
+    // department có giá trị = chỉ khớp đúng phòng ban của người này.
+    const ids = [...new Set((matchSteps || []).filter((s) => s.department === null || depts.includes(s.department)).map((s) => s.template_id))];
     if (ids.length) {
       const { data } = await supabase.from('document_templates').select('id, name').in('id', ids);
-      templates = data || [];
+      deptTemplates = data || [];
     }
   }
-  if (!templates.length) {
-    const { data } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType).eq('origin_scope', 'site').eq('is_active', true);
-    templates = data || [];
-  }
+
+  // ĐÃ SỬA: mẫu "site" (công trường) giờ LUÔN được lấy thêm và GỘP CHUNG với mẫu
+  // phòng ban (nếu có) — KHÔNG còn là "chỉ lấy khi không tìm thấy mẫu phòng ban
+  // nào" như bản trước. Lý do: 1 người có thể VỪA là QS (công trường) VỪA là
+  // Chuyên viên phòng ban cùng lúc — nếu chỉ lấy 1 trong 2, người đó sẽ mất hẳn
+  // khả năng thấy mẫu công trường bình thường khi họ cũng có vai trò phòng ban.
+  const { data: siteTemplates } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType).eq('origin_scope', 'site').eq('is_active', true);
+
+  const merged = [...deptTemplates, ...(siteTemplates || [])];
+  let templates = [...new Map(merged.map((t) => [t.id, t])).values()];
+
   if (!templates.length) {
     const { data } = await supabase.from('document_templates').select('id, name').eq('doc_type', docType).eq('is_active', true);
     templates = data || [];
@@ -324,7 +338,11 @@ export function wireActions(container, docType, docId, currentStep, assignments,
     if (error) return toast('Lỗi: ' + error.message, 'error');
     toast('Đã từ chối — quay về người trình', 'success');
     const logId = await findJustCreatedRejectLogId('reject');
-    if (logId && confirm('Đính kèm ảnh minh họa cho lý do từ chối này? (không bắt buộc)')) {
+    if (logId) {
+      // offerAttachOneFile tự hiện nút "Chọn ảnh"/"Bỏ qua" riêng — KHÔNG dùng
+      // confirm() nữa, vì sau 2 lần await (RPC + tra lại Lịch sử) ở trên, trình
+      // duyệt coi cú bấm gốc đã "nguội", sẽ âm thầm chặn việc tự mở hộp thoại
+      // chọn file nếu gọi ngay sau confirm() — phải là 1 cú bấm chuột thật mới.
       await offerAttachOneFile(docType, docId, logId, currentUserId);
     }
     onDone();
@@ -368,7 +386,11 @@ export function wireActions(container, docType, docId, currentStep, assignments,
     if (error) return toast('Lỗi: ' + error.message, 'error');
     toast('Đã từ chối thay — quay về người trình', 'success');
     const logId = await findJustCreatedRejectLogId('reject_on_behalf');
-    if (logId && confirm('Đính kèm ảnh minh họa cho lý do từ chối này? (không bắt buộc)')) {
+    if (logId) {
+      // offerAttachOneFile tự hiện nút "Chọn ảnh"/"Bỏ qua" riêng — KHÔNG dùng
+      // confirm() nữa, vì sau 2 lần await (RPC + tra lại Lịch sử) ở trên, trình
+      // duyệt coi cú bấm gốc đã "nguội", sẽ âm thầm chặn việc tự mở hộp thoại
+      // chọn file nếu gọi ngay sau confirm() — phải là 1 cú bấm chuột thật mới.
       await offerAttachOneFile(docType, docId, logId, currentUserId);
     }
     onDone();
