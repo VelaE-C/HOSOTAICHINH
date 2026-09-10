@@ -242,6 +242,8 @@ async function openEditModal(t, user, onClose) {
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Sửa tờ trình — ${t.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
+        <select id="fTemplate" class="form-input">${(templates || []).map((tp) => `<option value="${tp.id}" ${tp.id === t.template_id ? 'selected' : ''}>${tp.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}" ${p.id === t.project_id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Tiêu đề tờ trình</label>
@@ -250,8 +252,6 @@ async function openEditModal(t, user, onClose) {
         <textarea id="fContent" class="form-input" rows="4">${t.content || ''}</textarea></div>
       <div style="margin-bottom:13px"><label class="form-label">Ngày ký hồ sơ (không bắt buộc)</label>
         <input type="date" id="fSignedDate" class="form-input" value="${t.signed_date || ''}"></div>
-      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
-        <select id="fTemplate" class="form-input">${(templates || []).map((tp) => `<option value="${tp.id}" ${tp.id === t.template_id ? 'selected' : ''}>${tp.name}</option>`).join('')}</select></div>
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
   </div>`;
@@ -285,6 +285,9 @@ async function openCreateModal(user, onClose) {
     <div class="panel-header"><div>Trình tờ trình phê duyệt chủ trương</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Chưa cần chọn hợp đồng nào — tờ trình có trước, các hợp đồng sau này sẽ tự chọn tờ trình này làm căn cứ khi tạo.</div>
+      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
+        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Tiêu đề tờ trình</label>
@@ -293,9 +296,6 @@ async function openCreateModal(user, onClose) {
         <textarea id="fContent" class="form-input" rows="4" placeholder="Mô tả ngắn gọn nội dung, phạm vi áp dụng của tờ trình"></textarea></div>
       <div style="margin-bottom:13px"><label class="form-label">Ngày ký hồ sơ (không bắt buộc)</label>
         <input type="date" id="fSignedDate" class="form-input"></div>
-      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
-        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
-        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
       <label class="form-label">Hồ sơ đính kèm</label>
       <div class="card" id="filePickerWrap" style="padding:12px 14px;margin-bottom:13px"></div>
     </div>
