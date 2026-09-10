@@ -393,6 +393,8 @@ async function openEditModal(c, user, onClose) {
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Sửa hợp đồng — ${c.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
+        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}" ${p.id === c.project_id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC)</label>
@@ -410,8 +412,6 @@ async function openEditModal(c, user, onClose) {
         <div><label class="form-label">Tỉ lệ giữ lại bảo hành (%)</label><input type="number" id="fRetention" class="form-input" value="${c.retention_rate ?? 10}" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="${c.vat_rate ?? 8}" step="0.1"></div>
       </div>
-      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
-        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${t.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Tờ trình chủ trương làm căn cứ (không bắt buộc)</label>
         <select id="fToTrinh" class="form-input"><option value="">— Chưa gắn —</option>${(toTrinhList || []).map((t) => `<option value="${t.id}" ${t.id === c.to_trinh_id ? 'selected' : ''}>${t.doc_number} — ${t.title}</option>`).join('')}</select></div>
     </div>
@@ -458,6 +458,9 @@ async function openCreateModal(user, onClose) {
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Trình hợp đồng mới</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
+        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn — không hiện mẫu của phòng ban khác.'}</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC)</label>
@@ -476,9 +479,6 @@ async function openCreateModal(user, onClose) {
         <div><label class="form-label">Tỉ lệ giữ lại bảo hành (%)</label><input type="number" id="fRetention" class="form-input" value="10" step="0.1"></div>
         <div><label class="form-label">Thuế suất VAT (%)</label><input type="number" id="fVat" class="form-input" value="8" step="0.1"></div>
       </div>
-      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
-        <select id="fTemplate" class="form-input">${(templates || []).map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
-        <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn — không hiện mẫu của phòng ban khác.'}</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Tờ trình chủ trương làm căn cứ (không bắt buộc)</label>
         <select id="fToTrinh" class="form-input"><option value="">— Chưa gắn —</option>${(toTrinhList || []).map((t) => `<option value="${t.id}">${t.doc_number} — ${t.title}</option>`).join('')}</select>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">Không có trong danh sách? Vào tab Tờ trình chủ trương tạo trước — hợp đồng vẫn trình được nếu chưa gắn, chỉ hiện cảnh báo nhẹ.</div></div>
