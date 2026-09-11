@@ -175,10 +175,6 @@ export async function openDetail(id, user, onClose) {
   const { data: partnersList } = await supabase.from('partners').select('id, name');
   const partnersMap = Object.fromEntries((partnersList || []).map((p) => [p.id, p.name]));
   const sum = summarizeRev(lines || [], contractsMap, latestPaidByContract);
-  const totalPaymentA = (lines || []).filter((l) => l.item_code === 'A' || l.item_code.startsWith('A.')).reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
-  const totalPaymentB = (lines || []).filter((l) => l.level === 2 && l.item_code.startsWith('B.')).reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
-  const totalPayment = totalPaymentA + totalPaymentB;
-  const totalRemaining = sum.totalA + sum.totalB - totalPayment;
 
   const { assignments, logs, logAttachments } = await loadApprovalState('bctc', id);
   const preview = rev.status === 'pending' ? await loadStepPreview(rev.project_id, rev.template_id, rev.current_step) : {};
@@ -210,8 +206,6 @@ export async function openDetail(id, user, onClose) {
         ${finRowSimple('Tổng Hàng B (Chi phí)', sum.totalB)}
         ${finRowSimple('Hàng C — Lợi nhuận (A-B)', sum.totalC, true)}
         <div style="font-size:12px;color:var(--gray6);padding:6px 0">Tỷ suất lợi nhuận: <b>${sum.totalA ? ((sum.totalC / sum.totalA) * 100).toFixed(2) : '0.00'}%</b></div>
-        ${finRowSimple('Tổng Đã thanh toán (A+B)', totalPayment)}
-        ${finRowSimple('Tổng Còn lại (A+B)', totalRemaining, true)}
       </div>
       ${rev.status !== 'draft' ? `<div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Luồng phê duyệt</div>${railHtml(assignments, rev.current_step, preview)}
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5);margin-top:20px">Lịch sử</div>${timelineHtml(logs, logAttachments)}` : `<div class="empty-note">Hồ sơ đang ở trạng thái nháp — bấm Trình duyệt để bắt đầu luồng phê duyệt.</div>`}
