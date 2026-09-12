@@ -55,16 +55,21 @@ function viewableUrl(path, signedUrl) {
 
 // Excel (xlsx/xls/csv) qua Google Docs Viewer trên PC thường báo "Không xem trước
 // được tệp" vì Google không đọc được link ký tạm dạng này — thay vì cố xem trước,
-// tải hẳn file về máy (giống bấm "Save As"). PDF/ảnh/Word vẫn giữ nguyên hành vi cũ
-// vì đang chạy tốt. Trên điện thoại vẫn mở link gốc như cũ (Quick Look/Xem sẵn có
-// của hệ điều hành đọc Excel tốt hơn tải về).
+// tải hẳn file về máy (giống bấm "Save As"). Trên điện thoại vẫn mở link gốc như
+// cũ (Quick Look/Xem sẵn có của hệ điều hành đọc Excel tốt hơn tải về).
 const IS_EXCEL = (path) => /\.(xlsx|xls|csv)$/i.test(path);
 
-// ZIP không xem trước được ở BẤT KỲ đâu (không như Excel còn có Quick Look/Xem sẵn
-// trên di động) — luôn tải về máy, mọi nền tảng, không cố mở xem.
-const IS_ZIP = (path) => /\.zip$/i.test(path);
+// Chỉ liệt kê đúng những loại XEM ĐƯỢC (thay vì liệt kê từng loại KHÔNG xem được
+// như trước) — cách này tự động đúng luôn với bất kỳ định dạng lạ nào phát sinh
+// sau này (VD .msg thư Outlook, .rar, .dwg...), không cần nhớ thêm từng loại một
+// mỗi khi có ai đó tải lên 1 kiểu file mới. Loại KHÔNG nằm trong danh sách xem
+// được bên dưới sẽ LUÔN tải về máy — tránh mở tab mới ra trang trắng/lỗi vì không
+// nơi nào xem trước được.
 function needsForceDownload(path) {
-  return IS_ZIP(path) || (!IS_MOBILE && IS_EXCEL(path));
+  if (/\.(pdf|png|jpe?g|gif|webp)$/i.test(path)) return false; // xem trực tiếp được, mọi nền tảng
+  if (/\.docx?$/i.test(path)) return false; // Word: Google Docs Viewer (PC) hoặc trình xem sẵn của máy (di động)
+  if (IS_EXCEL(path)) return !IS_MOBILE; // Excel: di động xem bằng trình xem sẵn có, PC thì tải về
+  return true; // mọi loại còn lại (ZIP, MSG, hoặc bất kỳ đuôi lạ nào khác) -> luôn tải về
 }
 
 async function downloadFile(url, fileName) {
@@ -346,29 +351,51 @@ export async function uploadLogAttachment(file, ownerType, ownerId, approvalLogI
 // Mở hộp thoại chọn file 1 lần (không bắt buộc chọn) — dùng ngay sau khi Duyệt/Từ
 // chối để hỏi "có muốn đính kèm ảnh minh họa không". Trả về Promise, tự resolve dù
 // người dùng có chọn file hay bấm Hủy.
+// Hiện 1 khối nổi ở góc màn hình, hỏi có muốn đính kèm ảnh không — CỐ Ý dùng nút
+// bấm thật (không phải confirm() + tự động mở hộp thoại chọn file), vì trình duyệt
+// CHỈ cho mở hộp thoại chọn file khi lệnh đó nằm NGAY TRONG 1 cú bấm chuột thật của
+// người dùng. Nếu trước đó đã có bước chờ (await) nào xen giữa (VD gọi RPC xong mới
+// tới đây), trình duyệt coi cú bấm gốc đã "nguội" và âm thầm chặn, không mở gì cả,
+// không báo lỗi — đây chính là lỗi đã gặp khi dùng confirm() trước đó.
 export function offerAttachOneFile(ownerType, ownerId, approvalLogId, uploaderId) {
   return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#fff;border:1px solid var(--gray3);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);padding:12px 16px;z-index:9999;display:flex;align-items:center;gap:10px;font-size:13px;max-width:92vw;flex-wrap:wrap';
+    wrap.innerHTML = `
+      <span>📎 Đính kèm ảnh minh họa cho lý do vừa từ chối?</span>
+      <button type="button" id="offerAttachYes" class="btn btn-sm btn-primary">Chọn ảnh</button>
+      <button type="button" id="offerAttachNo" class="btn btn-sm btn-secondary">Bỏ qua</button>
+    `;
+    document.body.appendChild(wrap);
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.pdf,.png,.jpg,.jpeg';
     input.style.display = 'none';
     document.body.appendChild(input);
+
     let settled = false;
-    const cleanup = async (uploaded) => {
+    const cleanup = (uploaded) => {
       if (settled) return;
       settled = true;
+      wrap.remove();
       input.remove();
       resolve(uploaded);
     };
+
+    wrap.querySelector('#offerAttachNo').addEventListener('click', () => cleanup(false));
+    // Bấm nút này = cú bấm chuột THẬT, trực tiếp -> trình duyệt luôn cho mở hộp
+    // thoại chọn file, không bị chặn như gọi input.click() tự động sau await.
+    wrap.querySelector('#offerAttachYes').addEventListener('click', () => input.click());
+
     input.addEventListener('change', async () => {
       const file = input.files[0];
       if (!file) return cleanup(false);
       const ok = await uploadLogAttachment(file, ownerType, ownerId, approvalLogId, uploaderId);
       cleanup(ok);
     });
-    // Bấm Hủy trên hộp thoại chọn file — hỗ trợ tốt trên Chrome/Edge hiện đại, để
-    // dọn input ẩn ngay, không chờ người dùng thao tác gì thêm.
-    input.addEventListener('cancel', () => cleanup(false));
-    input.click();
+    // Bấm Hủy trên hộp thoại chọn file — hỗ trợ tốt trên Chrome/Edge hiện đại.
+    // Không cleanup() ở đây vì khối nổi vẫn cần đứng yên cho người dùng bấm lại
+    // "Chọn ảnh" nếu lỡ tay Hủy nhầm — chỉ "Bỏ qua" mới thực sự đóng hẳn.
   });
 }
