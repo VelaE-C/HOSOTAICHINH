@@ -119,9 +119,9 @@ export async function render(container, user) {
 
   container.innerHTML = `
     ${overdueCount ? `<div style="font-size:12.5px;background:#FEF2F2;color:var(--red);padding:9px 12px;border-radius:7px;margin-bottom:12px">⚠️ <b>${overdueCount} hồ sơ</b> đang trễ hạn duyệt — xem các dòng có nhãn đỏ bên dưới.</div>` : ''}
+    ${sectionHtml('Tờ trình chủ trương', byType.totrinh)}
     ${sectionHtml('Hợp đồng', byType.contract)}
     ${sectionHtml('Bill thanh toán', byType.bill)}
-    ${sectionHtml('Tờ trình chủ trương', byType.totrinh)}
   `;
 
   container.querySelectorAll('[data-type]').forEach((row) =>
