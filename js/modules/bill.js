@@ -69,7 +69,7 @@ function renderLivePreview(modal) {
     ${finRow('Số tiền phải thanh toán đợt này', r.K, 'K = I+J', true)}`;
 }
 
-// Kỳ số khóa theo đúng thứ tự lũy kế, J tự = -D của kỳ liền trước (trừ Kỳ 1 vẫn tự nhập tay)
+// Kỳ số khóa theo đúng thứ tự lũy kế, J tự = -I của kỳ liền trước (trừ Kỳ 1 vẫn tự nhập tay)
 // Nếu CHƯA có hợp đồng liên kết (đi bill trước, làm hợp đồng bù sau) — vẫn theo dõi được,
 // tạm dùng cặp Dự án + Đối tác làm "chuỗi tạm" cho tới khi có hợp đồng thật
 // Tìm bill KỲ HỢP LỆ MỚI NHẤT cho đúng hợp đồng (hoặc cặp Dự án+Đối tác nếu đi bill tự
@@ -77,7 +77,7 @@ function renderLivePreview(modal) {
 // tồn tại (số kỳ đó được dùng lại). Dùng chung cho cả gợi ý số kỳ (updateKyAndJ) lẫn
 // chặn thật lúc lưu (doSave) — để 2 nơi luôn tính ra cùng 1 kết quả, không lệch nhau.
 async function findLatestValidBill(contractId, projectId, partnerId, excludeBillId) {
-  let q = supabase.from('bills').select('id, period_no, val_a, val_b, val_d, status').neq('status', 'cancelled').order('period_no', { ascending: false }).limit(5);
+  let q = supabase.from('bills').select('id, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, status').neq('status', 'cancelled').order('period_no', { ascending: false }).limit(5);
   if (contractId) {
     q = q.eq('contract_id', contractId);
   } else if (projectId && partnerId) {
@@ -198,7 +198,7 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBill
         <div style="color:var(--gray6);font-weight:400;margin-top:4px">
           Nếu đây là bill kế tiếp của 1 hợp đồng vừa mới bắt buộc gắn (deal đã có bill từ trước, chỉ là trước đây chưa gắn hợp đồng), tự nhập tay đúng 2 chỗ:<br>
           • <b>Đợt số</b>: nhập đúng số đợt thực tế ngoài đời (VD đợt trước là Đợt 4 thì đợt này nhập 5)<br>
-          • <b>J (Trừ các đợt thanh toán trước)</b>: mở lại bill đợt liền trước (cũ, chưa gắn hợp đồng) trong danh sách, xem đúng số "Giá trị thực hiện lũy kế", nhập vào đây dưới dạng <b>số âm</b><br>
+          • <b>J (Trừ các đợt thanh toán trước)</b>: mở lại bill đợt liền trước (cũ, chưa gắn hợp đồng) trong danh sách, xem đúng số "Tổng giá trị thanh toán bao gồm tạm ứng" (I = D+E+F+G+H), nhập vào đây dưới dạng <b>số âm</b><br>
           Từ đợt kế tiếp trở đi, hệ thống tự động lại bình thường.
         </div>`;
     return;
@@ -214,14 +214,18 @@ async function updateKyAndJ(modal, contractId, projectId, partnerId, excludeBill
   // Hợp đồng + toàn bộ PLHĐ hiện có tại thời điểm đó.
 
   const okToProceed = latest.status === 'paid';
+  // ĐÃ SỬA: J tự động lấy = -I của kỳ trước (Tổng giá trị thanh toán bao gồm tạm
+  // ứng = D+E+F+G+H), KHÔNG phải -D — vì I mới là số tiền THẬT SỰ đã tính đủ cho
+  // kỳ trước (đã cộng giữ lại/tạm ứng/khấu trừ), trừ đúng số đó mới không bị lệch.
+  const latestI = Number(latest.val_d) + (Number(latest.val_e) || 0) + (Number(latest.val_f) || 0) + (Number(latest.val_g) || 0) + (Number(latest.val_h) || 0);
   periodInput.title = !okToProceed ? `⚠️ Đợt ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — chưa trình/lưu được đợt này cho tới khi đợt ${latest.period_no} thanh toán xong` : '';
   if (noteEl) {
     noteEl.innerHTML = okToProceed
-      ? `<span style="color:var(--red)">⚠️ Đợt ${latest.period_no + 1} này được lập dựa trên đợt ${latest.period_no} (đã duyệt xong, lũy kế đợt trước: ${fmt(latest.val_d)} đ).</span>`
+      ? `<span style="color:var(--red)">⚠️ Đợt ${latest.period_no + 1} này được lập dựa trên đợt ${latest.period_no} (đã duyệt xong, tổng thanh toán đợt trước I: ${fmt(latestI)} đ).</span>`
       : `<span style="color:var(--red);font-weight:600">⚠️ Đợt ${latest.period_no} chưa duyệt xong (đang ${BILL_STATUS_LABEL[latest.status] || latest.status}) — phải đợi đợt ${latest.period_no} thanh toán xong mới lưu/trình được đợt ${latest.period_no + 1}.</span>`;
   }
 
-  jInput.value = formatMoneyInput(-Number(latest.val_d));
+  jInput.value = formatMoneyInput(-latestI);
   jInput.readOnly = true;
   jInput.style.background = 'var(--gray1)';
 }
