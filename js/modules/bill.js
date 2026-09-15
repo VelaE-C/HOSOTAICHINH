@@ -496,8 +496,9 @@ export async function openDetail(id, user, onClose) {
       </div>
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Chi tiết thanh toán</div>
       <div class="card" style="padding:4px 14px">
-        ${finRow('Giá trị thực hiện lũy kế đến kỳ này (bao gồm VAT)', b.val_d, 'D')}
+        ${finRow('Giá trị thực hiện lũy kế đến kỳ này (chưa VAT)', b.val_d - r.VAT, '= D - VAT')}
         ${finRow(`VAT (${b.vat_rate}%)`, r.VAT, '= D - D/(1+VAT%)')}
+        ${finRow('Giá trị thực hiện lũy kế đến kỳ này (bao gồm VAT)', b.val_d, 'D')}
         ${finRow('Tổng giá trị tiền giữ lại', r.E, 'E')}
         ${finRow('Giá trị tạm ứng', b.val_f, 'F')}
         ${finRow('Hoàn trả tạm ứng đến kỳ này', r.G, 'G')}
