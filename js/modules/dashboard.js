@@ -25,7 +25,7 @@ export async function render(container, user) {
       supabase.from('v_flagged_documents').select('*'),
       // Bổ sung status / parent_contract_id / projects(code,name) để bảng cảnh báo
       // tra được Dự án, Nhà cung cấp và cộng dồn PLHĐ mà không phải gọi thêm query
-      supabase.from('contracts').select('id, doc_number, value, status, parent_contract_id, project_id, origin_department, partners(name), projects(code, name)'),
+      supabase.from('contracts').select('id, doc_number, value, value_adjustment, status, parent_contract_id, project_id, origin_department, partners(name), projects(code, name)'),
       // Bổ sung id / doc_number để đối chiếu đúng dòng cảnh báo là bill nào
       supabase.from('bills').select('id, doc_number, contract_id, val_d'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
@@ -113,8 +113,11 @@ export async function render(container, user) {
   });
   const plhdGroup = (contractId) => plhdByParent[contractId] || { active: [], pending: [] };
   const sumVal = (arr) => (arr || []).reduce((s, k) => s + Number(k.value || 0), 0);
-  // Giá trị hợp đồng ĐANG CÓ HIỆU LỰC = HĐ gốc + các PLHĐ đã duyệt xong
-  const effectiveValue = (c) => (c ? Number(c.value || 0) + sumVal(plhdGroup(c.id).active) : 0);
+  // Giá trị hợp đồng ĐANG CÓ HIỆU LỰC = HĐ gốc + điều chỉnh tay + các PLHĐ đã duyệt xong.
+  // Công thức này PHẢI khớp đúng hàm fn_contract_ceiling() bên database — nếu sau này
+  // sửa một bên thì phải sửa cả bên kia, nếu không số trên màn hình sẽ khác số dùng để
+  // gắn cảnh báo, và không ai biết tin bên nào.
+  const effectiveValue = (c) => (c ? Number(c.value || 0) + Number(c.value_adjustment || 0) + sumVal(plhdGroup(c.id).active) : 0);
 
   const flaggedRows = (flagged || []).map((f, i) => {
     const docType = f.doc_type || 'contract';
@@ -185,7 +188,7 @@ export async function render(container, user) {
       (g.pending.length ? kv(`PLHĐ đang duyệt (${g.pending.length})`, fmt(pendingSum) + ' ₫ <span style="color:var(--gray5)">— chưa tính vào giá trị trên</span>', 'color:var(--amber);font-weight:600') : '');
 
     if (over <= 0) {
-      hint = '✅ Hiện không còn vượt. Cảnh báo này là <b>cờ cũ chưa được gỡ</b> trong database — xem mục xử lý cờ tồn đọng.';
+      hint = '✅ Hiện không còn vượt — có thể PLHĐ vừa được duyệt xong. Tải lại trang (Ctrl+Shift+R) là cảnh báo sẽ biến mất.';
     } else if (g.pending.length && pendingSum >= over) {
       const du = pendingSum - over;
       hint = `⏳ PLHĐ <b>${esc(g.pending.map((k) => k.doc_number).join(', '))}</b> đang chờ duyệt. Duyệt xong sẽ bù đủ phần vượt${du > 0 ? ` và còn dư <b>${fmt(du)} ₫</b>` : ''} → cảnh báo tự hết. <b>Việc cần làm: đẩy PLHĐ này qua nốt luồng duyệt.</b>`;
