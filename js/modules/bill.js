@@ -624,7 +624,7 @@ async function openEditModal(bill, user, onClose) {
           <div style="margin-top:8px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label><input type="text" id="fDeductNote" class="form-input" value="${bill.deduction_note || ''}"></div>
         </div>
         <div><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="text" inputmode="numeric" id="fI" class="form-input money-input" value="${formatMoneyInput(bill.val_i)}">
-          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Đợt 1: tự nhập tay. Từ đợt 2: tự khóa, lấy đúng -D của đợt liền trước.</div></div>
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Đợt 1: tự nhập tay. Từ đợt 2: tự khóa, lấy đúng -I (Tổng giá trị thanh toán bao gồm tạm ứng) của đợt liền trước.</div></div>
       </div>
 
       ${sectionTitleHtml('Xem trước công thức')}
@@ -751,7 +751,7 @@ async function openCreateModal(user, onClose) {
           <div style="margin-top:8px"><label class="form-label">Lý do khấu trừ (bắt buộc nếu H khác 0)</label><input type="text" id="fDeductNote" class="form-input" placeholder="VD: Phạt chậm tiến độ 5 ngày"></div>
         </div>
         <div><label class="form-label">J — Trừ các đợt thanh toán trước (số âm)</label><input type="text" inputmode="numeric" id="fI" class="form-input money-input" value="0">
-          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Đợt 1: tự nhập tay. Từ đợt 2: tự khóa, lấy đúng -D của đợt liền trước.</div></div>
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Đợt 1: tự nhập tay. Từ đợt 2: tự khóa, lấy đúng -I (Tổng giá trị thanh toán bao gồm tạm ứng) của đợt liền trước.</div></div>
       </div>
 
       ${sectionTitleHtml('Xem trước công thức')}
