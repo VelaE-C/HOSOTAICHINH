@@ -99,15 +99,22 @@ export async function render(container, user) {
   const billById = Object.fromEntries((bills || []).map((b) => [b.id, b]));
   const billByNumber = Object.fromEntries((bills || []).map((b) => [b.doc_number, b]));
 
-  // PLHĐ con của từng hợp đồng gốc (bỏ PLHĐ đã hủy) — để tính đúng "giá trị hợp
-  // đồng sau điều chỉnh", vì Case 1 phải so lũy kế bill với giá trị ĐÃ cộng PLHĐ
+  // PLHĐ con của từng hợp đồng gốc, TÁCH RIÊNG đã duyệt / đang duyệt.
+  // Chỉ PLHĐ đã duyệt (status='active') mới được cộng vào giá trị hợp đồng —
+  // PLHĐ còn đang duyệt thì về pháp lý chưa có hiệu lực, cộng vào sẽ làm cảnh báo
+  // tự tắt oan chỉ vì ai đó vừa bấm lưu nháp. PLHĐ đang duyệt hiện thành một dòng
+  // riêng, để biết cảnh báo sắp được gỡ bằng cách nào.
   const plhdByParent = {};
   (contracts || []).forEach((c) => {
-    if (!c.parent_contract_id || c.status === 'cancelled') return;
-    (plhdByParent[c.parent_contract_id] = plhdByParent[c.parent_contract_id] || []).push(c);
+    if (!c.parent_contract_id) return;
+    const g = (plhdByParent[c.parent_contract_id] = plhdByParent[c.parent_contract_id] || { active: [], pending: [] });
+    if (c.status === 'active') g.active.push(c);
+    else if (c.status === 'pending' || c.status === 'draft') g.pending.push(c);
   });
-  const plhdSum = (contractId) => (plhdByParent[contractId] || []).reduce((s, k) => s + Number(k.value || 0), 0);
-  const adjustedValue = (c) => (c ? Number(c.value || 0) + plhdSum(c.id) : 0);
+  const plhdGroup = (contractId) => plhdByParent[contractId] || { active: [], pending: [] };
+  const sumVal = (arr) => (arr || []).reduce((s, k) => s + Number(k.value || 0), 0);
+  // Giá trị hợp đồng ĐANG CÓ HIỆU LỰC = HĐ gốc + các PLHĐ đã duyệt xong
+  const effectiveValue = (c) => (c ? Number(c.value || 0) + sumVal(plhdGroup(c.id).active) : 0);
 
   const flaggedRows = (flagged || []).map((f, i) => {
     const docType = f.doc_type || 'contract';
@@ -137,40 +144,64 @@ export async function render(container, user) {
   // Dòng chi tiết bung ra khi bấm — chỉ hiện đúng các con số của CHÍNH cảnh báo đó
   function flagDetailHtml(r) {
     const kv = (k, v, style = '') => `<div style="color:var(--gray5)">${k}</div><div class="mono" style="${style}">${v}</div>`;
+    const pct = (over, base) => (base > 0 ? ` <span style="color:var(--gray5)">(${((over / base) * 100).toFixed(0)}% giá trị HĐ)</span>` : '');
     let body = '';
-    if (r.docType === 'contract' && r.contract) {
-      const c = r.contract;
-      const kids = plhdByParent[c.id] || [];
-      const adj = adjustedValue(c);
-      const lk = lũyKeByContract[c.id] || 0;
-      const over = lk - adj;
+    let hint = '';
+
+    // ---- Case 2: vượt ngân sách phân bổ (so ngân sách dự án, không liên quan PLHĐ) ----
+    if (/ngân sách/i.test(r.reason)) {
+      const rows = (budgetRows || []).filter((b) => b.project_id === r.contract?.project_id);
+      const alloc = rows.reduce((s, b) => s + Number(b.allocated_value || 0), 0);
+      const commit = rows.reduce((s, b) => s + Number(b.committed || 0), 0);
       body =
-        kv('Giá trị hợp đồng gốc', fmt(c.value) + ' ₫') +
-        kv(`Phụ lục đã có (${kids.length})`, (kids.length ? (plhdSum(c.id) >= 0 ? '+' : '') + fmt(plhdSum(c.id)) + ' ₫' : 'Chưa có PLHĐ nào')) +
-        kv('Giá trị HĐ sau điều chỉnh', fmt(adj) + ' ₫', 'font-weight:700') +
-        kv('Lũy kế đã bill (cao nhất)', fmt(lk) + ' ₫') +
-        kv('Phần vượt', (over > 0 ? fmt(over) + ' ₫' : '—') + (over > 0 && adj > 0 ? ` <span style="color:var(--gray5)">(${((over / adj) * 100).toFixed(1)}%)</span>` : ''), `font-weight:700;color:${over > 0 ? 'var(--red)' : 'var(--green)'}`);
-    } else if (r.docType === 'bill') {
-      const c = r.contract;
-      const adj = adjustedValue(c);
-      const lk = Number(r.bill?.val_d || 0);
-      const over = lk - adj;
-      body =
-        kv('Hợp đồng liên kết', c ? esc(c.doc_number) : '<span style="color:var(--amber)">Chưa gắn hợp đồng</span>') +
-        kv('Giá trị HĐ sau điều chỉnh', c ? fmt(adj) + ' ₫' : '—', 'font-weight:700') +
-        kv('Lũy kế đến đợt này (D)', fmt(lk) + ' ₫') +
-        kv('Phần vượt', c && over > 0 ? fmt(over) + ' ₫' + (adj > 0 ? ` <span style="color:var(--gray5)">(${((over / adj) * 100).toFixed(1)}%)</span>` : '') : '—', `font-weight:700;color:${over > 0 ? 'var(--red)' : 'var(--green)'}`);
-    } else {
-      body = kv('Chi tiết', 'Không tra được hồ sơ gốc — có thể ngoài phạm vi bạn được xem.');
+        kv('Dự án', esc(r.projectName || r.projectCode)) +
+        kv('Ngân sách phân bổ', fmt(alloc) + ' ₫') +
+        kv('Đã cam kết (hợp đồng)', fmt(commit) + ' ₫', 'font-weight:700') +
+        kv('Phần vượt ngân sách', commit > alloc ? fmt(commit - alloc) + ' ₫' + pct(commit - alloc, alloc) : '—', `font-weight:700;color:${commit > alloc ? 'var(--red)' : 'var(--green)'}`) +
+        kv('Giá trị hợp đồng này', fmt(r.contract?.value) + ' ₫');
+      hint = 'Hướng xử lý: điều chỉnh ngân sách phân bổ của dự án, hoặc rà lại giá trị hợp đồng trước khi duyệt.';
+      return flagDetailWrap(r, body, hint);
     }
-    const hint =
-      r.docType === 'contract'
-        ? 'Hướng xử lý: tạo Phụ lục hợp đồng bổ sung cho phần vượt, hoặc rà lại giá trị bill đã trình.'
-        : 'Hướng xử lý: chờ PLHĐ của hợp đồng được duyệt trước khi duyệt bill này.';
+
+    // ---- Case 1: lấy hợp đồng làm gốc, phân biệt PLHĐ đã duyệt / đang duyệt ----
+    const c = r.contract;
+    if (!c) {
+      return flagDetailWrap(r, kv('Chi tiết', 'Không tra được hồ sơ gốc — có thể ngoài phạm vi bạn được xem.'), '');
+    }
+    const g = plhdGroup(c.id);
+    const eff = effectiveValue(c); // HĐ gốc + PLHĐ ĐÃ DUYỆT
+    const pendingSum = sumVal(g.pending); // PLHĐ đang duyệt — chưa có hiệu lực
+    // Hợp đồng: so với lũy kế cao nhất của mọi bill. Bill: so với chính đợt đó.
+    const lk = r.docType === 'contract' ? lũyKeByContract[c.id] || 0 : Number(r.bill?.val_d || 0);
+    const over = lk - eff;
+
+    body =
+      (r.docType === 'bill' ? kv('Hợp đồng liên kết', esc(c.doc_number)) : '') +
+      kv('Giá trị HĐ gốc', fmt(c.value) + ' ₫') +
+      kv(`PLHĐ đã duyệt (${g.active.length})`, g.active.length ? '+' + fmt(sumVal(g.active)) + ' ₫' : '<span style="color:var(--gray4)">Chưa có PLHĐ nào được duyệt</span>') +
+      kv('Giá trị HĐ đang có hiệu lực', fmt(eff) + ' ₫', 'font-weight:700') +
+      kv(r.docType === 'contract' ? 'Lũy kế đã bill (cao nhất)' : 'Lũy kế đến đợt này (D)', fmt(lk) + ' ₫') +
+      kv('Phần vượt', over > 0 ? fmt(over) + ' ₫' + pct(over, eff) : '—', `font-weight:700;color:${over > 0 ? 'var(--red)' : 'var(--green)'}`) +
+      (g.pending.length ? kv(`PLHĐ đang duyệt (${g.pending.length})`, fmt(pendingSum) + ' ₫ <span style="color:var(--gray5)">— chưa tính vào giá trị trên</span>', 'color:var(--amber);font-weight:600') : '');
+
+    if (over <= 0) {
+      hint = '✅ Hiện không còn vượt. Cảnh báo này là <b>cờ cũ chưa được gỡ</b> trong database — xem mục xử lý cờ tồn đọng.';
+    } else if (g.pending.length && pendingSum >= over) {
+      const du = pendingSum - over;
+      hint = `⏳ PLHĐ <b>${esc(g.pending.map((k) => k.doc_number).join(', '))}</b> đang chờ duyệt. Duyệt xong sẽ bù đủ phần vượt${du > 0 ? ` và còn dư <b>${fmt(du)} ₫</b>` : ''} → cảnh báo tự hết. <b>Việc cần làm: đẩy PLHĐ này qua nốt luồng duyệt.</b>`;
+    } else if (g.pending.length) {
+      hint = `⚠️ PLHĐ đang duyệt chỉ bù được ${fmt(pendingSum)} ₫, <b>vẫn thiếu ${fmt(over - pendingSum)} ₫</b>. Cần tạo thêm PLHĐ hoặc rà lại giá trị bill đã trình.`;
+    } else {
+      hint = `⚠️ Chưa có PLHĐ nào đang chạy. Cần tạo PLHĐ bổ sung tối thiểu <b>${fmt(over)} ₫</b>, hoặc rà lại giá trị bill đã trình.`;
+    }
+    return flagDetailWrap(r, body, hint);
+  }
+
+  function flagDetailWrap(r, body, hint) {
     return `<tr class="flag-detail" id="flag-detail-${r.idx}" style="display:none">
       <td colspan="5" style="background:var(--gray1,#F5F6F8);padding:14px 18px">
-        <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:13px;max-width:560px">${body}</div>
-        <div style="font-size:12px;color:var(--gray5);margin-top:10px">${hint}</div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:13px;max-width:620px">${body}</div>
+        ${hint ? `<div style="font-size:12.5px;color:var(--gray5);margin-top:11px;max-width:620px;line-height:1.5">${hint}</div>` : ''}
         ${r.recId ? `<button class="btn btn-sm btn-secondary" data-open="${r.docType}" data-open-id="${r.recId}" style="margin-top:12px">Mở hồ sơ đầy đủ →</button>` : ''}
       </td></tr>`;
   }
@@ -190,7 +221,7 @@ export async function render(container, user) {
             <td>${esc(r.partner)}</td>
             <td>${r.typeLabel}</td>
             <td class="mono">${esc(r.docNumber)}</td>
-            <td><span class="badge progress">${esc(r.reason)}</span> <span class="flag-caret" style="color:var(--gray4);font-size:11px">▾</span></td>
+            <td><span class="badge progress">${esc(r.reason)}</span> <span class="flag-caret" style="color:var(--gray4);font-size:10px;margin-left:4px">▼</span></td>
           </tr>${flagDetailHtml(r)}`,
         )
         .join('')}
@@ -271,7 +302,7 @@ function wireFlaggedTable(container, user) {
       const open = detail.style.display !== 'none';
       detail.style.display = open ? 'none' : '';
       const caret = tr.querySelector('.flag-caret');
-      if (caret) caret.textContent = open ? '▾' : '▴';
+      if (caret) caret.textContent = open ? '▼' : '▲';
     });
   });
 
@@ -300,7 +331,7 @@ function wireFlaggedTable(container, user) {
         const detail = container.querySelector(`#flag-detail-${tr.dataset.fi}`);
         if (detail && !show) detail.style.display = 'none'; // ẩn dòng cha thì thu luôn chi tiết
         const caret = tr.querySelector('.flag-caret');
-        if (caret && !show) caret.textContent = '▾';
+        if (caret && !show) caret.textContent = '▼';
       });
     });
   }
