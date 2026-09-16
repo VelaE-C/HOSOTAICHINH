@@ -107,7 +107,9 @@ function contractOptionsHtml(contracts, projectId, partnerId, keepId) {
     if (partnerId && c.partner_id !== partnerId) return false;
     return true;
   });
-  const placeholder = keepId ? '' : '<option value="" disabled selected>— Chọn hợp đồng (bắt buộc) —</option>';
+  // Ô Đối tác giờ nằm TRÊN ô này, nên lời nhắc đổi theo: chưa chọn đối tác thì nhắc
+  // chọn đối tác trước (danh sách sẽ rút lại còn 1-2 hợp đồng, khỏi phải dò mã).
+  const placeholder = keepId ? '' : `<option value="" disabled selected>${partnerId ? '— Chọn hợp đồng (bắt buộc) —' : '— Chọn Đối tác ở trên trước để lọc danh sách —'}</option>`;
   return (
     placeholder +
     filtered.map((c) => `<option value="${c.id}" ${c.id === keepId ? 'selected' : ''} data-partner="${c.partner_id}" data-vat="${c.vat_rate}">${c.doc_number}</option>`).join('')
@@ -592,10 +594,11 @@ async function openEditModal(bill, user, onClose) {
     <div class="panel-body">
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}" ${p.id === bill.project_id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}</select></div>
-      <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
-        <select id="fContract" class="form-input">${contractOptionsHtml(contracts, bill.project_id, bill.partner_id, bill.contract_id)}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
-        ${searchSelectHtml('fPartner', partners, bill.partner_id, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
+        ${searchSelectHtml('fPartner', partners, bill.partner_id, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chọn Đối tác trước — danh sách Hợp đồng bên dưới sẽ tự rút gọn còn đúng hợp đồng của đối tác này.</div></div>
+      <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết *</label>
+        <select id="fContract" class="form-input">${contractOptionsHtml(contracts, bill.project_id, bill.partner_id, bill.contract_id)}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đợt số</label>
         <input type="number" id="fPeriod" class="form-input" value="${bill.period_no}" min="1">
         <div id="kyNote" style="font-size:11.5px;margin-top:4px"></div></div>
@@ -718,11 +721,12 @@ async function openCreateModal(user, onClose) {
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">${templates.length <= 1 ? 'Tự nhận diện đúng mẫu theo phòng ban/vai trò của bạn.' : 'Đã lọc sẵn các mẫu phù hợp với bạn.'}</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('')}</select></div>
-      <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết (không bắt buộc)</label>
-        <select id="fContract" class="form-input">${contractOptionsHtml(contracts, projects?.[0]?.id, null, null)}</select>
-        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chọn hợp đồng sẽ tự điền A, B, Đối tác, % VAT theo đúng hợp đồng đó.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
-        ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}</div>
+        ${searchSelectHtml('fPartner', partners, null, { placeholder: 'Gõ tên hoặc MST để tìm...', labelFn: partnerLabelFn, subFn: partnerSubFn })}
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chọn Đối tác trước — danh sách Hợp đồng bên dưới sẽ tự rút gọn còn đúng hợp đồng của đối tác này, khỏi phải dò mã.</div></div>
+      <div style="margin-bottom:13px"><label class="form-label">Hợp đồng liên kết *</label>
+        <select id="fContract" class="form-input">${contractOptionsHtml(contracts, projects?.[0]?.id, null, null)}</select>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chọn hợp đồng sẽ tự điền A, B, % VAT theo đúng hợp đồng đó.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Đợt số</label>
         <input type="number" id="fPeriod" class="form-input" value="1" min="1">
         <div id="kyNote" style="font-size:11.5px;margin-top:4px"></div></div>
