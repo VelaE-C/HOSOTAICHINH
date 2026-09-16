@@ -11,6 +11,7 @@
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, wireTimelineAttachments, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
+import { exportBctcExcel, exportBctcPdf } from './bctcExport.js';
 
 let VIEW_PROJECT = 'ALL';
 let VIEW_PAGE = 1;
@@ -92,6 +93,79 @@ function summarizeRev(lines, contractsMap, latestPaidByContract) {
     }
   });
   return { totalA, totalB, totalC: totalA - totalB, groups };
+}
+
+// ============================================================
+// MODEL XUẤT FILE — dựng sẵn toàn bộ dòng/số liệu ở dạng thuần dữ liệu để đưa sang
+// bctcExport.js. Cố ý tách riêng: bctcExport.js không import gì từ file này (tránh
+// nạp vòng), và mọi phép tính số liệu vẫn nằm đúng một chỗ duy nhất là ở đây.
+//
+// Hai cột "NGÀY KÝ HỢP ĐỒNG" và "DỮ LIỆU QUYẾT TOÁN" hiện để TRỐNG có chủ ý — hệ
+// thống chưa quản lý 2 dữ liệu này, nhưng vẫn giữ đúng cột theo file mẫu giấy của
+// công ty để điền tay sau khi xuất ra.
+// ============================================================
+function buildExportModel(rev, lines, contractsMap, latestPaidByContract, partnersMap, sum) {
+  const all = lines || [];
+  const rows = [];
+
+  const detailRow = (l) => {
+    const contract = l.contract_id ? contractsMap[l.contract_id] : null;
+    const forecast = lineForecast(l, contractsMap);
+    const payment = linePayment(l, latestPaidByContract);
+    const remaining = forecast - payment;
+    return {
+      kind: 'item',
+      stt: l.item_code,
+      name: l.ten_hang_muc,
+      partner: contract ? partnersMap[contract.partner_id] || '' : l.partners?.name || '',
+      forecast,
+      contractValue: lineContractValue(l, contractsMap),
+      docNumber: contract ? contract.doc_number : l.doc_number_manual || '',
+      signedDate: '', // chưa quản lý trong hệ thống — để trống cho điền tay
+      note: l.status_note || '',
+      settlement: null, // chưa quản lý trong hệ thống — để trống cho điền tay
+      payment,
+      remaining,
+      pct: forecast > 0 ? remaining / forecast : null,
+    };
+  };
+  const totalRow = (kind, stt, name, rws) => {
+    const forecast = rws.reduce((s, l) => s + lineForecast(l, contractsMap), 0);
+    const payment = rws.reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
+    return { kind, stt, name, partner: '', forecast, contractValue: null, docNumber: '', signedDate: '', note: '', settlement: null, payment, remaining: forecast - payment, pct: null };
+  };
+
+  const aRows = all.filter((l) => l.item_code === 'A' || l.item_code.startsWith('A.'));
+  rows.push(totalRow('section', 'A', 'DOANH THU', aRows));
+  aRows.forEach((l) => rows.push(detailRow(l)));
+
+  const bDetail = all.filter((l) => l.level === 2 && l.item_code.startsWith('B.'));
+  rows.push(totalRow('section', 'B', 'CHI PHÍ', bDetail));
+  all
+    .filter((l) => l.level === 1 && l.item_code.startsWith('B.'))
+    .forEach((g) => {
+      const detail = all.filter((l) => l.parent_code === g.item_code);
+      rows.push(totalRow('group', g.item_code, g.ten_hang_muc, detail));
+      detail.forEach((l) => rows.push(detailRow(l)));
+    });
+
+  const d = new Date();
+  return {
+    company: 'CÔNG TY KỸ THUẬT XÂY DỰNG VELA',
+    projectName: rev.projects?.name || '',
+    docNumber: rev.doc_number || '',
+    note: rev.note || '',
+    updatedLabel: `Tháng ${String(d.getMonth() + 1).padStart(2, '0')} Năm ${d.getFullYear()}`,
+    sheetName: `Rev${String(rev.rev_no ?? 1).padStart(2, '0')}`,
+    fileBase: `BCTC_${(rev.projects?.name || 'DuAn').replace(/\s+/g, '_')}_${rev.doc_number || ''}`,
+    rows,
+    totals: {
+      totalA: sum.totalA,
+      totalB: sum.totalB,
+      totalC: sum.totalC,
+      margin: sum.totalA ? sum.totalC / sum.totalA : 0,
+    },
+  };
 }
 
 export async function render(container, user) {
@@ -190,6 +264,8 @@ export async function openDetail(id, user, onClose) {
   box.innerHTML = `
     <div class="panel-header"><div><div>${rev.projects?.name || '—'}</div><div class="meta mono">${rev.doc_number}</div></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-sm btn-secondary" id="btnExportExcel" title="Xuất file Excel đúng mẫu báo cáo của công ty">📊 Xuất Excel</button>
+        <button class="btn btn-sm btn-secondary" id="btnExportPdf" title="Mở hộp thoại in — chọn &quot;Lưu thành PDF&quot;">🖨️ Xuất PDF</button>
         ${canEditNow ? `<button class="btn btn-sm btn-secondary" id="btnEdit">✏️ Sửa</button>` : ''}
         ${canDelete ? `<button class="btn btn-sm btn-danger" id="btnDelete">🗑️ Xóa (đang lưu tạm)</button>` : ''}
         ${canCancel ? `<button class="btn btn-sm btn-danger" id="btnCancel">🗑️ Hủy hồ sơ</button>` : ''}
@@ -212,6 +288,19 @@ export async function openDetail(id, user, onClose) {
     </div>
     ${actionFooterHtml(rev, 'bctc', user, assignments, (user.roles || []).includes('Admin'))}
   `;
+
+  // ---- Xuất file: dựng model 1 lần, dùng chung cho cả Excel lẫn PDF ----
+  const exportModel = () => buildExportModel(rev, lines || [], contractsMap, latestPaidByContract, partnersMap, sum);
+  box.querySelector('#btnExportExcel')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang tạo…';
+    await exportBctcExcel(exportModel(), (msg) => toast('Lỗi xuất Excel: ' + msg, 'error'));
+    btn.disabled = false;
+    btn.textContent = label;
+  });
+  box.querySelector('#btnExportPdf')?.addEventListener('click', () => exportBctcPdf(exportModel(), (msg) => toast(msg, 'error')));
 
   box.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(rev, lines || [], user, onClose));
