@@ -105,7 +105,7 @@ export async function exportBctcExcel(model, onError) {
       ws.getRow(row).height = height;
     };
 
-    bigTitle(1, model.company || 'CÔNG TY KỸ THUẬT XÂY DỰNG VELA', 16, C.titleRed, 46.5);
+    bigTitle(1, model.company || 'CÔNG TY CỔ PHẦN KỸ THUẬT XÂY DỰNG VELA', 16, C.titleRed, 46.5);
     ws.getRow(2).height = 8;
     bigTitle(3, 'BÁO CÁO TÀI CHÍNH ĐỊNH KỲ', 16, C.titleRed, 27);
     bigTitle(4, `DỰ ÁN: ${model.projectName || '—'}`, 14, C.titleBlue, 27);
@@ -298,7 +298,7 @@ export function exportBctcPdf(model, onError) {
     <div class="no-print"><button onclick="window.print()" style="padding:8px 16px;font-size:13px">🖨️ In / Lưu thành PDF</button>
       <span style="font-size:12px;color:#555;margin-left:10px">Trong hộp thoại in, chọn máy in là <b>"Lưu thành PDF"</b>, khổ giấy <b>A3 ngang</b>.</span></div>
     <img class="logo" src="${LOGO_URL}" alt="VELA" onerror="this.style.display='none'">
-    <h1>${esc(model.company || 'CÔNG TY KỸ THUẬT XÂY DỰNG VELA')}</h1>
+    <h1>${esc(model.company || 'CÔNG TY CỔ PHẦN KỸ THUẬT XÂY DỰNG VELA')}</h1>
     <h2>BÁO CÁO TÀI CHÍNH ĐỊNH KỲ</h2>
     <div class="proj">DỰ ÁN: ${esc(model.projectName || '—')}</div>
     <div class="upd">Thời gian cập nhật: ${esc(model.updatedLabel || nowLabel())}</div>
