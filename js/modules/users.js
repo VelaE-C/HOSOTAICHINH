@@ -10,6 +10,91 @@ const ALL_ROLES = ['QS', 'CHT', 'GDDA', 'ChuyenVienPhongBan', 'TruongPhongChucNa
 // (PROJECT_ROLES cũ đã bỏ — nay dùng OTHER_PROJECT_ROLES bên dưới, gộp chung màn Dự án)
 const DOC_TYPE_LABEL = { contract: 'Hợp đồng', bill: 'Bill thanh toán', totrinh: 'Tờ trình chủ trương' };
 
+// ============================================================
+// CHỌN NGƯỜI DUYỆT THEO PHÒNG BAN — dùng chung cho form Tạo mẫu và Sửa mẫu
+//
+// TRƯỚC ĐÂY chỉ 3 vai trò (Trưởng phòng / Chuyên viên / PTGD) mới có ô chọn phòng
+// ban, và riêng PTGD còn bị ẨN ô đó khi Đơn vị trình = Công trường. Hậu quả: không
+// có cách nào chỉ định "PTGD phụ trách khối văn phòng" cho một mẫu Công trường —
+// hệ thống luôn bắt PTGD phụ trách DỰ ÁN, dù nghiệp vụ cần người khác.
+//
+// Thực tế hàm _create_step_assignments bên database ĐÃ hỗ trợ sẵn: dòng bước nào có
+// ghi department thì tra thẳng user_roles theo đúng phòng đó, kể cả mẫu Công trường
+// (riêng PTGD: hễ có ghi phòng ban là KHÔNG tra theo dự án nữa). Chỉ giao diện chặn.
+// Nên giờ mở ô chọn phòng ban cho MỌI vai trò tra theo user_roles.
+//
+// CHT/GDDA không có ô này vì luôn phân theo dự án, không bao giờ tra phòng ban.
+// ============================================================
+const NO_DEPT_ROLES = ['CHT', 'GDDA', 'Admin'];
+const roleNeedsDept = (r) => !NO_DEPT_ROLES.includes(r);
+
+// Dựng ô tick + ô chọn phòng ban cho 1 vai trò ở 1 bước
+function roleRowHtml(step, role, deptOptions, checked) {
+  return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
+    <input type="checkbox" class="step-role" data-step="${step}" data-role="${role}" ${checked ? 'checked' : ''}>${role}
+    ${roleNeedsDept(role) ? `<select class="step-dept form-input" data-step="${step}" data-role="${role}" style="width:150px;padding:3px 7px;font-size:11px">${deptOptions}</select>` : ''}
+  </label>`;
+}
+
+// Khối "Dự kiến ai duyệt" đặt ngay dưới mỗi bước — mô phỏng đúng cách hàm
+// _create_step_assignments tìm người, để thấy ngay hậu quả của từng lựa chọn thay vì
+// phải lưu rồi tạo hồ sơ thật mới biết ai được gán.
+function stepPreviewHtml(step) {
+  return `<div class="step-preview" data-step="${step}" style="font-size:11.5px;line-height:1.75;color:var(--gray6);margin:-6px 0 14px;padding:8px 12px;background:var(--gray1);border-radius:7px"></div>`;
+}
+
+function whoWillApprove(role, dept, scope, roleRows) {
+  if (role === 'CHT' || role === 'GDDA') return '<i style="color:var(--gray5)">người phụ trách đúng dự án của hồ sơ</i>';
+  if (role === 'Admin') return '<i style="color:var(--gray5)">—</i>';
+  // PTGD để trống phòng ban: mẫu Công trường -> bám dự án; mẫu Phòng ban -> bám phòng của người trình
+  if (role === 'PTGD' && !dept) {
+    return scope === 'site'
+      ? '<i style="color:var(--gray5)">PTGD phụ trách đúng dự án của hồ sơ</i>'
+      : '<i style="color:var(--gray5)">PTGD phụ trách phòng ban của người trình</i>';
+  }
+  const rows = (roleRows || []).filter((r) => r.role_type === role && (dept ? r.department === dept : r.department == null));
+  if (!rows.length) {
+    return `<span style="color:var(--red);font-weight:600">⚠️ chưa ai giữ vai trò này${dept ? ' ở ' + dept : ' ở mức toàn công ty'} — bước sẽ bị BỎ QUA, không ai duyệt</span>`;
+  }
+  const names = [...new Set(rows.map((r) => r.users?.full_name || '(không rõ tên)'))];
+  return `<b style="color:var(--green)">${names.join(', ')}</b>${names.length > 1 ? ' <span style="color:var(--gray5)">— chỉ cần 1 người duyệt là xong bước</span>' : ''}`;
+}
+
+// Gắn vào modal (Tạo mẫu / Sửa mẫu): vẽ lại khối dự kiến mỗi khi tick hoặc đổi phòng ban
+function wireStepPreview(modal, roleRows) {
+  function draw() {
+    const scope = modal.querySelector('#fScope').value;
+    modal.querySelectorAll('.step-preview').forEach((box) => {
+      const step = box.dataset.step;
+      const picks = [...modal.querySelectorAll(`.step-role[data-step="${step}"]:checked`)];
+      if (!picks.length) {
+        box.innerHTML = '<span style="color:var(--gray4)">Chưa chọn vai trò nào ở bước này</span>';
+        return;
+      }
+      box.innerHTML =
+        `<div style="font-size:10.5px;text-transform:uppercase;color:var(--gray5);margin-bottom:3px">Dự kiến ai duyệt</div>` +
+        picks
+          .map((cb) => {
+            const role = cb.dataset.role;
+            const dept = modal.querySelector(`.step-dept[data-step="${step}"][data-role="${role}"]`)?.value || null;
+            return `<div><b>${role}</b>${dept ? ` <span style="color:var(--gray5)">· ${dept}</span>` : ''} → ${whoWillApprove(role, dept, scope, roleRows)}</div>`;
+          })
+          .join('');
+    });
+  }
+  modal.addEventListener('change', (e) => {
+    if (e.target.classList?.contains('step-role') || e.target.classList?.contains('step-dept') || e.target.id === 'fScope') draw();
+  });
+  draw();
+  return draw;
+}
+
+// Danh sách vai trò gắn với từng người — nguồn để tính khối "Dự kiến ai duyệt"
+async function fetchRoleHolders() {
+  const { data } = await supabase.from('user_roles').select('role_type, department, users(full_name)');
+  return data || [];
+}
+
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
   const isAdmin = (user.roles || []).includes('Admin'); // chỉ Admin mới thêm/sửa được tài khoản + vai trò hệ thống
@@ -124,6 +209,7 @@ async function openCreateTemplateModal(onClose) {
   const modal = ensureModal();
   const { data: existingTemplates } = await supabase.from('document_templates').select('id, name');
   const { data: departments } = await supabase.from('departments').select('name').order('name');
+  const roleHolders = await fetchRoleHolders();
   const deptOptions = `<option value="">— Mọi phòng ban —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Tạo mẫu hồ sơ mới</div><button class="panel-close" id="pClose">✕</button></div>
@@ -138,43 +224,39 @@ async function openCreateTemplateModal(onClose) {
           <select id="fDocType" class="form-input"><option value="contract">Hợp đồng</option><option value="bill">Bill thanh toán</option><option value="totrinh">Tờ trình chủ trương</option></select></div>
         <div><label class="form-label">Đơn vị trình *</label>
           <select id="fScope" class="form-input"><option value="site">Công trường</option><option value="department">Phòng ban</option></select>
-          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Công trường: PTGD phân theo dự án. Phòng ban: PTGD phân theo phòng ban (ô bên dưới).</div></div>
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Quyết định AI ĐƯỢC TRÌNH hồ sơ. Công trường: người được phân công vào đúng dự án. Phòng ban: người giữ đúng vai trò ở Bước 1.</div></div>
       </div>
       <div style="margin-bottom:13px"><label class="form-label">Mô tả</label><input type="text" id="fDesc" class="form-input"></div>
+      <div style="font-size:11.5px;color:var(--gray6);background:#FFF7ED;border-radius:7px;padding:9px 12px;margin-bottom:12px">
+        💡 Ô phòng ban cạnh mỗi vai trò = <b>chỉ định đích danh người duyệt</b>. Để trống thì hệ thống tự tìm người ở mức toàn công ty.
+        Chọn một phòng ban thì chỉ người giữ vai trò đó <b>ở đúng phòng ban ấy</b> mới được gán.
+        Khối xám dưới mỗi bước cho biết ngay <b>ai sẽ duyệt</b>.
+      </div>
       ${[1, 2, 3, 4].map((step) => `
         <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước ${step}</div>
         <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
-          ${ALL_ROLES.map((r) => {
-            const needsDept = r === 'TruongPhongChucNang' || r === 'ChuyenVienPhongBan' || r === 'PTGD';
-            return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" class="step-role" data-step="${step}" data-role="${r}">${r}
-              ${needsDept ? `<select class="step-dept form-input dept-for-${r === 'PTGD' ? 'ptgd' : 'office'}" data-step="${step}" data-role="${r}" style="width:140px;padding:3px 7px;font-size:11px">${deptOptions}</select>` : ''}
-            </label>`;
-          }).join('')}
-        </div>`).join('')}
+          ${ALL_ROLES.map((r) => roleRowHtml(step, r, deptOptions, false)).join('')}
+        </div>
+        ${stepPreviewHtml(step)}`).join('')}
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">Lưu mẫu hồ sơ</button></div>
   </div>`;
   showModal(modal, onClose);
   modal.querySelector('#pClose').addEventListener('click', () => closeModal(modal, onClose));
 
-  // PTGD chỉ cần ô phòng ban khi Đơn vị trình = Phòng ban; ở Công trường PTGD phân theo
-  // dự án nên ẩn ô này đi, tránh nhầm lẫn
-  function togglePtgdDept() {
-    const isDept = modal.querySelector('#fScope').value === 'department';
-    modal.querySelectorAll('.dept-for-ptgd').forEach((el) => {
-      el.style.display = isDept ? '' : 'none';
-      if (!isDept) el.value = '';
-    });
-  }
-  modal.querySelector('#fScope').addEventListener('change', togglePtgdDept);
-  togglePtgdDept();
+  // Ô phòng ban giờ hiện cho MỌI vai trò và ở CẢ hai kiểu Đơn vị trình — xem ghi chú
+  // ở đầu file. Thay cho việc ẩn/hiện, dưới mỗi bước có khối "Dự kiến ai duyệt" cho
+  // biết ngay lựa chọn hiện tại sẽ ra đúng người nào.
+  const redrawPreview = wireStepPreview(modal, roleHolders);
 
   // Nhân bản: tick sẵn đúng các ô của mẫu được chọn, kể cả phòng ban đã ghi
   modal.querySelector('#fCopyFrom')?.addEventListener('change', async (e) => {
     modal.querySelectorAll('.step-role').forEach((cb) => (cb.checked = false));
     modal.querySelectorAll('.step-dept').forEach((inp) => (inp.value = ''));
-    if (!e.target.value) return;
+    if (!e.target.value) {
+      redrawPreview();
+      return;
+    }
     const { data: steps } = await supabase.from('template_steps').select('step_no, role_type, department').eq('template_id', e.target.value);
     (steps || []).forEach((s) => {
       const cb = modal.querySelector(`.step-role[data-step="${s.step_no}"][data-role="${s.role_type}"]`);
@@ -182,6 +264,7 @@ async function openCreateTemplateModal(onClose) {
       const dept = modal.querySelector(`.step-dept[data-step="${s.step_no}"][data-role="${s.role_type}"]`);
       if (dept && s.department) dept.value = s.department;
     });
+    redrawPreview();
     toast('Đã sao chép cấu hình — chỉnh sửa rồi lưu như mẫu mới', 'info');
   });
 
@@ -220,6 +303,7 @@ async function openEditTemplateModal(templateId, onClose) {
   if (!tpl) return toast('Không tải được mẫu hồ sơ', 'error');
   const { data: currentSteps } = await supabase.from('template_steps').select('step_no, role_type, department').eq('template_id', templateId);
   const { data: departments } = await supabase.from('departments').select('name').order('name');
+  const roleHolders = await fetchRoleHolders();
   const deptOptions = `<option value="">— Mọi phòng ban —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
   modal.innerHTML = `<div class="panel-box">
     <div class="panel-header"><div>Sửa mẫu hồ sơ — ${tpl.name}</div><button class="panel-close" id="pClose">✕</button></div>
@@ -238,22 +322,21 @@ async function openEditTemplateModal(templateId, onClose) {
             <option value="site" ${tpl.origin_scope === 'site' ? 'selected' : ''}>Công trường</option>
             <option value="department" ${tpl.origin_scope === 'department' ? 'selected' : ''}>Phòng ban</option>
           </select>
-          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Công trường: PTGD phân theo dự án. Phòng ban: PTGD phân theo phòng ban (ô bên dưới).</div></div>
+          <div style="font-size:11px;color:var(--gray4);margin-top:4px">Quyết định AI ĐƯỢC TRÌNH hồ sơ. Công trường: người được phân công vào đúng dự án. Phòng ban: người giữ đúng vai trò ở Bước 1.</div></div>
       </div>
       <div style="margin-bottom:13px"><label class="form-label">Mô tả</label><input type="text" id="fDesc" class="form-input" value="${tpl.description || ''}"></div>
       <div style="margin-bottom:13px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="fActive" ${tpl.is_active !== false ? 'checked' : ''}> Đang hoạt động (bỏ tick để ngừng dùng mẫu này — hồ sơ đang chọn mẫu này không bị ảnh hưởng, chỉ ẩn khỏi danh sách chọn khi tạo hồ sơ mới)</label></div>
+      <div style="font-size:11.5px;color:var(--gray6);background:#FFF7ED;border-radius:7px;padding:9px 12px;margin-bottom:12px">
+        💡 Ô phòng ban cạnh mỗi vai trò = <b>chỉ định đích danh người duyệt</b>. Để trống thì hệ thống tự tìm người ở mức toàn công ty.
+        Chọn một phòng ban thì chỉ người giữ vai trò đó <b>ở đúng phòng ban ấy</b> mới được gán.
+        Khối xám dưới mỗi bước cho biết ngay <b>ai sẽ duyệt</b>.
+      </div>
       ${[1, 2, 3, 4].map((step) => `
         <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước ${step}</div>
         <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
-          ${ALL_ROLES.map((r) => {
-            const needsDept = r === 'TruongPhongChucNang' || r === 'ChuyenVienPhongBan' || r === 'PTGD';
-            const existing = (currentSteps || []).find((s) => s.step_no === step && s.role_type === r);
-            return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="checkbox" class="step-role" data-step="${step}" data-role="${r}" ${existing ? 'checked' : ''}>${r}
-              ${needsDept ? `<select class="step-dept form-input dept-for-${r === 'PTGD' ? 'ptgd' : 'office'}" data-step="${step}" data-role="${r}" style="width:140px;padding:3px 7px;font-size:11px">${deptOptions}</select>` : ''}
-            </label>`;
-          }).join('')}
-        </div>`).join('')}
+          ${ALL_ROLES.map((r) => roleRowHtml(step, r, deptOptions, !!(currentSteps || []).find((s) => s.step_no === step && s.role_type === r))).join('')}
+        </div>
+        ${stepPreviewHtml(step)}`).join('')}
     </div>
     <div class="panel-footer"><button class="btn btn-primary" id="btnSave" style="margin-left:auto">💾 Lưu thay đổi</button></div>
   </div>`;
@@ -267,15 +350,9 @@ async function openEditTemplateModal(templateId, onClose) {
     if (dept) dept.value = s.department;
   });
 
-  function togglePtgdDept() {
-    const isDept = modal.querySelector('#fScope').value === 'department';
-    modal.querySelectorAll('.dept-for-ptgd').forEach((el) => {
-      el.style.display = isDept ? '' : 'none';
-      if (!isDept) el.value = '';
-    });
-  }
-  modal.querySelector('#fScope').addEventListener('change', togglePtgdDept);
-  togglePtgdDept();
+  // Ô phòng ban hiện cho MỌI vai trò, ở CẢ hai kiểu Đơn vị trình (xem ghi chú đầu file).
+  // Khối "Dự kiến ai duyệt" dưới mỗi bước cập nhật ngay theo từng lựa chọn.
+  wireStepPreview(modal, roleHolders);
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const name = modal.querySelector('#fName').value.trim();
