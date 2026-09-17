@@ -6,6 +6,9 @@
 import { supabase } from '../core/config.js';
 import { fmt, toast, loading, pushModalHistory, popModalHistory, normalizeSearchText } from '../core/utils.js';
 import { calcBill } from './bill.js'; // dùng chung ĐÚNG 1 công thức tính K với trang Bill — tránh lệch số
+import { exportListExcel } from './bctcExport.js'; // hàm xuất Excel dùng chung — cùng bộ màu/font với file BCTC
+
+const PARTNER_TYPE_LABEL = { NCC: 'NCC — Nhà cung cấp', NTP: 'NTP — Nhà thầu phụ', DTC: 'ĐTC — Đội thi công', DVK: 'DVK — Dịch vụ khác' };
 
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
@@ -26,7 +29,10 @@ export async function render(container, user) {
   container.innerHTML = `
     <div style="display:flex;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap">
       <input type="text" class="form-input" id="nameFilter" placeholder="🔎 Lọc theo tên Đối tác..." style="max-width:320px">
-      <button class="btn btn-primary" id="btnNew">+ Khai báo đối tác mới</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary" id="btnExport">📊 Xuất Excel</button>
+        <button class="btn btn-primary" id="btnNew">+ Khai báo đối tác mới</button>
+      </div>
     </div>
     <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Đối tác</th><th>Mã viết tắt</th><th>MST</th><th>Loại</th><th>Số hợp đồng</th></tr></thead><tbody id="partnerTbody"></tbody></table></div>`;
 
@@ -42,17 +48,56 @@ export async function render(container, user) {
     container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openDetail(r.dataset.id, user, () => render(container, user))));
   }
 
-  container.querySelector('#partnerTbody').innerHTML = renderRows(partners || []);
+  // Danh sách ĐANG HIỂN THỊ (sau khi lọc) — xuất Excel bám đúng cái đang thấy trên
+  // màn hình, không phải lúc nào cũng xuất toàn bộ. Đang lọc "Cát Vạn Thịnh" mà bấm
+  // xuất ra cả nghìn dòng thì vừa sai ý vừa khó dùng.
+  let currentList = partners || [];
+
+  container.querySelector('#partnerTbody').innerHTML = renderRows(currentList);
   wireRowClicks();
 
   container.querySelector('#nameFilter').addEventListener('input', (e) => {
     const q = normalizeSearchText(e.target.value);
-    const filtered = q ? (partners || []).filter((p) => normalizeSearchText(p.name).includes(q)) : partners || [];
-    container.querySelector('#partnerTbody').innerHTML = renderRows(filtered);
+    currentList = q ? (partners || []).filter((p) => normalizeSearchText(p.name).includes(q)) : partners || [];
+    container.querySelector('#partnerTbody').innerHTML = renderRows(currentList);
     wireRowClicks();
   });
 
   container.querySelector('#btnNew').addEventListener('click', () => openCreateModal(user, () => render(container, user)));
+
+  container.querySelector('#btnExport').addEventListener('click', async (e) => {
+    if (!currentList.length) return toast('Không có đối tác nào để xuất', 'error');
+    const btn = e.currentTarget;
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang tạo…';
+    const isFiltered = currentList.length !== (partners || []).length;
+    await exportListExcel(
+      {
+        subtitle: 'DANH SÁCH ĐỐI TÁC NTP / NCC',
+        note: `Tổng cộng: ${currentList.length} đối tác${isFiltered ? ` (đã lọc từ ${(partners || []).length} đối tác)` : ''}`,
+        sheetName: 'Doi tac',
+        fileBase: `Danh_sach_doi_tac_${new Date().toISOString().slice(0, 10)}`,
+        columns: [
+          { key: 'name', header: 'ĐỐI TÁC', width: 58 },
+          { key: 'abbr', header: 'MÃ VIẾT TẮT', width: 18, center: true },
+          { key: 'mst', header: 'MST', width: 20, center: true },
+          { key: 'type', header: 'LOẠI', width: 26 },
+          { key: 'count', header: 'SỐ HỢP ĐỒNG', width: 16, num: true },
+        ],
+        rows: currentList.map((p) => ({
+          name: p.name,
+          abbr: p.abbr,
+          mst: p.mst, // để dạng chữ — MST có số 0 đứng đầu, ép thành số sẽ mất số 0
+          type: PARTNER_TYPE_LABEL[p.type] || p.type,
+          count: countMap[p.id] || 0,
+        })),
+      },
+      (msg) => toast('Lỗi xuất Excel: ' + msg, 'error'),
+    );
+    btn.disabled = false;
+    btn.textContent = label;
+  });
 }
 
 export async function openDetail(id, user, onClose) {
