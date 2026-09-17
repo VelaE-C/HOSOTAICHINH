@@ -212,6 +212,102 @@ export async function exportBctcExcel(model, onError) {
   }
 }
 
+// ============================================================
+// XUẤT EXCEL DÙNG CHUNG cho các bảng danh sách (Đối tác, Hợp đồng, Bill, Tờ trình...)
+//
+// Dùng lại đúng bộ màu / font / khung viền của file BCTC mẫu, để mọi file xuất ra
+// từ hệ thống nhìn thống nhất như nhau. Muốn thêm nút Xuất Excel cho một trang
+// danh sách khác thì chỉ cần gọi hàm này, không phải viết lại định dạng.
+//
+//   exportListExcel({
+//     subtitle: 'DANH SÁCH ĐỐI TÁC',
+//     columns : [{ key:'name', header:'ĐỐI TÁC', width:55 }, { key:'n', header:'SỐ HĐ', width:14, num:true }],
+//     rows    : [{ name:'CÔNG TY A', n: 3 }, ...],
+//     fileBase: 'Danh_sach_doi_tac',
+//   }, (msg) => toast(msg, 'error'));
+//
+// withIndex (mặc định bật): tự chèn cột STT đánh số 1,2,3... ở đầu bảng.
+// ============================================================
+export async function exportListExcel(opts, onError) {
+  const { subtitle = 'DANH SÁCH', note = '', columns = [], rows = [], fileBase = 'Danh_sach', sheetName = 'Danh sách', withIndex = true } = opts || {};
+  try {
+    const ExcelJS = await loadExcelJS();
+    const cols = withIndex ? [{ key: '__stt', header: 'STT', width: 8, center: true }, ...columns] : columns;
+    const n = cols.length;
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'VELA Hồ Sơ TC';
+    wb.created = new Date();
+    const ws = wb.addWorksheet(sheetName, {
+      views: [{ state: 'frozen', ySplit: 8 }],
+      pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: '8:8', margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } },
+    });
+    ws.columns = cols.map((c) => ({ key: c.key, width: c.width || 18 }));
+
+    const lastCol = ws.getColumn(n).letter;
+    const bigTitle = (row, text, size, color, height, italic) => {
+      ws.mergeCells(`A${row}:${lastCol}${row}`);
+      const cell = ws.getCell(`A${row}`);
+      cell.value = text;
+      cell.font = { name: 'Arial', size, bold: !italic, italic: !!italic, color: { argb: color } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      ws.getRow(row).height = height;
+    };
+
+    bigTitle(1, 'CÔNG TY CỔ PHẦN KỸ THUẬT XÂY DỰNG VELA', 16, C.titleRed, 46.5);
+    ws.getRow(2).height = 8;
+    bigTitle(3, subtitle, 16, C.titleRed, 27);
+    bigTitle(4, `Thời gian xuất: ${nowLabel()}`, 13, 'FF000000', 24);
+    bigTitle(5, note || `Tổng cộng: ${rows.length} dòng`, 10, 'FF595959', 18, true);
+    ws.getRow(6).height = 8;
+    ws.getRow(7).height = 10;
+
+    try {
+      const res = await fetch(LOGO_URL);
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        const imgId = wb.addImage({ buffer: buf, extension: 'png' });
+        ws.addImage(imgId, { tl: { col: 0.15, row: 0.15 }, ext: { width: 132, height: 40 } });
+      }
+    } catch (_) { /* không có logo cũng không sao */ }
+
+    const headerRow = ws.getRow(8);
+    cols.forEach((c, i) => {
+      const cell = headerRow.getCell(i + 1);
+      cell.value = c.header;
+      cell.font = { name: 'Arial', size: 12, bold: true };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.header } };
+      cell.border = thinBorder();
+    });
+    headerRow.height = 40;
+
+    rows.forEach((row, idx) => {
+      const excelRow = ws.getRow(9 + idx);
+      cols.forEach((c, i) => {
+        const cell = excelRow.getCell(i + 1);
+        const v = c.key === '__stt' ? idx + 1 : row[c.key];
+        cell.value = v === '' || v == null ? null : c.num ? Number(v) : v;
+        cell.font = { name: 'Arial', size: 10 };
+        cell.border = thinBorder();
+        cell.alignment = {
+          vertical: 'middle',
+          wrapText: !c.num && !c.center,
+          horizontal: c.center || c.key === '__stt' ? 'center' : c.num ? 'right' : 'left',
+        };
+        if (c.num) cell.numFmt = NUM_FMT;
+      });
+      excelRow.height = 22;
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    downloadBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${safeFileName(fileBase)}.xlsx`);
+  } catch (err) {
+    if (onError) onError(err.message || String(err));
+    else throw err;
+  }
+}
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
