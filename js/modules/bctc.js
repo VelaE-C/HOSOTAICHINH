@@ -151,7 +151,7 @@ function buildExportModel(rev, lines, contractsMap, latestPaidByContract, partne
 
   const d = new Date();
   return {
-    company: 'CÔNG TY KỸ THUẬT XÂY DỰNG VELA',
+    company: 'CÔNG TY CỔ PHẦN KỸ THUẬT XÂY DỰNG VELA',
     projectName: rev.projects?.name || '',
     docNumber: rev.doc_number || '',
     note: rev.note || '',
