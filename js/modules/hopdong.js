@@ -25,14 +25,27 @@ function plhdSeqLabel(docNumber) {
   return m ? `PLHĐ số ${m[1]}` : '—';
 }
 
+// Chống vỡ giao diện khi người dùng gõ dấu < > " ' vào ô nội dung tự do.
+// Bắt buộc dùng cho thuộc tính title="..." — chỉ một dấu nháy kép trong nội dung
+// hợp đồng là đủ làm hỏng cả dòng HTML.
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+}
+
+// Rút gọn cho tooltip trong bảng danh sách
+function shorten(s, n = 180) {
+  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+  return t.length > n ? t.slice(0, n - 1) + '…' : t;
+}
+
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
   const [{ data: projects }, { data: contracts, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name), projects(name, code)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, partners(name), projects(name, code)')
+      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, scope_summary, partners(name), projects(name, code)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, scope_summary, partners(name), projects(name, code)')
     ).neq('status', 'cancelled').order('created_at', { ascending: false }),
   ]);
 
@@ -99,12 +112,14 @@ export async function render(container, user) {
 function renderContractRows(list) {
   if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 6}" style="text-align:center;color:var(--gray4);padding:20px">Không có hợp đồng nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
   return list
-    .map((c) =>
-      IS_MOBILE
-        ? `<tr class="click" data-id="${c.id}"><td>${c.projects?.code || '—'}</td><td>${c.partners?.name || '—'}</td><td class="mono">${fmt(c.value)}</td></tr>`
-        : `<tr class="click" data-id="${c.id}"><td>${c.projects?.code || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
-    <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td></tr>`,
-    )
+    .map((c) => {
+      // Rê chuột lên dòng là thấy ngay nội dung hợp đồng, khỏi phải mở hồ sơ ra xem
+      const tip = c.scope_summary ? ` title="${esc(shorten(c.scope_summary))}"` : '';
+      return IS_MOBILE
+        ? `<tr class="click" data-id="${c.id}"${tip}><td>${c.projects?.code || '—'}</td><td>${c.partners?.name || '—'}</td><td class="mono">${fmt(c.value)}</td></tr>`
+        : `<tr class="click" data-id="${c.id}"${tip}><td>${c.projects?.code || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
+    <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td></tr>`;
+    })
     .join('');
 }
 
@@ -149,8 +164,9 @@ async function openPrintCoverSheet(c, assignments, logs) {
         <tr><td class="label">Số HĐ/PLHĐ</td><td>${c.doc_number}</td></tr>
         <tr><td class="label">Ngày lập</td><td>${vnDate(c.signed_date)}</td></tr>
         <tr><td class="label">Quy trình duyệt</td><td>${c.document_templates?.name || '—'}</td></tr>
-        <tr><td class="label">Đối tác</td><td>${c.partners?.name || '—'}</td></tr>
-        <tr><td class="label">Gói thầu / Nội dung</td><td>${c.projects?.name || '—'}</td></tr>
+        <tr><td class="label">Đối tác</td><td>${esc(c.partners?.name || '—')}</td></tr>
+        <tr><td class="label">Dự án</td><td>${esc(c.projects?.name || '—')}</td></tr>
+        <tr><td class="label">Gói thầu / Nội dung</td><td style="white-space:pre-wrap">${esc(c.scope_summary || c.projects?.name || '—')}</td></tr>
         <tr><td class="label">Ngày gửi</td><td>${submitLog ? vnDate(submitLog.created_at) : '—'}</td></tr>
         <tr><td class="label">Người lập / Người gửi duyệt</td><td>${c.users?.full_name || '—'}</td></tr>
         <tr><td class="label">Giá trị HĐ/PLHĐ</td><td>${fmt(c.value)} ₫ (đã bao gồm VAT)</td></tr>
@@ -221,7 +237,12 @@ export async function openDetail(id, user, onClose) {
       </div></div>
     <div class="panel-body">
       ${c.parent_contract_id ? `<div class="card" style="background:var(--lblue);border:1px solid #BFDBFE;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#1D4ED8;cursor:pointer" id="btnGoParent">📎 Đây là PLHĐ của hợp đồng <b>${c.parent?.doc_number || '—'}</b> — bấm để xem hợp đồng gốc</div>` : ''}
-      ${c.parent_contract_id && c.change_note ? `<div class="card" style="padding:10px 14px;margin-bottom:12px"><div style="font-size:11px;text-transform:uppercase;color:var(--gray5);margin-bottom:4px">Nội dung thay đổi so với HĐ cũ</div><div style="font-size:13px;white-space:pre-wrap">${c.change_note}</div></div>` : ''}
+      ${c.parent_contract_id && c.change_note ? `<div class="card" style="padding:10px 14px;margin-bottom:12px"><div style="font-size:11px;text-transform:uppercase;color:var(--gray5);margin-bottom:4px">Nội dung thay đổi so với HĐ cũ</div><div style="font-size:13px;white-space:pre-wrap">${esc(c.change_note)}</div></div>` : ''}
+      ${!c.parent_contract_id
+        ? c.scope_summary
+          ? `<div class="card" style="padding:10px 14px;margin-bottom:12px"><div style="font-size:11px;text-transform:uppercase;color:var(--gray5);margin-bottom:4px">Nội dung hợp đồng</div><div style="font-size:13px;white-space:pre-wrap">${esc(c.scope_summary)}</div></div>`
+          : `<div class="card" style="padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:var(--gray4)">Chưa ghi nội dung hợp đồng${canEditNow ? ' — bấm ✏️ Sửa để bổ sung.' : '.'}</div>`
+        : ''}
       ${c.pending_addendum_flag ? `<div class="warn-box">⚠️ <div><b>Case 1 — Đang chờ bổ sung phụ lục hợp đồng</b> (bill đã vượt giá trị hợp đồng gốc).</div></div>` : ''}
       <div class="kv">
         <div class="k">Dự án</div><div class="v">${c.projects?.name || '—'}</div>
@@ -404,6 +425,9 @@ async function openEditModal(c, user, onClose) {
           ${CONTRACT_TYPES.map((t) => `<option ${t === c.contract_type ? 'selected' : ''}>${t}</option>`).join('')}
           ${!CONTRACT_TYPES.includes(c.contract_type) ? `<option selected>${c.contract_type}</option>` : ''}
         </select></div>
+      <div style="margin-bottom:13px"><label class="form-label">Nội dung hợp đồng</label>
+        <textarea id="fScope" class="form-input" rows="4" placeholder="VD: Cung cấp và lắp dựng hệ thống cốp pha nhôm cho Block A, bao gồm vận chuyển, lắp dựng, tháo dỡ và bảo trì trong suốt thời gian thi công.">${esc(c.scope_summary || '')}</textarea>
+        <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Tóm tắt phạm vi công việc / hàng hóa của hợp đồng — người duyệt đọc dòng này là hiểu ngay hợp đồng làm gì, khỏi phải mở file đính kèm.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Giá trị hợp đồng (₫, có VAT)</label>
         <input type="text" inputmode="numeric" id="fValue" class="form-input money-input" value="${formatMoneyInput(c.value)}"></div>
       <div style="margin-bottom:13px"><label class="form-label">Ngày ký hồ sơ (ngày lập, trên bản giấy — không bắt buộc)</label>
@@ -426,6 +450,7 @@ async function openEditModal(c, user, onClose) {
     const project_id = modal.querySelector('#fProject').value;
     const partner_id = modal.querySelector('#fPartner').value;
     const contract_type = modal.querySelector('#fType').value;
+    const scope_summary = modal.querySelector('#fScope').value.trim() || null;
     const value = parseMoneyInput(modal.querySelector('#fValue').value);
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const retention_rate = Number(modal.querySelector('#fRetention').value);
@@ -438,7 +463,7 @@ async function openEditModal(c, user, onClose) {
     loading(true);
     const { error } = await supabase
       .from('contracts')
-      .update({ project_id, partner_id, contract_type, value, signed_date, retention_rate, vat_rate, template_id: template_id || null, to_trinh_id })
+      .update({ project_id, partner_id, contract_type, scope_summary, value, signed_date, retention_rate, vat_rate, template_id: template_id || null, to_trinh_id })
       .eq('id', c.id);
     if (error) return toast('Lỗi lưu: ' + error.message, 'error');
 
@@ -468,6 +493,9 @@ async function openCreateModal(user, onClose) {
         <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Chưa có đối tác? Vào tab Đối tác để khai báo trước, hệ thống tự chống trùng theo MST.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Loại hợp đồng</label>
         <select id="fType" class="form-input">${CONTRACT_TYPES.map((t) => `<option>${t}</option>`).join('')}</select></div>
+      <div style="margin-bottom:13px"><label class="form-label">Nội dung hợp đồng *</label>
+        <textarea id="fScope" class="form-input" rows="4" placeholder="VD: Cung cấp và lắp dựng hệ thống cốp pha nhôm cho Block A, bao gồm vận chuyển, lắp dựng, tháo dỡ và bảo trì trong suốt thời gian thi công."></textarea>
+        <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Tóm tắt phạm vi công việc / hàng hóa của hợp đồng — người duyệt đọc dòng này là hiểu ngay hợp đồng làm gì, khỏi phải mở file đính kèm.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ</label>
         <input type="text" id="fDocNumber" class="form-input" placeholder="Chọn Dự án + Đối tác + Loại hợp đồng để tự gợi ý số">
         <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Số tự gợi ý theo đúng Dự án + Loại hợp đồng + Đối tác đã chọn — vẫn sửa tay được nếu cần khớp đúng số thật đã có (giai đoạn chuyển đổi số hợp đồng).</div></div>
@@ -518,6 +546,7 @@ async function openCreateModal(user, onClose) {
     const partner_id = modal.querySelector('#fPartner').value;
     const contract_type = modal.querySelector('#fType').value;
     const doc_number = modal.querySelector('#fDocNumber').value.trim();
+    const scope_summary = modal.querySelector('#fScope').value.trim();
     const value = parseMoneyInput(modal.querySelector('#fValue').value);
     const signed_date = modal.querySelector('#fSignedDate').value || null;
     const retention_rate = Number(modal.querySelector('#fRetention').value);
@@ -527,6 +556,11 @@ async function openCreateModal(user, onClose) {
 
     if (!project_id || !partner_id || !value) {
       return toast('Điền đủ thông tin bắt buộc trước khi lưu', 'error');
+    }
+    // Lưu nháp thì cho phép bỏ trống (đang làm dở), nhưng TRÌNH DUYỆT thì bắt buộc —
+    // người duyệt không thể duyệt một hợp đồng không biết nội dung là gì.
+    if (submitAfter && !scope_summary) {
+      return toast('Ghi "Nội dung hợp đồng" trước khi trình duyệt — người duyệt cần biết hợp đồng này làm gì.', 'error');
     }
     loading(true);
 
@@ -549,6 +583,15 @@ async function openCreateModal(user, onClose) {
       return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
     }
     const newContract = { id: newContractId };
+
+    // Ghi nội dung bằng 1 lệnh update riêng thay vì thêm tham số vào fn_create_contract.
+    // Cố ý làm vậy: hàm fn_create_contract đang được nhiều nơi gọi (kể cả tạo PLHĐ),
+    // sửa chữ ký hàm là rủi ro không cần thiết. Hồ sơ vừa tạo đang ở trạng thái nháp
+    // và do chính người này tạo nên chắc chắn qua được luật ghi.
+    if (scope_summary) {
+      const { error: scopeErr } = await supabase.from('contracts').update({ scope_summary }).eq('id', newContract.id);
+      if (scopeErr) toast('Đã tạo hợp đồng nhưng chưa lưu được Nội dung: ' + scopeErr.message, 'error');
+    }
 
     await uploadStagedFiles(filePicker.getFiles(), 'contract', newContract.id, user.id);
 
