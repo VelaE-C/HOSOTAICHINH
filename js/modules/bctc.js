@@ -497,6 +497,7 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
     const linkedDocNumber = linked ? contractsMap[l.contract_id]?.doc_number || '' : '';
     const excludeIds = collectUsedContractIds(path);
     return `<tr class="bctc-row" data-path="${path}">
+      <td style="${CELL};text-align:center;width:24px"><span class="f-drag" draggable="true" title="Giữ và kéo để đổi vị trí dòng" style="cursor:grab;color:var(--gray4);font-size:14px;line-height:1;user-select:none">⠿</span></td>
       <td style="${CELL}"><input type="text" class="form-input f-ten" style="${INP};min-width:150px" value="${esc(l.ten_hang_muc)}"></td>
       <td style="${CELL}"><select class="form-input f-contract" style="${INP};min-width:140px">${contractOptions(l.contract_id, excludeIds)}</select></td>
       <td style="${CELL}">
@@ -518,10 +519,10 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
 
   function tableHeadHtml() {
     const th = (label, extra) => `<th style="position:sticky;top:0;background:#fff;z-index:2;border-bottom:2px solid var(--gray3);padding:5px;font-size:10.5px;text-align:left;white-space:normal;line-height:1.3;min-width:66px${extra ? ';' + extra : ''}">${label}</th>`;
-    return `<tr>${th('Tên hạng mục')}${th('Hợp đồng liên kết')}${th('Đối tác')}${th('Số HĐ')}${th('Phân bổ dự trù (trước thuế)', 'text-align:right')}${th('GT Hợp đồng', 'text-align:right')}${th('Đã TT (trước thuế)', 'text-align:right')}${th('Còn lại', 'text-align:right')}${th('Ghi chú')}${th('', 'width:26px')}</tr>`;
+    return `<tr>${th('', 'width:24px')}${th('Tên hạng mục')}${th('Hợp đồng liên kết')}${th('Đối tác')}${th('Số HĐ')}${th('Phân bổ dự trù (trước thuế)', 'text-align:right')}${th('GT Hợp đồng', 'text-align:right')}${th('Đã TT (trước thuế)', 'text-align:right')}${th('Còn lại', 'text-align:right')}${th('Ghi chú')}${th('', 'width:26px')}</tr>`;
   }
   function groupHeaderRowHtml(g, gi, groupTotal) {
-    return `<tr class="bctc-group-header" data-group="${gi}"><td colspan="10" style="background:var(--gray1);padding:5px 6px">
+    return `<tr class="bctc-group-header" data-group="${gi}"><td colspan="11" style="background:var(--gray1);padding:5px 6px">
       <div style="display:flex;align-items:center;gap:8px">
         <b style="font-size:10.5px;color:var(--gray6);white-space:nowrap">B.${gi + 1}</b>
         <input type="text" class="form-input f-group-name" style="flex:1;font-weight:600;font-size:11px;padding:3px 6px" value="${esc(g.name)}" placeholder="Tên nhóm chi phí, VD: Chi phí gián tiếp">
@@ -538,7 +539,7 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
     let bodyHtml = '';
     const paymentA = state.aRows.reduce((s, l) => s + linePayment(l, latestPaidByContract), 0);
     bodyHtml += `<tr>
-      <td colspan="4" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8">HÀNG A — DOANH THU</td>
+      <td colspan="5" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8">HÀNG A — DOANH THU</td>
       <td class="mono" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8;text-align:right">${fmt(totalA)} ₫</td>
       <td style="background:var(--lblue)"></td>
       <td class="mono" style="background:var(--lblue);padding:5px 6px;font-weight:700;font-size:11px;color:#1D4ED8;text-align:right">${fmt(paymentA)} ₫</td>
@@ -546,11 +547,11 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
       <td colspan="2" style="background:var(--lblue)"></td>
     </tr>`;
     bodyHtml += state.aRows.map((l, i) => rowEditorHtml(l, `a.${i}`)).join('');
-    bodyHtml += `<tr><td colspan="10" style="padding:5px 6px"><button type="button" id="btnAddA" style="font-size:10.5px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:2px 7px;cursor:pointer">+ Thêm dòng Hàng A</button></td></tr>`;
+    bodyHtml += `<tr><td colspan="11" style="padding:5px 6px"><button type="button" id="btnAddA" style="font-size:10.5px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:2px 7px;cursor:pointer">+ Thêm dòng Hàng A</button></td></tr>`;
 
     const paymentB = state.bGroups.reduce((s, g) => s + g.rows.reduce((s2, l) => s2 + linePayment(l, latestPaidByContract), 0), 0);
     bodyHtml += `<tr>
-      <td colspan="4" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red)">HÀNG B — CHI PHÍ</td>
+      <td colspan="5" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red)">HÀNG B — CHI PHÍ</td>
       <td class="mono" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red);text-align:right">${fmt(totalB)} ₫</td>
       <td style="background:#FEF2F2"></td>
       <td class="mono" style="background:#FEF2F2;padding:5px 6px;font-weight:700;font-size:11px;color:var(--red);text-align:right">${fmt(paymentB)} ₫</td>
@@ -562,9 +563,17 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
       bodyHtml += groupHeaderRowHtml(g, gi, groupTotal);
       bodyHtml += g.rows.map((l, i) => rowEditorHtml(l, `b.${gi}.${i}`)).join('');
     });
-    bodyHtml += `<tr><td colspan="10" style="padding:5px 6px"><button type="button" id="btnAddGroup" style="font-size:10.5px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:2px 7px;cursor:pointer">+ Thêm nhóm chi phí (B.x)</button></td></tr>`;
+    bodyHtml += `<tr><td colspan="11" style="padding:5px 6px"><button type="button" id="btnAddGroup" style="font-size:10.5px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:2px 7px;cursor:pointer">+ Thêm nhóm chi phí (B.x)</button></td></tr>`;
 
     modal.querySelector('#editorArea').innerHTML = `
+      <style>
+        .bctc-row.drop-before > td { border-top: 2px solid var(--navy) !important; }
+        .bctc-row.drop-after  > td { border-bottom: 2px solid var(--navy) !important; }
+        .bctc-group-header.drop-into > td { outline: 2px dashed var(--navy); outline-offset: -2px; }
+        .bctc-row .f-drag:active { cursor: grabbing }
+        .bctc-row:hover .f-drag { color: var(--navy) }
+      </style>
+      <div style="font-size:11.5px;color:var(--gray5);margin-bottom:6px">💡 Giữ biểu tượng <b>⠿</b> đầu dòng rồi kéo thả để đổi thứ tự. Thả vào khoảng giữa 2 dòng, hoặc thả lên tên nhóm B.x để chuyển dòng sang nhóm đó.</div>
       <div style="max-height:58vh;overflow:auto;border:1px solid var(--gray2);border-radius:8px;margin-bottom:12px">
         <table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml()}</thead><tbody>${bodyHtml}</tbody></table>
       </div>
@@ -576,6 +585,121 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
     `;
     wireMoneyInputs(modal);
     wireRowEvents();
+    wireDragDrop();
+  }
+
+  // ============================================================
+  // KÉO THẢ ĐỔI THỨ TỰ DÒNG
+  // Chỉ cái tay nắm ⠿ mới kéo được, không phải cả dòng — nếu cho kéo cả dòng thì
+  // bôi đen chữ trong ô nhập sẽ bị hiểu nhầm thành thao tác kéo, rất khó gõ.
+  // Thả vào NỬA TRÊN của dòng đích = chèn lên trên, NỬA DƯỚI = chèn xuống dưới;
+  // vạch xanh hiện ra cho biết sẽ rơi vào đâu trước khi thả tay.
+  // Thả lên dòng tên nhóm B.x = chuyển dòng đó sang cuối nhóm ấy (cách duy nhất để
+  // đưa dòng vào một nhóm đang trống, vì nhóm trống không có dòng nào để thả cạnh).
+  // ============================================================
+  let dragSrcPath = null;
+
+  function clearDropMarks() {
+    modal.querySelectorAll('.drop-before, .drop-after, .drop-into').forEach((el) => el.classList.remove('drop-before', 'drop-after', 'drop-into'));
+  }
+
+  // Dời 1 dòng trong state rồi vẽ lại. before = chèn TRƯỚC dòng đích.
+  function moveRow(srcPath, dstPath, before) {
+    if (!srcPath || srcPath === dstPath) return;
+    const s = srcPath.split('.');
+    const d = dstPath.split('.');
+    // Hàng A là doanh thu, Hàng B là chi phí — chuyển qua lại giữa 2 khối là sai bản
+    // chất số liệu, chặn hẳn thay vì để lỡ tay kéo nhầm rồi lệch cả báo cáo.
+    if (s[0] !== d[0]) return toast('Không chuyển được dòng giữa Hàng A (doanh thu) và Hàng B (chi phí)', 'error');
+
+    syncStateFromDom(); // giữ lại những gì người dùng vừa gõ dở ở các dòng khác
+
+    if (s[0] === 'a') {
+      const from = Number(s[1]);
+      let to = Number(d[1]) + (before ? 0 : 1);
+      const [item] = state.aRows.splice(from, 1);
+      if (from < to) to -= 1;
+      state.aRows.splice(to, 0, item);
+    } else {
+      const fromG = Number(s[1]);
+      const fromI = Number(s[2]);
+      const toG = Number(d[1]);
+      let toI = Number(d[2]) + (before ? 0 : 1);
+      const [item] = state.bGroups[fromG].rows.splice(fromI, 1);
+      if (fromG === toG && fromI < toI) toI -= 1;
+      state.bGroups[toG].rows.splice(toI, 0, item);
+    }
+    renderAll();
+  }
+
+  // Thả lên tên nhóm -> đưa xuống cuối nhóm đó
+  function moveRowToGroupEnd(srcPath, toG) {
+    const s = srcPath.split('.');
+    if (s[0] !== 'b') return toast('Chỉ chuyển được dòng của Hàng B vào nhóm chi phí', 'error');
+    syncStateFromDom();
+    const fromG = Number(s[1]);
+    const fromI = Number(s[2]);
+    if (fromG === toG) return renderAll();
+    const [item] = state.bGroups[fromG].rows.splice(fromI, 1);
+    state.bGroups[toG].rows.push(item);
+    renderAll();
+  }
+
+  function wireDragDrop() {
+    modal.querySelectorAll('.f-drag').forEach((handle) => {
+      handle.addEventListener('dragstart', (e) => {
+        const tr = handle.closest('.bctc-row');
+        dragSrcPath = tr?.dataset.path || null;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragSrcPath || ''); // Firefox bắt buộc phải set dữ liệu, nếu không sẽ không cho kéo
+        if (tr) tr.style.opacity = '0.4';
+      });
+      handle.addEventListener('dragend', () => {
+        dragSrcPath = null;
+        clearDropMarks();
+        modal.querySelectorAll('.bctc-row').forEach((r) => (r.style.opacity = ''));
+      });
+    });
+
+    modal.querySelectorAll('.bctc-row').forEach((tr) => {
+      tr.addEventListener('dragover', (e) => {
+        if (!dragSrcPath) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const rect = tr.getBoundingClientRect();
+        const before = e.clientY - rect.top < rect.height / 2;
+        clearDropMarks();
+        tr.classList.add(before ? 'drop-before' : 'drop-after');
+      });
+      tr.addEventListener('drop', (e) => {
+        if (!dragSrcPath) return;
+        e.preventDefault();
+        const rect = tr.getBoundingClientRect();
+        const before = e.clientY - rect.top < rect.height / 2;
+        const src = dragSrcPath;
+        dragSrcPath = null;
+        clearDropMarks();
+        moveRow(src, tr.dataset.path, before);
+      });
+    });
+
+    modal.querySelectorAll('.bctc-group-header').forEach((tr) => {
+      tr.addEventListener('dragover', (e) => {
+        if (!dragSrcPath) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        clearDropMarks();
+        tr.classList.add('drop-into');
+      });
+      tr.addEventListener('drop', (e) => {
+        if (!dragSrcPath) return;
+        e.preventDefault();
+        const src = dragSrcPath;
+        dragSrcPath = null;
+        clearDropMarks();
+        moveRowToGroupEnd(src, Number(tr.dataset.group));
+      });
+    });
   }
 
   function readRowFromDom(rowEl, existing) {
