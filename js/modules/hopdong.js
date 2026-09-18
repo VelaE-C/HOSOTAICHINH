@@ -69,12 +69,12 @@ export async function render(container, user) {
           <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
           ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}
         </select>
-        <input type="text" class="form-input" id="partnerFilter" placeholder="🔎 Lọc theo tên Đối tác/NCC..." style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:220px'}">
+        <input type="text" class="form-input" id="partnerFilter" placeholder="🔎 Lọc theo Đối tác/NCC hoặc nội dung hợp đồng..." style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:300px'}">
       </div>
       <button class="btn btn-primary" id="btnNew" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">+ Trình hợp đồng mới</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác</th><th>Giá trị</th>' : '<th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th>'}</tr></thead><tbody id="contractTbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác / Nội dung</th><th>Giá trị</th>' : '<th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Nội dung</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th>'}</tr></thead><tbody id="contractTbody"></tbody></table></div>
       <div id="contractPagination"></div>
     </div>`;
 
@@ -95,7 +95,11 @@ export async function render(container, user) {
 
   container.querySelector('#partnerFilter').addEventListener('input', (e) => {
     const q = normalizeSearchText(e.target.value);
-    currentList = q ? sorted.filter((c) => normalizeSearchText(c.partners?.name || '').includes(q)) : sorted;
+    // Lọc theo cả tên đối tác LẪN nội dung hợp đồng — gõ "cốp pha" hay "bê tông"
+    // là ra, không cần nhớ tên công ty
+    currentList = q
+      ? sorted.filter((c) => normalizeSearchText(`${c.partners?.name || ''} ${c.scope_summary || ''}`).includes(q))
+      : sorted;
     VIEW_PAGE = 1;
     draw();
   });
@@ -110,14 +114,20 @@ export async function render(container, user) {
 }
 
 function renderContractRows(list) {
-  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 6}" style="text-align:center;color:var(--gray4);padding:20px">Không có hợp đồng nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
+  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 7}" style="text-align:center;color:var(--gray4);padding:20px">Không có hợp đồng nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
   return list
     .map((c) => {
-      // Rê chuột lên dòng là thấy ngay nội dung hợp đồng, khỏi phải mở hồ sơ ra xem
-      const tip = c.scope_summary ? ` title="${esc(shorten(c.scope_summary))}"` : '';
+      // Nội dung hợp đồng thường dài hơn bề ngang cột rất nhiều -> cắt bằng CSS cho
+      // bảng không bị giãn, còn chữ đầy đủ đưa vào title để rê chuột lên là đọc được.
+      const tip = c.scope_summary ? ` title="${esc(shorten(c.scope_summary, 400))}"` : '';
+      const scopeCell = c.scope_summary
+        ? `<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gray6)">${esc(c.scope_summary)}</td>`
+        : `<td style="color:var(--gray3)">—</td>`;
       return IS_MOBILE
-        ? `<tr class="click" data-id="${c.id}"${tip}><td>${c.projects?.code || '—'}</td><td>${c.partners?.name || '—'}</td><td class="mono">${fmt(c.value)}</td></tr>`
-        : `<tr class="click" data-id="${c.id}"${tip}><td>${c.projects?.code || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td><td>${c.contract_type}</td>
+        ? `<tr class="click" data-id="${c.id}"${tip}><td>${c.projects?.code || '—'}</td>
+    <td><div>${c.partners?.name || '—'}</div>${c.scope_summary ? `<div style="font-size:11px;color:var(--gray5);margin-top:2px">${esc(shorten(c.scope_summary, 70))}</div>` : ''}</td>
+    <td class="mono">${fmt(c.value)}</td></tr>`
+        : `<tr class="click" data-id="${c.id}"${tip}><td>${c.projects?.code || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td>${scopeCell}<td>${c.contract_type}</td>
     <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td></tr>`;
     })
     .join('');
