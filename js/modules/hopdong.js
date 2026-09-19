@@ -300,7 +300,7 @@ export async function openDetail(id, user, onClose) {
     loading(true);
     const { error } = await supabase.from('contracts').update({ doc_number: trimmed }).eq('id', c.id);
     if (error) {
-      if (error.message.includes('contracts_doc_number_unique') || error.message.includes('duplicate key')) {
+      if (error.message.includes('contracts_doc_number_key') || error.message.includes('duplicate key')) {
         return toast(`Số hồ sơ "${trimmed}" đã được dùng cho hợp đồng khác — chọn số khác.`, 'error');
       }
       return toast('Lỗi lưu: ' + error.message, 'error');
@@ -508,6 +508,7 @@ async function openCreateModal(user, onClose) {
         <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Tóm tắt phạm vi công việc / hàng hóa của hợp đồng — người duyệt đọc dòng này là hiểu ngay hợp đồng làm gì, khỏi phải mở file đính kèm.</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Số hồ sơ</label>
         <input type="text" id="fDocNumber" class="form-input" placeholder="Chọn Dự án + Đối tác + Loại hợp đồng để tự gợi ý số">
+        <div id="docNumberNote" style="font-size:11.5px;margin-top:4px"></div>
         <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Số tự gợi ý theo đúng Dự án + Loại hợp đồng + Đối tác đã chọn — vẫn sửa tay được nếu cần khớp đúng số thật đã có (giai đoạn chuyển đổi số hợp đồng).</div></div>
       <div style="margin-bottom:13px"><label class="form-label">Giá trị hợp đồng (₫, có VAT)</label>
         <input type="text" inputmode="numeric" id="fValue" class="form-input money-input" placeholder="VD: 2.800.000.000"></div>
@@ -538,14 +539,83 @@ async function openCreateModal(user, onClose) {
   // Tự gợi ý số hồ sơ mỗi khi đổi Dự án/Đối tác/Loại hợp đồng — vẫn cho sửa tay (giai
   // đoạn chuyển đổi quy tắc số hợp đồng, xem trước bằng RPC riêng KHÔNG tiêu tốn số
   // của bộ đếm thật)
+  // ------------------------------------------------------------------
+  // CHỐNG TRÙNG SỐ HỢP ĐỒNG
+  // Nhiều đối tác đang dùng CHUNG một mã viết tắt (VD Nguyễn Tấn Quỳnh và
+  // Nguyễn Thái Quang đều ra "NTQ"). Cùng dự án + cùng loại hợp đồng là số sinh
+  // ra y hệt nhau -> hợp đồng thứ hai bị ràng buộc duy nhất chặn, không tạo được.
+  // Xử lý: nhảy số thứ tự ở CUỐI số hồ sơ cho tới khi tìm được số còn trống
+  //   .../VELA-NTQ/01 (đã có)  ->  .../VELA-NTQ/02
+  // ------------------------------------------------------------------
+
+  // Có ai đang giữ số này chưa? Tính cả hợp đồng đã hủy — hủy KHÔNG trả lại số.
+  async function docNumberTaken(num) {
+    const { count } = await supabase.from('contracts').select('id', { count: 'exact', head: true }).eq('doc_number', num);
+    return (count || 0) > 0;
+  }
+
+  // Nhảy phần số ở cuối cho tới khi trống. Giữ nguyên số chữ số (01 -> 02, không thành 2).
+  async function nextFreeDocNumber(base) {
+    const m = (base || '').match(/^(.*\/)(\d+)$/);
+    if (!m) return { value: base, bumped: false };
+    const [, prefix, seqText] = m;
+    const width = seqText.length;
+    let n = Number(seqText);
+    for (let i = 0; i < 50; i++) {
+      const candidate = prefix + String(n).padStart(width, '0');
+      if (!(await docNumberTaken(candidate))) return { value: candidate, bumped: candidate !== base };
+      n += 1;
+    }
+    return { value: base, bumped: false }; // quá 50 lần thì thôi, để người dùng tự xử
+  }
+
+  function setDocNumberNote(html) {
+    const el = modal.querySelector('#docNumberNote');
+    if (el) el.innerHTML = html;
+  }
+
   async function refreshSuggestedDocNumber() {
     const project_id = modal.querySelector('#fProject').value;
     const partner_id = modal.querySelector('#fPartner').value;
     const contract_type = modal.querySelector('#fType').value;
     if (!project_id || !partner_id) return;
     const { data: suggested } = await supabase.rpc('fn_preview_contract_doc_number', { p_project_id: project_id, p_partner_id: partner_id, p_contract_type: contract_type });
-    if (suggested) modal.querySelector('#fDocNumber').value = suggested;
+    if (!suggested) return;
+
+    const { value, bumped } = await nextFreeDocNumber(suggested);
+    modal.querySelector('#fDocNumber').value = value;
+    setDocNumberNote(
+      bumped
+        ? `<span style="color:var(--amber);font-weight:600">⚠️ Số <span class="mono">${esc(suggested)}</span> đã có hợp đồng khác dùng rồi — đã tự nhảy lên <span class="mono">${esc(value)}</span> để không trùng.</span>
+           <span style="color:var(--gray5)">Thường do 2 đối tác dùng chung mã viết tắt. Vẫn sửa tay được nếu cần.</span>`
+        : `<span style="color:var(--green,#16A34A)">✓ Số này chưa ai dùng.</span>`,
+    );
   }
+
+  // Sửa tay thì cũng phải soi — nếu không, người dùng gõ đè lại đúng số đã có rồi
+  // bấm Lưu, tới lúc đó mới báo lỗi thì đã mất công nhập cả form.
+  let docCheckTimer = null;
+  modal.querySelector('#fDocNumber').addEventListener('input', (e) => {
+    const v = e.target.value.trim();
+    clearTimeout(docCheckTimer);
+    if (!v) return setDocNumberNote('');
+    setDocNumberNote(`<span style="color:var(--gray4)">Đang kiểm tra số…</span>`);
+    docCheckTimer = setTimeout(async () => {
+      if (await docNumberTaken(v)) {
+        const { value } = await nextFreeDocNumber(v);
+        setDocNumberNote(`<span style="color:var(--red);font-weight:600">✕ Số <span class="mono">${esc(v)}</span> đã có hợp đồng khác dùng — lưu sẽ bị chặn.</span>
+          <span style="color:var(--gray5)">Số trống gần nhất: <span class="mono">${esc(value)}</span></span>
+          <button type="button" id="btnUseFree" style="margin-left:6px;font-size:11px;background:none;border:1px solid var(--gray3);border-radius:5px;padding:1px 7px;cursor:pointer">Dùng số này</button>`);
+        modal.querySelector('#btnUseFree')?.addEventListener('click', () => {
+          modal.querySelector('#fDocNumber').value = value;
+          setDocNumberNote(`<span style="color:var(--green,#16A34A)">✓ Số này chưa ai dùng.</span>`);
+        });
+      } else {
+        setDocNumberNote(`<span style="color:var(--green,#16A34A)">✓ Số này chưa ai dùng.</span>`);
+      }
+    }, 400);
+  });
+
   modal.querySelector('#fProject').addEventListener('change', refreshSuggestedDocNumber);
   modal.querySelector('#fPartner').addEventListener('change', refreshSuggestedDocNumber);
   modal.querySelector('#fType').addEventListener('change', refreshSuggestedDocNumber);
@@ -574,7 +644,7 @@ async function openCreateModal(user, onClose) {
     }
     loading(true);
 
-    const { data: newContractId, error } = await supabase.rpc('fn_create_contract', {
+    let { data: newContractId, error } = await supabase.rpc('fn_create_contract', {
       p_project_id: project_id,
       p_partner_id: partner_id,
       p_contract_type: contract_type,
@@ -587,10 +657,28 @@ async function openCreateModal(user, onClose) {
       p_doc_number: doc_number || null,
     });
     if (error) {
-      if (error.message.includes('contracts_doc_number_unique') || error.message.includes('duplicate key') || error.message.includes('đã tồn tại')) {
+      // Vẫn có thể trùng dù giao diện đã soi: 2 người cùng tạo một lúc, hoặc hợp đồng
+      // giữ số đó bị RLS che nên máy mình không nhìn thấy. Tự nhảy số rồi thử LẠI
+      // ĐÚNG MỘT LẦN — người dùng không phải nhập lại cả form.
+      const isDup = error.message.includes('contracts_doc_number_key') || error.message.includes('duplicate key') || error.message.includes('đã tồn tại');
+      if (!isDup) return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
+
+      const { value: retryNumber } = await nextFreeDocNumber(doc_number);
+      if (!retryNumber || retryNumber === doc_number) {
         return toast(`Số hồ sơ "${doc_number}" đã được dùng cho hợp đồng khác — sửa lại số khác rồi lưu lại.`, 'error');
       }
-      return toast('Lỗi tạo hợp đồng: ' + error.message, 'error');
+      const retry = await supabase.rpc('fn_create_contract', {
+        p_project_id: project_id, p_partner_id: partner_id, p_contract_type: contract_type,
+        p_value: value, p_signed_date: signed_date, p_retention_rate: retention_rate,
+        p_vat_rate: vat_rate, p_template_id: template_id || null, p_to_trinh_id: to_trinh_id,
+        p_doc_number: retryNumber,
+      });
+      if (retry.error) {
+        return toast(`Số "${doc_number}" đã có hợp đồng khác dùng, thử "${retryNumber}" cũng không được. Sửa tay số khác rồi lưu lại.`, 'error');
+      }
+      newContractId = retry.data;
+      modal.querySelector('#fDocNumber').value = retryNumber;
+      toast(`Số "${doc_number}" đã có người dùng — đã tự đổi thành "${retryNumber}"`, 'info');
     }
     const newContract = { id: newContractId };
 
