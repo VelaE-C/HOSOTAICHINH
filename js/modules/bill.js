@@ -588,10 +588,23 @@ async function openEditModal(bill, user, onClose) {
   const { data: projects } = await supabase.from('projects').select('id, code, name').order('code');
   const { data: partners } = await supabase.from('partners').select('id, name, mst').order('name');
   const { data: contracts } = await supabase.from('contracts').select('id, doc_number, value, value_adjustment, project_id, partner_id, vat_rate').neq('status', 'cancelled').order('doc_number');
+  const templates = await resolveDefaultTemplates(user.id, 'bill');
+
+  // Mẫu đang dùng của bill CÓ THỂ không nằm trong danh sách đã lọc sẵn (mẫu của phòng
+  // ban khác, hoặc bill do người khác lập). Không chèn nó vào thì ô chọn sẽ tự nhảy
+  // sang mẫu đầu danh sách, bấm Lưu là ÂM THẦM đổi luồng duyệt mà không ai hay.
+  const tplList = [...(templates || [])];
+  if (bill.template_id && !tplList.some((t) => t.id === bill.template_id)) {
+    tplList.unshift({ id: bill.template_id, name: `${bill.document_templates?.name || 'Mẫu hiện tại'} (đang dùng)` });
+  }
 
   modal.innerHTML = `<div class="panel-box" style="max-width:760px;width:95%">
     <div class="panel-header"><div>Sửa bill — ${bill.doc_number}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
+      <div style="margin-bottom:13px"><label class="form-label">Mẫu hồ sơ (luồng duyệt)</label>
+        <select id="fTemplate" class="form-input">${tplList.map((t) => `<option value="${t.id}" ${t.id === bill.template_id ? 'selected' : ''}>${t.name}</option>`).join('')}</select>
+        <div style="font-size:11.5px;color:var(--gray4);margin-top:4px">Bị trả về và được yêu cầu đi luồng khác thì đổi ngay ở đây rồi bấm Lưu — <b>không phải hủy hồ sơ để làm lại từ đầu</b>. Đổi xong xem bảng bên dưới để chắc chắn đúng người duyệt.</div>
+        <div id="tplPreview" style="margin-top:8px"></div></div>
       <div style="margin-bottom:13px"><label class="form-label">Dự án</label>
         <select id="fProject" class="form-input">${(projects || []).map((p) => `<option value="${p.id}" ${p.id === bill.project_id ? 'selected' : ''}>${p.code} — ${p.name}</option>`).join('')}</select></div>
       <div style="margin-bottom:13px"><label class="form-label">Đối tác (NTP/NCC) *</label>
@@ -645,6 +658,17 @@ async function openEditModal(bill, user, onClose) {
   renderDSection(dWrap, bill.val_d);
   renderLivePreview(modal);
 
+  // Đổi mẫu (hoặc đổi dự án) là tính lại NGAY ai sẽ duyệt — để người lập thấy luồng
+  // mới có đúng không TRƯỚC khi lưu, thay vì trình lên rồi mới phát hiện sai.
+  async function refreshTplPreview() {
+    const wrap = modal.querySelector('#tplPreview');
+    if (!wrap) return;
+    wrap.innerHTML = `<div style="font-size:11.5px;color:var(--gray4);padding:4px 0">Đang tính luồng duyệt…</div>`;
+    wrap.innerHTML = await flowPreviewHtml(modal.querySelector('#fProject').value, modal.querySelector('#fTemplate').value, bill.origin_department);
+  }
+  modal.querySelector('#fTemplate').addEventListener('change', refreshTplPreview);
+  refreshTplPreview();
+
   modal.querySelector('#fContract').addEventListener('change', async (e) => {
     const opt = e.target.selectedOptions[0];
     if (opt && opt.value) {
@@ -664,12 +688,14 @@ async function openEditModal(bill, user, onClose) {
   // KHÔNG còn tự gợi ý Đợt/J theo Dự án+Đối tác nữa (dễ nhầm với bill cũ không liên quan)
   modal.querySelector('#fProject').addEventListener('change', () => {
     refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
+    refreshTplPreview(); // CHT/GĐĐA gán theo dự án -> đổi dự án là đổi luôn người duyệt
   });
   modal.querySelector('#fPartner').addEventListener('change', () => {
     refreshContractSelect(modal, contracts, modal.querySelector('#fProject').value, modal.querySelector('#fPartner').value);
   });
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
+    const template_id = modal.querySelector('#fTemplate').value || null;
     const project_id = modal.querySelector('#fProject').value;
     const contract_id = modal.querySelector('#fContract').value || null;
     const partner_id = modal.querySelector('#fPartner').value;
@@ -689,11 +715,16 @@ async function openEditModal(bill, user, onClose) {
 
     if (!project_id || !partner_id || !contract_id || !val_a) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác + Hợp đồng liên kết)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
+    // Ô J (cột val_i) là "Trừ các đợt thanh toán trước" — CHỈ được âm hoặc bằng 0.
+    // Đã từng có bill nhập tiền tạm ứng vào đây thay vì ô F: số phải trả (K) vẫn đúng
+    // nên duyệt qua trót lọt, nhưng khoản tạm ứng biến mất khỏi sổ, BCTC ra 0, và
+    // đợt sau không còn gì để hoàn trả ở ô G.
+    if (val_i > 0) return toast('Ô J (Trừ các đợt thanh toán trước) phải là số ÂM hoặc 0. Nếu đây là tiền TẠM ỨNG thì nhập vào ô F — Giá trị tạm ứng.', 'error');
 
     loading(true);
     const { error } = await supabase
       .from('bills')
-      .update({ project_id, contract_id, partner_id, period_no, scope, signed_date, val_a, val_b, val_d, val_e, val_f, val_g, val_i, val_h, deduction_note: deduction_note || null, vat_rate })
+      .update({ template_id, project_id, contract_id, partner_id, period_no, scope, signed_date, val_a, val_b, val_d, val_e, val_f, val_g, val_i, val_h, deduction_note: deduction_note || null, vat_rate })
       .eq('id', bill.id);
     if (error) {
       if (error.message.includes('bills_require_contract_when_editable')) return toast('Bill Nháp/Bị từ chối bắt buộc phải chọn Hợp đồng liên kết trước khi lưu.', 'error');
@@ -825,6 +856,11 @@ async function openCreateModal(user, onClose) {
 
     if (!project_id || !partner_id || !contract_id || !val_a) return toast('Điền đủ thông tin bắt buộc (kể cả Đối tác + Hợp đồng liên kết)', 'error');
     if (val_h !== 0 && !deduction_note) return toast('Có giá trị khấu trừ thì phải ghi rõ lý do', 'error');
+    // Ô J (cột val_i) là "Trừ các đợt thanh toán trước" — CHỈ được âm hoặc bằng 0.
+    // Đã từng có bill nhập tiền tạm ứng vào đây thay vì ô F: số phải trả (K) vẫn đúng
+    // nên duyệt qua trót lọt, nhưng khoản tạm ứng biến mất khỏi sổ, BCTC ra 0, và
+    // đợt sau không còn gì để hoàn trả ở ô G.
+    if (val_i > 0) return toast('Ô J (Trừ các đợt thanh toán trước) phải là số ÂM hoặc 0. Nếu đây là tiền TẠM ỨNG thì nhập vào ô F — Giá trị tạm ứng.', 'error');
 
     // Quy tắc: kỳ N+1 chỉ tạo được khi kỳ N đã DUYỆT XONG (đã thanh toán) — áp dụng đều
     // cho cả 2 kiểu: có liên kết hợp đồng lẫn đi bill tự do theo cặp Dự án+Đối tác.
