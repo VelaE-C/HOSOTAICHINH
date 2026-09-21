@@ -19,11 +19,16 @@ let VIEW_PAGE = 1;
 // ============================================================
 // Tính "Giá trị dự trù" và "Dữ liệu thanh toán" cho 1 dòng — CÓ link hợp đồng thì
 // lấy tươi từ dữ liệu gốc (tách VAT), KHÔNG link thì lấy đúng số đã nhập tay.
-// latestPaidByContract: map contract_id -> bill KỲ MỚI NHẤT (bất kể Đang duyệt/Bị
-// từ chối/Đã thanh toán — chỉ loại Nháp và Đã hủy) của hợp đồng đó. Lấy sớm ngay từ
-// lúc bill còn đang duyệt, không chờ tới lúc "paid" mới lên số — tránh báo cáo bị
-// trễ so với thực tế công trường (giữ tên biến "PaidByContract" cho đỡ đổi nhiều
-// chỗ, nhưng bản chất giờ là "bill mới nhất còn hợp lệ", không riêng gì đã trả tiền).
+// latestPaidByContract: map contract_id -> bill KỲ MỚI NHẤT CÒN HỢP LỆ của hợp đồng
+// đó. Lấy sớm ngay từ lúc bill còn ĐANG DUYỆT, không chờ tới "paid" mới lên số —
+// tránh báo cáo trễ so với thực tế công trường (giữ tên biến "PaidByContract" cho đỡ
+// đổi nhiều chỗ, nhưng bản chất là "bill mới nhất còn hợp lệ", không riêng gì đã trả).
+//
+// LOẠI: Nháp, Đã hủy, và BỊ TỪ CHỐI.
+// ⚠️ 'rejected' trước đây KHÔNG bị loại — đó là lỗi, và là lỗi tính DƯ: bill bị từ
+// chối vẫn được tính là đã thanh toán. Nặng hơn nữa vì mỗi hợp đồng chỉ lấy ĐÚNG 1
+// bill (kỳ lớn nhất) — một bill bị từ chối ở kỳ mới nhất sẽ che mất bill hợp lệ kỳ
+// trước, làm số liệu sai hẳn chứ không phải lệch nhẹ.
 // ============================================================
 // Dự trù giờ LUÔN cho sửa tay, kể cả khi có link Hợp đồng — vì thực tế ngân sách
 // cùng 1 hạng mục (VD bê tông) chia cho nhiều NCC không cố định, cần san sẻ qua
@@ -70,11 +75,17 @@ function lineForecast(line, contractsMap) {
   }
   return 0;
 }
+// "Đã TT" = I trên chứng từ bill = Tổng giá trị thanh toán BAO GỒM TẠM ỨNG
+//   I = D + E + F + G + H   (y hệt calcBill trong bill.js)
+// Lấy I của bill kỳ mới nhất -> tự là LŨY KẾ đã chi tới kỳ đó.
+// ⚠️ Trước đây lấy D (lũy kế THỰC HIỆN = sản lượng) — sai đại lượng: bill tạm ứng
+//    chưa có sản lượng nên D = 0, cột ra 0 dù tiền đã chi thật.
 function linePayment(line, latestPaidByContract) {
   if (line.contract_id) {
     const b = latestPaidByContract[line.contract_id];
     if (!b) return 0;
-    return Math.round(Number(b.val_d) / safeVatDivisor(b.vat_rate));
+    const I = (Number(b.val_d) || 0) + (Number(b.val_e) || 0) + (Number(b.val_f) || 0) + (Number(b.val_g) || 0) + (Number(b.val_h) || 0);
+    return Math.round(I / safeVatDivisor(b.vat_rate));
   }
   return Number(line.payment_data_manual) || 0;
 }
@@ -425,7 +436,7 @@ async function loadFinancialData(projectId, lines) {
   const contractIds = [...new Set((lines || []).map((l) => l.contract_id).filter(Boolean))];
   let latestPaidByContract = {};
   if (contractIds.length) {
-    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, vat_rate').in('contract_id', contractIds).neq('status', 'draft').neq('status', 'cancelled').order('period_no', { ascending: false });
+    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, val_e, val_f, val_g, val_h, vat_rate').in('contract_id', contractIds).neq('status', 'draft').neq('status', 'cancelled').neq('status', 'rejected').order('period_no', { ascending: false });
     (paidBills || []).forEach((b) => {
       if (!latestPaidByContract[b.contract_id]) latestPaidByContract[b.contract_id] = b; // dòng đầu tiên gặp = period_no cao nhất (đã order DESC)
     });
@@ -449,7 +460,7 @@ async function openLineEditorModal({ modal, projectId, initialLines, initialTitl
   let contractIds = (contracts || []).map((c) => c.id);
   let latestPaidByContract = {};
   if (contractIds.length) {
-    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, vat_rate').in('contract_id', contractIds).neq('status', 'draft').neq('status', 'cancelled').order('period_no', { ascending: false });
+    const { data: paidBills } = await supabase.from('bills').select('contract_id, period_no, val_d, val_e, val_f, val_g, val_h, vat_rate').in('contract_id', contractIds).neq('status', 'draft').neq('status', 'cancelled').neq('status', 'rejected').order('period_no', { ascending: false });
     (paidBills || []).forEach((b) => { if (!latestPaidByContract[b.contract_id]) latestPaidByContract[b.contract_id] = b; });
   }
 
