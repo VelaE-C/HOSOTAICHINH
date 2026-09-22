@@ -468,7 +468,7 @@ export async function openDetail(id, user, onClose) {
   }
   const r = calcBill(b, b.contracts);
   const { assignments, logs, logAttachments } = await loadApprovalState('bill', id);
-  const preview = b.status === 'pending' ? await loadStepPreview(b.project_id, b.template_id, b.current_step) : {};
+  const preview = b.status === 'pending' ? await loadStepPreview(b.project_id, b.template_id, b.current_step, b.origin_department) : {};
   // Hồ sơ NHÁP chưa có người duyệt thật (chỉ sinh ra lúc bấm Trình duyệt) — tính
   // trước cho người lập biết hồ sơ sẽ đi qua tay ai, để phát hiện chọn nhầm mẫu
   // TRƯỚC khi trình, thay vì trình xong mới biết.
