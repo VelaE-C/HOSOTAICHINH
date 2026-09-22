@@ -6,6 +6,7 @@
 import { supabase } from './config.js';
 import { toast, loading, fmtDateTime, formatMoneyInput, parseMoneyInput } from './utils.js';
 import { uploadLogAttachment, offerAttachOneFile, getFileUrl } from './attachments.js';
+import { resolveFlow } from './stepPreview.js';
 
 const STEP_LABEL = { 1: 'Bước 1', 2: 'Bước 2', 3: 'Bước 3', 4: 'Bước 4' };
 
@@ -45,14 +46,32 @@ export async function loadApprovalState(docType, docId) {
 // Vẽ rail 4 bước — mỗi bước liệt kê từng người + trạng thái duyệt của riêng họ
 // Xem trước ai SẼ duyệt ở các bước chưa tới (chưa có dữ liệu thật) — gọi cùng lúc
 // với loadApprovalState, truyền kết quả vào railHtml qua tham số preview
-export async function loadStepPreview(projectId, templateId, currentStep) {
+//
+// ⚠️ ĐÃ SỬA 22/09/2026: trước đây gọi RPC fn_preview_step_assignees dưới database —
+// một bản sao CŨ của logic gán người, không biết quy tắc "bước PTGD có ghi phòng ban
+// thì bỏ qua tra theo dự án". Hậu quả: bill VTTB bước 3 hiện "Bùi Trọng Trí — dự kiến"
+// trong khi hệ thống gán thật là Đỗ Trường An. Nay dùng chung resolveFlow() của
+// stepPreview.js (đã đối chiếu từng nhánh với _create_step_assignments) — chỉ còn
+// ĐÚNG 1 bản sao phía giao diện phải giữ đồng bộ với database.
+//
+// originDepartment: phòng ban của hồ sơ — chỉ cần cho mẫu kiểu "Phòng ban". Không
+// truyền thì mẫu Phòng ban sẽ hiện người mức "toàn công ty" thay vì đúng phòng.
+export async function loadStepPreview(projectId, templateId, currentStep, originDepartment) {
   if (!templateId) return {};
-  const futureSteps = [1, 2, 3, 4].filter((s) => s > currentStep);
-  const results = await Promise.all(
-    futureSteps.map((s) => supabase.rpc('fn_preview_step_assignees', { p_project_id: projectId, p_template_id: templateId, p_step_no: s })),
-  );
+  const flow = await resolveFlow(projectId, templateId, originDepartment);
+  if (!flow) return {};
   const preview = {};
-  futureSteps.forEach((s, i) => (preview[s] = results[i].data || []));
+  flow.stepNos
+    .filter((s) => s > currentStep)
+    .forEach((s) => {
+      // Mỗi người 1 dòng; vai trò chưa ai giữ vẫn giữ 1 dòng (full_name = null) để rail
+      // hiện "(chưa có ai)" — cho người xem thấy ngay bước đó sẽ bị bỏ qua.
+      preview[s] = flow.rowsByStep[s].flatMap((r) =>
+        r.names.length
+          ? r.names.map((n) => ({ full_name: n, role_type: r.role_type, department: r.department }))
+          : [{ full_name: null, role_type: r.role_type, department: r.department }],
+      );
+    });
   return preview;
 }
 
@@ -88,7 +107,11 @@ export function railHtml(assignments, currentStep, preview = {}) {
                 .join('')
             : previewPeople.length
               ? previewPeople
-                  .map((p) => `<div class="pp" style="opacity:.65;font-style:italic">${p.full_name || '(chưa có ai)'} <span style="opacity:.7">(${p.role_type}${p.department ? ' — ' + p.department : ''}) — dự kiến</span></div>`)
+                  .map((p) =>
+                    p.full_name
+                      ? `<div class="pp" style="opacity:.65;font-style:italic">${p.full_name} <span style="opacity:.7">(${p.role_type}${p.department ? ' — ' + p.department : ''}) — dự kiến</span></div>`
+                      : `<div class="pp" style="color:var(--red);font-style:italic">⚠️ chưa có ai <span style="opacity:.8">(${p.role_type}${p.department ? ' — ' + p.department : ''}) — sẽ bị bỏ qua</span></div>`,
+                  )
                   .join('')
               : '<div class="pp" style="opacity:.5">—</div>'
         }</div>
