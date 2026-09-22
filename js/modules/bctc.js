@@ -262,7 +262,7 @@ export async function openDetail(id, user, onClose) {
   const sum = summarizeRev(lines || [], contractsMap, latestPaidByContract);
 
   const { assignments, logs, logAttachments } = await loadApprovalState('bctc', id);
-  const preview = rev.status === 'pending' ? await loadStepPreview(rev.project_id, rev.template_id, rev.current_step) : {};
+  const preview = rev.status === 'pending' ? await loadStepPreview(rev.project_id, rev.template_id, rev.current_step, rev.origin_department) : {};
 
   const canEditNow = rev.created_by === user.id && ['draft', 'rejected'].includes(rev.status);
   const isAdmin = (user.roles || []).includes('Admin');
