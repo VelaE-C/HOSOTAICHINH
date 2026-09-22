@@ -227,7 +227,7 @@ export async function openDetail(id, user, onClose) {
     : { data: [] };
 
   const { assignments, logs, logAttachments } = await loadApprovalState('contract', id);
-  const preview = c.status === 'pending' ? await loadStepPreview(c.project_id, c.template_id, c.current_step) : {};
+  const preview = c.status === 'pending' ? await loadStepPreview(c.project_id, c.template_id, c.current_step, c.origin_department) : {};
 
   const canEditNow = c.created_by === user.id && ['draft', 'rejected'].includes(c.status);
   const isAdmin = (user.roles || []).includes('Admin');
