@@ -40,22 +40,48 @@ export async function resolveFlow(projectId, templateId, originDepartment) {
   if (!templateId) return null;
   const today = todayIso();
 
-  const [{ data: tpl }, { data: steps }, { data: projAssigns }, { data: roleHolders }] = await Promise.all([
+  // ⚠️ CỐ Ý KHÔNG nối bảng kiểu users(full_name) ở 2 câu dưới.
+  // Bảng project_role_assignments có NHIỀU cột cùng trỏ sang users (người được gán,
+  // người tạo...), nên PostgREST không biết nối theo cột nào -> trả về LỖI, mà code
+  // cũ chỉ đọc `data` không đọc `error` -> lặng lẽ thành rỗng. Hậu quả: mọi vai trò
+  // tra theo dự án (CHT/GDDA/PTGD) đều hiện "chưa có ai" dù đã gán người đầy đủ.
+  // Nay lấy user_id trước, tra tên ở câu riêng — không phụ thuộc tên khóa ngoại.
+  const [tplRes, stepsRes, projRes, roleRes] = await Promise.all([
     supabase.from('document_templates').select('name, origin_scope').eq('id', templateId).single(),
     supabase.from('template_steps').select('step_no, role_type, department, resolve_via_project').eq('template_id', templateId).order('step_no'),
     projectId
       ? supabase
           .from('project_role_assignments')
-          .select('role_type, effective_from, effective_to, users(full_name)')
+          .select('role_type, user_id, effective_from, effective_to')
           .eq('project_id', projectId)
           .lte('effective_from', today)
           .or(`effective_to.is.null,effective_to.gte.${today}`)
-      : Promise.resolve({ data: [] }),
-    supabase.from('user_roles').select('role_type, department, users(full_name)'),
+      : Promise.resolve({ data: [], error: null }),
+    supabase.from('user_roles').select('role_type, department, user_id'),
   ]);
 
+  // Im lặng nuốt lỗi chính là thứ đã giấu lỗi này suốt — từ nay lỗi phải hiện ra Console
+  if (tplRes.error) console.error('[stepPreview] lỗi đọc mẫu hồ sơ:', tplRes.error);
+  if (stepsRes.error) console.error('[stepPreview] lỗi đọc các bước duyệt:', stepsRes.error);
+  if (projRes.error) console.error('[stepPreview] lỗi đọc phân công theo DỰ ÁN:', projRes.error);
+  if (roleRes.error) console.error('[stepPreview] lỗi đọc vai trò theo PHÒNG BAN:', roleRes.error);
+
+  const tpl = tplRes.data;
+  const steps = stepsRes.data;
+  const projAssigns = projRes.data || [];
+  const roleHolders = roleRes.data || [];
+
+  // Tra tên 1 lần cho cả 2 nguồn
+  const userIds = [...new Set([...projAssigns, ...roleHolders].map((r) => r.user_id).filter(Boolean))];
+  const nameById = {};
+  if (userIds.length) {
+    const { data: users, error: uErr } = await supabase.from('users').select('id, full_name').in('id', userIds);
+    if (uErr) console.error('[stepPreview] lỗi đọc danh sách người dùng:', uErr);
+    (users || []).forEach((u) => (nameById[u.id] = u.full_name));
+  }
+
   const scope = tpl?.origin_scope || 'site';
-  const nameOf = (arr) => [...new Set((arr || []).map((x) => x.users?.full_name).filter(Boolean))];
+  const nameOf = (arr) => [...new Set((arr || []).map((x) => nameById[x.user_id]).filter(Boolean))];
 
   function resolveRow(row) {
     const projectBound =
