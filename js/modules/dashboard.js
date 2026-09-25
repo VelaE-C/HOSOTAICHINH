@@ -17,7 +17,7 @@ export async function render(container, user) {
 
   const isTopLevel = (user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
 
-  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: overdueRaw }, { data: myDeptRoles }] =
+  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: overdueRaw }, { data: myDeptRoles }, { data: receipts }] =
     await Promise.all([
       supabase.from('projects').select('id, code, name').order('code'),
       supabase.from('v_budget_summary').select('*'),
@@ -27,12 +27,16 @@ export async function render(container, user) {
       // tra được Dự án, Nhà cung cấp và cộng dồn PLHĐ mà không phải gọi thêm query
       supabase.from('contracts').select('id, doc_number, value, value_adjustment, status, parent_contract_id, project_id, origin_department, partners(name), projects(code, name)'),
       // Bổ sung id / doc_number để đối chiếu đúng dòng cảnh báo là bill nào
-      supabase.from('bills').select('id, doc_number, contract_id, val_d'),
+      // Bổ sung val_e..val_h + vat_rate + period_no để tính ĐÚNG chi phí dự án:
+      // chi phí = I (tổng thanh toán gồm tạm ứng) của bill kỳ MỚI NHẤT mỗi hợp đồng,
+      // quy về trước thuế — khớp đúng cột "Đã TT" của BCTC.
+      supabase.from('bills').select('id, doc_number, contract_id, project_id, partner_id, period_no, status, val_d, val_e, val_f, val_g, val_h, vat_rate'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
       isTopLevel
         ? supabase.from('approval_assignments').select('document_type, document_id, step_no, created_at, users(full_name)').eq('status', 'pending')
         : Promise.resolve({ data: [] }),
       supabase.from('user_roles').select('department').eq('user_id', user.id).eq('role_type', 'TruongPhongChucNang'),
+      supabase.from('owner_receipts').select('project_id, claim_no, amount_before_vat, paid_date'),
     ]);
 
   // Khối "Vai trò của tôi" — tra cứu nhanh đang giữ vị trí gì, ở đâu, không cần lật từng hồ sơ
@@ -86,6 +90,110 @@ export async function render(container, user) {
     const lũyKe = lũyKeByContract[c.id] || 0;
     return { partner: c.partners?.name || '—', docNumber: c.doc_number, value: c.value, lũyKe, left: c.value - lũyKe, over: lũyKe > c.value };
   });
+
+  // ============================================================
+  // BẢNG TỔNG THEO DỰ ÁN — Doanh thu HĐ · Thực thu · Chi phí · Dòng tiền ròng
+  //
+  // CỐ Ý đặt tên cột "Dòng tiền ròng" chứ không phải "Chênh lệch": đây là
+  // TIỀN VÀO trừ TIỀN RA, KHÔNG phải lợi nhuận. Lợi nhuận = sản lượng đã làm trừ
+  // chi phí phát sinh (Hàng C của BCTC). Dự án lãi vẫn có thể âm dòng tiền vì CĐT
+  // giữ lại và trả chậm — đặt tên nhập nhằng là sớm muộn có người đọc nhầm.
+  //
+  // CHI PHÍ DỰ ÁN: lấy I (= D+E+F+G+H, tổng thanh toán gồm tạm ứng) của bill kỳ
+  // MỚI NHẤT trong mỗi nhóm, rồi quy về TRƯỚC THUẾ. val_d vốn đã gồm VAT nên chia
+  // cho (1+VAT). Gom nhóm theo hợp đồng; bill chưa gắn hợp đồng thì gom theo cặp
+  // Dự án+Đối tác để không bỏ sót (BCTC chỉ đếm dòng có hợp đồng — đây là lý do
+  // con số ở 2 màn hình có thể lệch nhau, và lệch đúng phần bill chưa gắn HĐ).
+  // ============================================================
+  const validBills = (bills || []).filter((b) => !['draft', 'cancelled', 'rejected'].includes(b.status));
+  const latestBillByGroup = {};
+  validBills.forEach((b) => {
+    const key = b.contract_id || `np:${b.project_id}|${b.partner_id}`;
+    const cur = latestBillByGroup[key];
+    if (!cur || Number(b.period_no || 0) > Number(cur.period_no || 0)) latestBillByGroup[key] = b;
+  });
+  const costByProject = {};
+  Object.values(latestBillByGroup).forEach((b) => {
+    const projectId = b.project_id || contractById2(b.contract_id)?.project_id;
+    if (!projectId) return;
+    const I = Number(b.val_d || 0) + Number(b.val_e || 0) + Number(b.val_f || 0) + Number(b.val_g || 0) + Number(b.val_h || 0);
+    const div = 1 + (Number(b.vat_rate ?? 8) || 0) / 100;
+    costByProject[projectId] = (costByProject[projectId] || 0) + Math.round(I / (div || 1));
+  });
+  function contractById2(id) {
+    if (!id) return null;
+    return (contracts || []).find((c) => c.id === id) || null;
+  }
+
+  const revenueByProject = {};
+  (revenueRows || []).forEach((r) => (revenueByProject[r.project_id] = Number(r.value || 0)));
+
+  const receiptByProject = {};
+  (receipts || []).forEach((r) => (receiptByProject[r.project_id] = (receiptByProject[r.project_id] || 0) + Number(r.amount_before_vat || 0)));
+
+  // CHT/GĐDA/QS: chỉ dự án mình phụ trách. Vai trò cấp công ty: xem hết.
+  const summaryProjects = (projects || []).filter((p) => (isSiteLimited ? myProjectIds.has(p.id) : true));
+
+  const summaryRows = summaryProjects.map((p) => {
+    const doanhThu = revenueByProject[p.id] ?? null;   // null = chưa nhập HĐ đầu ra
+    const thucThu = receiptByProject[p.id] || 0;
+    const chiPhi = costByProject[p.id] || 0;
+    const rong = thucThu - chiPhi;
+    // Ghi chú tự sinh — nói đúng điều đáng chú ý nhất của dòng đó, không tô hồng
+    let danhGia = '';
+    if (doanhThu == null) danhGia = '⚠️ Chưa nhập HĐ đầu ra — không đánh giá được';
+    else if (!thucThu && !chiPhi) danhGia = 'Chưa phát sinh thu/chi';
+    else if (!thucThu) danhGia = '⚠️ Đã chi nhưng CĐT chưa trả đồng nào';
+    else if (rong < 0) danhGia = `Âm dòng tiền — đang ứng vốn ${fmt(-rong)} ₫`;
+    else danhGia = `Dương dòng tiền ${fmt(rong)} ₫`;
+    const thuPct = doanhThu ? (thucThu / doanhThu) * 100 : null;
+    return { p, doanhThu, thucThu, chiPhi, rong, danhGia, thuPct };
+  });
+
+  const tDoanhThu = summaryRows.reduce((s2, r) => s2 + (r.doanhThu || 0), 0);
+  const tThucThu = summaryRows.reduce((s2, r) => s2 + r.thucThu, 0);
+  const tChiPhi = summaryRows.reduce((s2, r) => s2 + r.chiPhi, 0);
+  const tRong = tThucThu - tChiPhi;
+
+  const summaryTableHtml = `
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="padding:14px 16px 0">
+        <div class="card-title" style="margin:0">Dòng tiền theo dự án</div>
+        <div class="card-sub">Mọi con số TRƯỚC THUẾ. <b>Dòng tiền ròng = Thực thu − Chi phí</b> — đây là tiền vào trừ tiền ra, <b>không phải lợi nhuận</b>${isSiteLimited ? ' · chỉ hiện dự án bạn phụ trách' : ''}</div>
+      </div>
+      <div style="overflow-x:auto"><table><thead><tr>
+        <th>Dự án</th>
+        <th style="text-align:right">Doanh thu HĐ</th>
+        <th style="text-align:right">Thực thu từ CĐT</th>
+        <th style="text-align:right">Chi phí dự án</th>
+        <th style="text-align:right">Dòng tiền ròng</th>
+        <th>Ghi chú</th>
+      </tr></thead><tbody>
+      ${summaryRows.length
+        ? summaryRows
+            .map(
+              (r) => `<tr>
+          <td><span class="code-chip" title="${esc(r.p.name)}">${esc(r.p.code)}</span></td>
+          <td class="mono" style="text-align:right">${r.doanhThu == null ? '<span style="color:var(--gray3)">—</span>' : fmt(r.doanhThu)}</td>
+          <td class="mono" style="text-align:right">${fmt(r.thucThu)}${r.thuPct != null ? `<div style="font-size:10.5px;color:var(--gray4);font-weight:400">${r.thuPct.toFixed(0)}% HĐ</div>` : ''}</td>
+          <td class="mono" style="text-align:right">${fmt(r.chiPhi)}</td>
+          <td class="mono" style="text-align:right;font-weight:700;color:${r.rong < 0 ? 'var(--red)' : 'var(--green)'}">${r.rong >= 0 ? '+' : ''}${fmt(r.rong)}</td>
+          <td style="font-size:12px;color:${r.danhGia.startsWith('⚠️') || r.rong < 0 ? 'var(--amber)' : 'var(--gray6)'}">${esc(r.danhGia)}</td>
+        </tr>`,
+            )
+            .join('')
+        : `<tr><td colspan="6" style="text-align:center;color:var(--gray4);padding:20px">Không có dự án nào trong phạm vi của bạn</td></tr>`}
+      </tbody>
+      ${summaryRows.length ? `<tfoot><tr style="background:var(--gray1);font-weight:700">
+        <td>TỔNG</td>
+        <td class="mono" style="text-align:right">${fmt(tDoanhThu)}</td>
+        <td class="mono" style="text-align:right">${fmt(tThucThu)}</td>
+        <td class="mono" style="text-align:right">${fmt(tChiPhi)}</td>
+        <td class="mono" style="text-align:right;color:${tRong < 0 ? 'var(--red)' : 'var(--green)'}">${tRong >= 0 ? '+' : ''}${fmt(tRong)}</td>
+        <td></td>
+      </tr></tfoot>` : ''}
+      </table></div>
+    </div>`;
 
   // ============================================================
   // BẢNG "HỒ SƠ ĐANG CÓ CẢNH BÁO" — dựng dữ liệu
@@ -256,7 +364,7 @@ export async function render(container, user) {
     days: Math.floor((Date.now() - new Date(a.created_at).getTime()) / 86400000),
   }));
 
-  container.innerHTML = myRolesHtml + `
+  container.innerHTML = myRolesHtml + summaryTableHtml + `
     ${overdueRows.length ? `
     <div class="card"><div class="card-title">⏰ Hồ sơ đang trễ hạn duyệt (toàn công ty)</div>
       <table><thead><tr><th>Loại</th><th>Số hồ sơ</th><th>Bước</th><th>Người đang chờ</th><th>Trễ</th></tr></thead><tbody>
