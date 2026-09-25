@@ -12,33 +12,42 @@ const NAV = [
   { id: 'bill', label: 'Bill thanh toán', icon: '💵', group: 'HỒ SƠ', bn: true, title: 'Bill thanh toán theo kỳ', sub: 'Tạm ứng, thanh toán sản lượng, quyết toán' },
   { id: 'totrinh', label: 'Tờ trình chủ trương', icon: '🗂️', group: 'HỒ SƠ', more: true, title: 'Tờ trình phê duyệt chủ trương', sub: 'Căn cứ cho hợp đồng' },
   { id: 'bctc', label: 'Báo cáo tài chính', icon: '📈', group: 'HỒ SƠ', more: true, title: 'Báo cáo tài chính dự án', sub: 'Doanh thu · Chi phí · Lợi nhuận — theo từng Rev' },
+  { id: 'thucthu', label: 'Thực thu CĐT', icon: '💰', group: 'HỒ SƠ', more: true, title: 'Thực thu sản lượng từ Chủ đầu tư', sub: 'Tiền CĐT đã trả về theo từng đợt claim — QLCP&HĐ ghi nhận, không qua duyệt' },
+  { id: 'hopdongdaura', label: 'Hợp đồng đầu ra (CĐT)', icon: '📑', group: 'HỒ SƠ', more: true, title: 'Hợp đồng đầu ra (CĐT)', sub: 'Giá trị hợp đồng ký với Chủ đầu tư — nguồn Doanh thu của Dashboard' },
   { id: 'doitac', label: 'Đối tác', icon: '🏗️', group: 'QUẢN TRỊ', more: true, title: 'Đối tác NTP / NCC', sub: 'Hồ sơ và lịch sử giao dịch' },
   { id: 'users', label: 'Người dùng', icon: '👤', group: 'QUẢN TRỊ', more: true, title: 'Quản trị hệ thống', sub: 'Dự án, người dùng, mẫu hồ sơ (luồng duyệt)' },
 ];
 
 // Đúng theo bảng phân quyền mục 9 concept — 1 người có thể giữ nhiều vai trò,
 // nên gộp (union) toàn bộ tab được phép của mọi vai trò họ đang giữ
+// Dashboard CỐ Ý chỉ mở cho: QLCP&HĐ, Kế toán, PTGD, TGD, Admin (xem toàn công ty)
+// và CHT/GĐDA (chỉ dự án mình được phân công — phần lọc theo dự án nằm trong
+// dashboard.js). Trưởng phòng chức năng và Pháp chế KHÔNG còn thấy Dashboard:
+// bảng tổng là số liệu tài chính toàn dự án, không thuộc phạm vi 2 nhóm này.
+// Thực thu CĐT và Hợp đồng đầu ra: chỉ QLCP&HĐ nhập, các cấp trên xem.
 const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   GDDA: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   ChuyenVienPhongBan: ['hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
-  TruongPhongChucNang: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
+  TruongPhongChucNang: ['duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   PhapChe_CV: ['duyet', 'hopdong', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
-  PhapChe_TP: ['dashboard', 'duyet', 'hopdong', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
-  KeToan_Vien: ['duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
-  KeToan_Truong: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
-  QLCPHD_CV: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
-  QLCPHD_TP: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'users', 'hosocuatoi'],
-  PTGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
-  TGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
-  Admin: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'users', 'hosocuatoi'],
+  PhapChe_TP: ['duyet', 'hopdong', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
+  KeToan_Vien: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'thucthu', 'doitac', 'hosocuatoi'],
+  KeToan_Truong: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'thucthu', 'doitac', 'hosocuatoi'],
+  QLCPHD_CV: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'thucthu', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  QLCPHD_TP: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'thucthu', 'hopdongdaura', 'doitac', 'users', 'hosocuatoi'],
+  PTGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'thucthu', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  TGD: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'thucthu', 'hopdongdaura', 'doitac', 'hosocuatoi'],
+  Admin: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'thucthu', 'hopdongdaura', 'doitac', 'users', 'hosocuatoi'],
 };
 
 export function accessibleTabs(roles) {
   const set = new Set();
   (roles || []).forEach((r) => (TAB_BY_ROLE[r] || []).forEach((t) => set.add(t)));
-  if (set.size === 0) set.add('dashboard'); // chưa gán vai trò vẫn thấy Tổng quan (rỗng), không vỡ giao diện
+  if (set.size === 0) set.add('hosocuatoi'); // chưa gán vai trò -> cho về 'Hồ sơ của tôi' (rỗng, vô hại).
+  // CỐ Ý KHÔNG mặc định 'dashboard' như trước: Dashboard nay là màn hình tài chính
+  // toàn công ty, người chưa gán vai trò không được rơi thẳng vào đó.
   return NAV.filter((n) => set.has(n.id));
 }
 
