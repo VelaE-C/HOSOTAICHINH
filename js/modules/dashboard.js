@@ -71,7 +71,7 @@ export async function render(container, user) {
 
   const budgetRowsFiltered = isSiteLimited ? (budgetRows || []).filter((r) => myProjectIds.has(r.project_id)) : isDeptLimited ? [] : budgetRows;
   const revenueRowsFiltered = isSiteLimited ? (revenueRows || []).filter((r) => myProjectIds.has(r.project_id)) : isDeptLimited ? [] : revenueRows;
-  const contractsFiltered = isSiteLimited ? (contracts || []).filter((c) => myProjectIds.has(c.project_id)) : isDeptLimited ? (contracts || []).filter((c) => c.origin_department === myDept) : contracts;
+  // contractsFiltered đã bỏ cùng bảng "Danh sách đơn vị đã ký hợp đồng" — không còn nơi nào dùng
 
   // Tổng hợp ngân sách 3 lớp — giờ ai cũng xem được (đã mở RLS), lọc theo dự án nếu cần
   const totBudget = (budgetRowsFiltered || []).reduce((s, r) => s + Number(r.allocated_value || 0), 0);
@@ -80,16 +80,15 @@ export async function render(container, user) {
   const totRevenue = (revenueRowsFiltered || []).reduce((s, r) => s + Number(r.value || 0), 0);
   const delta = totRevenue - totBudget;
 
-  // Danh sách đơn vị đã ký hợp đồng — so với lũy kế bill (Case 1 ngay trong tầm mắt)
+  // Lũy kế đã bill theo từng hợp đồng — bảng cảnh báo Case 1 dùng để tính phần vượt
   const lũyKeByContract = {};
   (bills || []).forEach((b) => {
     if (!b.contract_id) return;
     lũyKeByContract[b.contract_id] = Math.max(lũyKeByContract[b.contract_id] || 0, Number(b.val_d || 0));
   });
-  const unitRows = (contractsFiltered || []).map((c) => {
-    const lũyKe = lũyKeByContract[c.id] || 0;
-    return { partner: c.partners?.name || '—', docNumber: c.doc_number, value: c.value, lũyKe, left: c.value - lũyKe, over: lũyKe > c.value };
-  });
+  // Bảng "Danh sách đơn vị đã ký hợp đồng" ĐÃ GỠ theo yêu cầu 25/09/2026 — thông tin
+  // đó vẫn tra được đầy đủ ở tab Hợp đồng. Biến lũyKeByContract bên trên GIỮ LẠI vì
+  // bảng cảnh báo Case 1 vẫn dùng để tính phần vượt.
 
   // ============================================================
   // BẢNG TỔNG THEO DỰ ÁN — Doanh thu HĐ · Thực thu · Chi phí · Dòng tiền ròng
@@ -387,13 +386,6 @@ export async function render(container, user) {
 
     ${flaggedTableHtml}
 
-    <div class="card"><div class="card-title">Danh sách đơn vị đã ký hợp đồng${isDeptLimited ? ` — ${myDept}` : ''}</div>
-      <div class="card-sub">Giá trị hợp đồng so với giá trị lũy kế đã bill${isDeptLimited ? ' — chỉ hồ sơ do phòng bạn trình' : ''}</div>
-      <table><thead><tr><th>Đối tác</th><th>Số hợp đồng</th><th>Giá trị HĐ</th><th>GT lũy kế bill</th><th>Còn lại</th></tr></thead><tbody>
-      ${unitRows.length ? unitRows.map((u) => `<tr><td>${u.partner}</td><td class="mono">${u.docNumber}</td><td class="mono">${fmt(u.value)}</td>
-      <td class="mono">${fmt(u.lũyKe)}</td><td class="mono" style="font-weight:700;color:${u.over ? 'var(--red)' : 'var(--green)'}">${fmt(u.left)}${u.over ? ' ⚠️' : ''}</td></tr>`).join('') :
-      `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Chưa có hợp đồng nào</td></tr>`}
-      </tbody></table></div>
   `;
 
   wireFlaggedTable(container, user);
