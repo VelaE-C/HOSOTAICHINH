@@ -17,7 +17,7 @@ export async function render(container, user) {
 
   const isTopLevel = (user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
 
-  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: overdueRaw }, { data: myDeptRoles }, { data: receipts }] =
+  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: receipts }] =
     await Promise.all([
       supabase.from('projects').select('id, code, name').order('code'),
       supabase.from('v_budget_summary').select('*'),
@@ -32,10 +32,6 @@ export async function render(container, user) {
       // quy về trước thuế — khớp đúng cột "Đã TT" của BCTC.
       supabase.from('bills').select('id, doc_number, contract_id, project_id, partner_id, period_no, status, val_d, val_e, val_f, val_g, val_h, vat_rate'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
-      isTopLevel
-        ? supabase.from('approval_assignments').select('document_type, document_id, step_no, created_at, users(full_name)').eq('status', 'pending')
-        : Promise.resolve({ data: [] }),
-      supabase.from('user_roles').select('department').eq('user_id', user.id).eq('role_type', 'TruongPhongChucNang'),
       supabase.from('owner_receipts').select('project_id, claim_no, amount_before_vat, paid_date'),
     ]);
 
@@ -62,23 +58,12 @@ export async function render(container, user) {
   const myProjectIds = new Set((myAssignments || []).map((a) => a.project_id).filter(Boolean));
   const isSiteLimited = myProjectIds.size > 0 && !(user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
 
-  // Trưởng phòng chức năng: tương đương GĐDA nhưng của PHÒNG BAN thay vì DỰ ÁN —
-  // chỉ thấy đúng hồ sơ do phòng mình trình (dựa vào origin_department, tự ghi lúc
-  // trình). Ngân sách/Doanh thu vốn là khái niệm THEO DỰ ÁN, phòng ban không sở hữu
-  // ngân sách riêng, nên KHÔNG hiện các khối đó cho diện này (tránh số liệu vô nghĩa).
-  const myDept = (myDeptRoles || [])[0]?.department || null;
-  const isDeptLimited = !isSiteLimited && !isTopLevel && !!myDept;
-
-  const budgetRowsFiltered = isSiteLimited ? (budgetRows || []).filter((r) => myProjectIds.has(r.project_id)) : isDeptLimited ? [] : budgetRows;
-  const revenueRowsFiltered = isSiteLimited ? (revenueRows || []).filter((r) => myProjectIds.has(r.project_id)) : isDeptLimited ? [] : revenueRows;
+  // budgetRowsFiltered / revenueRowsFiltered đã gỡ cùng 2 khối thống kê ngân sách.
   // contractsFiltered đã bỏ cùng bảng "Danh sách đơn vị đã ký hợp đồng" — không còn nơi nào dùng
 
   // Tổng hợp ngân sách 3 lớp — giờ ai cũng xem được (đã mở RLS), lọc theo dự án nếu cần
-  const totBudget = (budgetRowsFiltered || []).reduce((s, r) => s + Number(r.allocated_value || 0), 0);
-  const totCommit = (budgetRowsFiltered || []).reduce((s, r) => s + Number(r.committed || 0), 0);
-  const totActual = (budgetRowsFiltered || []).reduce((s, r) => s + Number(r.actual_spend || 0), 0);
-  const totRevenue = (revenueRowsFiltered || []).reduce((s, r) => s + Number(r.value || 0), 0);
-  const delta = totRevenue - totBudget;
+  // Các số tổng ngân sách/cam kết/thực chi đã gỡ cùng 2 khối thống kê tương ứng.
+  // budgetRows VẪN GIỮ vì bảng cảnh báo Case 2 (vượt ngân sách) còn dùng để tính.
 
   // Lũy kế đã bill theo từng hợp đồng — bảng cảnh báo Case 1 dùng để tính phần vượt
   const lũyKeByContract = {};
@@ -338,52 +323,10 @@ export async function render(container, user) {
       </tbody></table></div></div>`
     : '';
 
-  // Danh sách trễ hạn toàn công ty (chỉ QLCP&HĐ/PTGD/TGD/Admin mới thấy) — Bước 1-2
-  // hạn 2 ngày, Bước 3-4 hạn 1 ngày, khớp đúng quy tắc SLA đang dùng ở từng hồ sơ.
-  const overdueAssignments = (overdueRaw || []).filter((a) => {
-    const slaHours = a.step_no <= 2 ? 48 : 24;
-    return a.created_at && (Date.now() - new Date(a.created_at).getTime()) / 3600000 > slaHours;
-  });
-  const overdueIdsByType = { contract: [], bill: [], totrinh: [] };
-  overdueAssignments.forEach((a) => overdueIdsByType[a.document_type]?.push(a.document_id));
-  const [{ data: odContracts }, { data: odBills }, { data: odTotrinh }] = overdueAssignments.length
-    ? await Promise.all([
-        overdueIdsByType.contract.length ? supabase.from('contracts').select('id, doc_number').in('id', overdueIdsByType.contract) : { data: [] },
-        overdueIdsByType.bill.length ? supabase.from('bills').select('id, doc_number').in('id', overdueIdsByType.bill) : { data: [] },
-        overdueIdsByType.totrinh.length ? supabase.from('to_trinh_chu_truong').select('id, doc_number').in('id', overdueIdsByType.totrinh) : { data: [] },
-      ])
-    : [{ data: [] }, { data: [] }, { data: [] }];
-  const docNumMap = Object.fromEntries([...(odContracts || []), ...(odBills || []), ...(odTotrinh || [])].map((d) => [d.id, d.doc_number]));
-  const typeLabel = { contract: 'Hợp đồng', bill: 'Bill', totrinh: 'Tờ trình' };
-  const overdueRows = overdueAssignments.map((a) => ({
-    label: typeLabel[a.document_type],
-    docNumber: docNumMap[a.document_id] || '—',
-    step: a.step_no,
-    name: a.users?.full_name || '—',
-    days: Math.floor((Date.now() - new Date(a.created_at).getTime()) / 86400000),
-  }));
+  // Khối "Hồ sơ trễ hạn duyệt" ĐÃ GỠ 25/09/2026 theo yêu cầu — Dashboard chỉ còn
+  // 3 phần: Vai trò của tôi · Dòng tiền theo dự án · Hồ sơ đang có cảnh báo.
 
   container.innerHTML = myRolesHtml + summaryTableHtml + `
-    ${overdueRows.length ? `
-    <div class="card"><div class="card-title">⏰ Hồ sơ đang trễ hạn duyệt (toàn công ty)</div>
-      <table><thead><tr><th>Loại</th><th>Số hồ sơ</th><th>Bước</th><th>Người đang chờ</th><th>Trễ</th></tr></thead><tbody>
-      ${overdueRows.map((o) => `<tr><td>${o.label}</td><td class="mono">${o.docNumber}</td><td>Bước ${o.step}</td><td>${o.name}</td><td style="color:var(--red);font-weight:700">${o.days} ngày</td></tr>`).join('')}
-      </tbody></table></div>` : ''}
-    ${budgetRowsFiltered && budgetRowsFiltered.length ? `
-    <div class="card"><div class="stat-row" style="grid-template-columns:repeat(3,1fr)">
-      <div><div class="card-sub" style="margin:0">Ngân sách phân bổ</div><div class="stat-num">${tyi(totBudget)}</div></div>
-      <div><div class="card-sub" style="margin:0">Cam kết (Hợp đồng)</div><div class="stat-num" style="color:var(--blue)">${tyi(totCommit)}</div><div class="stat-delta">${totBudget ? (totCommit / totBudget * 100).toFixed(0) : 0}% ngân sách</div></div>
-      <div><div class="card-sub" style="margin:0">Thực chi (Bill đã duyệt)</div><div class="stat-num teal">${tyi(totActual)}</div><div class="stat-delta">${totCommit ? (totActual / totCommit * 100).toFixed(0) : 0}% cam kết</div></div>
-    </div></div>
-
-    <div class="card"><div class="card-title">Giá trị hợp đồng CĐT so với Ngân sách phân bổ</div>
-      <div class="card-sub">Ngân sách phân bổ là giá trị HĐ CĐT sau khi QLCP&HĐ đã bóc tách sẵn phần lợi nhuận</div>
-      <div class="stat-row" style="grid-template-columns:repeat(3,1fr)">
-        <div><div class="card-sub" style="margin:0">Giá trị HĐ CĐT</div><div class="stat-num">${tyi(totRevenue)}</div></div>
-        <div><div class="card-sub" style="margin:0">Ngân sách phân bổ</div><div class="stat-num">${tyi(totBudget)}</div></div>
-        <div><div class="card-sub" style="margin:0">Lợi nhuận đã bóc tách</div><div class="stat-num" style="color:${delta >= 0 ? 'var(--green)' : 'var(--red)'}">${delta >= 0 ? '+' : ''}${tyi(delta)}</div></div>
-      </div></div>` : isDeptLimited ? '' : `<div class="empty-note">Chưa có phiên bản ngân sách nào${isSiteLimited ? ' cho (các) dự án bạn phụ trách' : ''}.</div>`}
-
     ${flaggedTableHtml}
 
   `;
