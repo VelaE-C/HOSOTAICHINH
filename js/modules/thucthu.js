@@ -1,13 +1,14 @@
 // ============================================================
-// thucthu.js — Thực thu sản lượng từ Chủ đầu tư (CĐT)
+// thucthu.js — Sản lượng từ Chủ đầu tư (CĐT) đã được xác nhận
 //
-// Ghi nhận tiền CĐT thực trả về theo từng đợt claim. KHÔNG qua luồng phê duyệt:
+// Ghi nhận SẢN LƯỢNG CĐT đã xác nhận theo từng đợt claim. KHÔNG phải tiền thực thu:
+// tiền về còn có tạm ứng, giữ lại bảo hành, trả chậm — lệch cả thời điểm lẫn giá trị. KHÔNG qua luồng phê duyệt:
 // đây là số liệu ghi nhận thực tế, không phải đề nghị chi tiền. Bù lại, mỗi dòng
 // bắt buộc có chứng từ đính kèm, và database tự ghi ai nhập / ai sửa / lúc nào
 // (trigger trg_stamp_owner_receipt) — giao diện KHÔNG gửi 2 trường đó lên.
 //
 // Quyền: chỉ QLCPHD_CV / QLCPHD_TP / Admin nhập và sửa; xóa thì chỉ QLCPHD_TP và
-// Admin. Luật thật nằm ở RLS bảng owner_receipts — phần ẩn/hiện nút dưới đây chỉ
+// Admin. Luật thật nằm ở RLS bảng owner_progress_claims — phần ẩn/hiện nút dưới đây chỉ
 // để đỡ bấm nhầm, KHÔNG phải cơ chế bảo vệ.
 //
 // Số liệu nhập TRƯỚC THUẾ, để cùng gốc so sánh với cột Chi phí dự án trên
@@ -18,7 +19,7 @@ import { fmt, fmtDate, fmtDateTime, toast, loading, wireMoneyInputs, parseMoneyI
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 import { exportListExcel } from './bctcExport.js';
 
-const OWNER_TYPE = 'owner_receipt'; // phải khớp đúng nhánh đã thêm trong can_see_document()
+const OWNER_TYPE = 'progress_claim'; // phải khớp đúng nhánh đã thêm trong can_see_document()
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
 let VIEW_PROJECT = 'ALL';
@@ -38,7 +39,7 @@ export async function render(container, user) {
   const [{ data: projects }, { data: rows, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     supabase
-      .from('owner_receipts')
+      .from('owner_progress_claims')
       .select('*, projects(code, name), creator:created_by(full_name), editor:updated_by(full_name)')
       .order('project_id')
       .order('claim_no'),
@@ -69,8 +70,8 @@ export async function render(container, user) {
     <div class="card" style="margin-bottom:14px">
       <div class="stat-row" style="grid-template-columns:repeat(3,1fr)">
         <div><div class="card-sub" style="margin:0">Số đợt claim đã ghi nhận</div><div class="stat-num">${list.length}</div></div>
-        <div><div class="card-sub" style="margin:0">Tổng thực thu (trước thuế)</div><div class="stat-num teal">${fmt(tong)} ₫</div></div>
-        <div><div class="card-sub" style="margin:0">Tổng thực thu (có VAT)</div><div class="stat-num">${fmt(tongVat)} ₫</div></div>
+        <div><div class="card-sub" style="margin:0">Tổng sản lượng (trước thuế)</div><div class="stat-num teal">${fmt(tong)} ₫</div></div>
+        <div><div class="card-sub" style="margin:0">Tổng sản lượng (có VAT)</div><div class="stat-num">${fmt(tongVat)} ₫</div></div>
       </div>
     </div>
 
@@ -80,7 +81,7 @@ export async function render(container, user) {
       <div style="overflow-x:auto"><table><thead><tr>
         <th>Dự án</th><th>Đợt</th><th>Kỳ</th>
         <th style="text-align:right">Trước thuế</th><th>VAT</th><th style="text-align:right">Có VAT</th>
-        <th>Ngày CĐT trả</th><th>Ghi chú</th><th>Người nhập</th>
+        <th>Ngày xác nhận</th><th>Ghi chú</th><th>Người nhập</th>
       </tr></thead><tbody>
       ${list.length
         ? list
@@ -92,7 +93,7 @@ export async function render(container, user) {
           <td class="mono" style="text-align:right;font-weight:700">${fmt(r.amount_before_vat)}</td>
           <td class="mono">${Number(r.vat_rate)}%</td>
           <td class="mono" style="text-align:right;color:var(--gray6)">${fmt(r.amount_with_vat)}</td>
-          <td>${fmtDate(r.paid_date)}</td>
+          <td>${fmtDate(r.confirmed_date)}</td>
           <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gray6)" title="${esc(r.note)}">${esc(r.note || '—')}</td>
           <td style="font-size:11.5px;color:var(--gray5)">${esc(r.creator?.full_name || '—')}</td>
         </tr>`,
@@ -117,7 +118,7 @@ export async function render(container, user) {
   container.querySelector('#btnExport').addEventListener('click', () =>
     exportListExcel(
       {
-        subtitle: 'THỰC THU SẢN LƯỢNG TỪ CHỦ ĐẦU TƯ',
+        subtitle: 'SẢN LƯỢNG TỪ CHỦ ĐẦU TƯ ĐÃ XÁC NHẬN',
         note: VIEW_PROJECT === 'ALL' ? 'Tất cả dự án' : `Dự án: ${(projects || []).find((p) => p.id === VIEW_PROJECT)?.code || ''}`,
         columns: [
           { key: 'duan', header: 'Dự án', width: 18 },
@@ -126,7 +127,7 @@ export async function render(container, user) {
           { key: 'truocthue', header: 'Trước thuế', width: 20, money: true },
           { key: 'vat', header: 'VAT (%)', width: 10, center: true },
           { key: 'covat', header: 'Có VAT', width: 20, money: true },
-          { key: 'ngaytra', header: 'Ngày CĐT trả', width: 15, center: true },
+          { key: 'ngaytra', header: 'Ngày xác nhận', width: 15, center: true },
           { key: 'ghichu', header: 'Ghi chú', width: 34 },
           { key: 'nguoinhap', header: 'Người nhập', width: 20 },
         ],
@@ -137,12 +138,12 @@ export async function render(container, user) {
           truocthue: Number(r.amount_before_vat || 0),
           vat: Number(r.vat_rate || 0),
           covat: Number(r.amount_with_vat || 0),
-          ngaytra: fmtDate(r.paid_date),
+          ngaytra: fmtDate(r.confirmed_date),
           ghichu: r.note || '',
           nguoinhap: r.creator?.full_name || '',
         })),
-        fileBase: 'Thuc_thu_CDT',
-        sheetName: 'Thực thu CĐT',
+        fileBase: 'San_luong_CDT',
+        sheetName: 'Sản lượng CĐT',
       },
       (msg) => toast(msg, 'error'),
     ),
@@ -195,11 +196,11 @@ async function openForm(rec, projects, user, onClose) {
         </div>
       </div>
 
-      <div style="margin-bottom:13px"><label class="form-label">Ngày CĐT thanh toán</label>
-        <input type="date" id="fPaidDate" class="form-input" value="${rec?.paid_date || ''}"></div>
+      <div style="margin-bottom:13px"><label class="form-label">Ngày CĐT xác nhận</label>
+        <input type="date" id="fConfirmDate" class="form-input" value="${rec?.confirmed_date || ''}"></div>
 
       <div style="margin-bottom:13px"><label class="form-label">Ghi chú</label>
-        <textarea id="fNote" class="form-input" rows="3" placeholder="VD: Claim đợt 5 tháng 9 — CĐT giữ lại 5% bảo hành, đã trừ tạm ứng">${esc(rec?.note || '')}</textarea></div>
+        <textarea id="fNote" class="form-input" rows="3" placeholder="VD: Claim đợt 5 tháng 9 — CĐT xác nhận khối lượng phần thân">${esc(rec?.note || '')}</textarea></div>
 
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Chứng từ đính kèm</div>
       <div class="card" id="attachArea" style="padding:12px 14px"></div>
@@ -234,7 +235,7 @@ async function openForm(rec, projects, user, onClose) {
     const claimNo = Number(modal.querySelector('#fClaim').value);
     if (!projectId || !claimNo) return (note.innerHTML = '');
     if (!isNew && claimNo === rec.claim_no) return (note.innerHTML = '');
-    const { data } = await supabase.from('owner_receipts').select('id').eq('project_id', projectId).eq('claim_no', claimNo).limit(1);
+    const { data } = await supabase.from('owner_progress_claims').select('id').eq('project_id', projectId).eq('claim_no', claimNo).limit(1);
     note.innerHTML = data && data.length
       ? `<span style="color:var(--red);font-weight:600">✕ Đợt ${claimNo} của dự án này đã được ghi nhận rồi — lưu sẽ bị chặn.</span>`
       : `<span style="color:var(--green,#16A34A)">✓ Đợt này chưa có.</span>`;
@@ -256,7 +257,7 @@ async function openForm(rec, projects, user, onClose) {
   modal.querySelector('#btnDelete')?.addEventListener('click', async () => {
     if (!confirm(`Xóa đợt claim ${rec.claim_no} của dự án ${rec.projects?.code || ''}?\n\nDữ liệu sẽ mất hẳn, không hoàn tác được.`)) return;
     loading(true);
-    const { error } = await supabase.from('owner_receipts').delete().eq('id', rec.id);
+    const { error } = await supabase.from('owner_progress_claims').delete().eq('id', rec.id);
     if (error) return toast('Lỗi xóa: ' + error.message, 'error');
     toast('Đã xóa đợt claim', 'success');
     closeModal(modal, onClose);
@@ -268,7 +269,7 @@ async function openForm(rec, projects, user, onClose) {
     const period_month = fromMonthInput(modal.querySelector('#fPeriod').value);
     const amount_before_vat = parseMoneyInput(modal.querySelector('#fAmount').value);
     const vat_rate = Number(modal.querySelector('#fVat').value);
-    const paid_date = modal.querySelector('#fPaidDate').value || null;
+    const confirmed_date = modal.querySelector('#fConfirmDate').value || null;
     const note = modal.querySelector('#fNote').value.trim() || null;
 
     if (!project_id || !claim_no) return toast('Chọn Dự án và điền Đợt claim', 'error');
@@ -276,12 +277,12 @@ async function openForm(rec, projects, user, onClose) {
 
     loading(true);
     // CỐ Ý không gửi created_by/updated_by — trigger bên database tự ghi, không ai giả được
-    const payload = { project_id, claim_no, period_month, amount_before_vat, vat_rate, paid_date, note };
+    const payload = { project_id, claim_no, period_month, amount_before_vat, vat_rate, confirmed_date, note };
 
     if (isNew) {
-      const { data: created, error } = await supabase.from('owner_receipts').insert(payload).select('id').single();
+      const { data: created, error } = await supabase.from('owner_progress_claims').insert(payload).select('id').single();
       if (error) {
-        if (error.message.includes('owner_receipts_project_claim_unique') || error.message.includes('duplicate key')) {
+        if (error.message.includes('owner_progress_claims_project_claim_unique') || error.message.includes('duplicate key')) {
           return toast(`Đợt ${claim_no} của dự án này đã được ghi nhận rồi — mở dòng đó ra sửa, đừng tạo trùng.`, 'error');
         }
         return toast('Lỗi lưu: ' + error.message, 'error');
@@ -289,9 +290,9 @@ async function openForm(rec, projects, user, onClose) {
       await uploadStagedFiles(filePicker.getFiles(), OWNER_TYPE, created.id, user.id);
       toast('Đã ghi nhận đợt claim', 'success');
     } else {
-      const { error } = await supabase.from('owner_receipts').update(payload).eq('id', rec.id);
+      const { error } = await supabase.from('owner_progress_claims').update(payload).eq('id', rec.id);
       if (error) {
-        if (error.message.includes('owner_receipts_project_claim_unique') || error.message.includes('duplicate key')) {
+        if (error.message.includes('owner_progress_claims_project_claim_unique') || error.message.includes('duplicate key')) {
           return toast(`Đợt ${claim_no} của dự án này đã có dòng khác dùng rồi.`, 'error');
         }
         return toast('Lỗi lưu: ' + error.message, 'error');
