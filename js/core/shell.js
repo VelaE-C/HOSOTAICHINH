@@ -12,7 +12,7 @@ const NAV = [
   { id: 'bill', label: 'Bill thanh toán', icon: '💵', group: 'HỒ SƠ', bn: true, title: 'Bill thanh toán theo kỳ', sub: 'Tạm ứng, thanh toán sản lượng, quyết toán' },
   { id: 'totrinh', label: 'Tờ trình chủ trương', icon: '🗂️', group: 'HỒ SƠ', more: true, title: 'Tờ trình phê duyệt chủ trương', sub: 'Căn cứ cho hợp đồng' },
   { id: 'bctc', label: 'Báo cáo tài chính', icon: '📈', group: 'HỒ SƠ', more: true, title: 'Báo cáo tài chính dự án', sub: 'Doanh thu · Chi phí · Lợi nhuận — theo từng Rev' },
-  { id: 'thucthu', label: 'Thực thu CĐT', icon: '💰', group: 'HỒ SƠ', more: true, title: 'Thực thu sản lượng từ Chủ đầu tư', sub: 'Tiền CĐT đã trả về theo từng đợt claim — QLCP&HĐ ghi nhận, không qua duyệt' },
+  { id: 'thucthu', label: 'Sản lượng CĐT', icon: '💰', group: 'HỒ SƠ', more: true, title: 'Sản lượng từ Chủ đầu tư', sub: 'Khối lượng CĐT đã xác nhận theo từng đợt claim — QLCP&HĐ ghi nhận, không qua duyệt' },
   { id: 'hopdongdaura', label: 'Hợp đồng đầu ra (CĐT)', icon: '📑', group: 'HỒ SƠ', more: true, title: 'Hợp đồng đầu ra (CĐT)', sub: 'Giá trị hợp đồng ký với Chủ đầu tư — nguồn Doanh thu của Dashboard' },
   { id: 'doitac', label: 'Đối tác', icon: '🏗️', group: 'QUẢN TRỊ', more: true, title: 'Đối tác NTP / NCC', sub: 'Hồ sơ và lịch sử giao dịch' },
   { id: 'users', label: 'Người dùng', icon: '👤', group: 'QUẢN TRỊ', more: true, title: 'Quản trị hệ thống', sub: 'Dự án, người dùng, mẫu hồ sơ (luồng duyệt)' },
@@ -24,7 +24,7 @@ const NAV = [
 // và CHT/GĐDA (chỉ dự án mình được phân công — phần lọc theo dự án nằm trong
 // dashboard.js). Trưởng phòng chức năng và Pháp chế KHÔNG còn thấy Dashboard:
 // bảng tổng là số liệu tài chính toàn dự án, không thuộc phạm vi 2 nhóm này.
-// Thực thu CĐT và Hợp đồng đầu ra: chỉ QLCP&HĐ nhập, các cấp trên xem.
+// Sản lượng CĐT và Hợp đồng đầu ra: chỉ QLCP&HĐ nhập, các cấp trên xem.
 const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
