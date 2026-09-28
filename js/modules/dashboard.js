@@ -17,7 +17,7 @@ export async function render(container, user) {
 
   const isTopLevel = (user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
 
-  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: receipts }] =
+  const [{ data: projects }, { data: budgetRows }, { data: revenueRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: claims }] =
     await Promise.all([
       supabase.from('projects').select('id, code, name').order('code'),
       supabase.from('v_budget_summary').select('*'),
@@ -32,7 +32,7 @@ export async function render(container, user) {
       // quy về trước thuế — khớp đúng cột "Đã TT" của BCTC.
       supabase.from('bills').select('id, doc_number, contract_id, project_id, partner_id, period_no, status, val_d, val_e, val_f, val_g, val_h, vat_rate'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
-      supabase.from('owner_receipts').select('project_id, claim_no, amount_before_vat, paid_date'),
+      supabase.from('owner_progress_claims').select('project_id, claim_no, amount_before_vat, confirmed_date'),
     ]);
 
   // Khối "Vai trò của tôi" — tra cứu nhanh đang giữ vị trí gì, ở đâu, không cần lật từng hồ sơ
@@ -76,12 +76,12 @@ export async function render(container, user) {
   // bảng cảnh báo Case 1 vẫn dùng để tính phần vượt.
 
   // ============================================================
-  // BẢNG TỔNG THEO DỰ ÁN — Doanh thu HĐ · Thực thu · Chi phí · Dòng tiền ròng
+  // BẢNG TỔNG THEO DỰ ÁN — Giá trị HĐ · Sản lượng từ CĐT · Chi phí · Chênh lệch
   //
-  // CỐ Ý đặt tên cột "Dòng tiền ròng" chứ không phải "Chênh lệch": đây là
-  // TIỀN VÀO trừ TIỀN RA, KHÔNG phải lợi nhuận. Lợi nhuận = sản lượng đã làm trừ
-  // chi phí phát sinh (Hàng C của BCTC). Dự án lãi vẫn có thể âm dòng tiền vì CĐT
-  // giữ lại và trả chậm — đặt tên nhập nhằng là sớm muộn có người đọc nhầm.
+  // ⚠️ CHƯA CHỐT: cột "Chênh lệch" hiện = Sản lượng CĐT trừ TIỀN ĐÃ CHI (ô I của bill).
+  // Hai vế khác bản chất nên hiệu số là con số LAI — không phải lợi nhuận, không phải
+  // dòng tiền, KHÔNG phải tồn kho. Muốn ra Lợi nhuận gộp thực hiện thì cột Chi phí
+  // phải đổi sang lấy ô D (sản lượng thầu phụ đã làm), lúc đó hai vế mới cùng bản chất.
   //
   // CHI PHÍ DỰ ÁN: lấy I (= D+E+F+G+H, tổng thanh toán gồm tạm ứng) của bill kỳ
   // MỚI NHẤT trong mỗi nhóm, rồi quy về TRƯỚC THUẾ. val_d vốn đã gồm VAT nên chia
@@ -112,45 +112,45 @@ export async function render(container, user) {
   const revenueByProject = {};
   (revenueRows || []).forEach((r) => (revenueByProject[r.project_id] = Number(r.value || 0)));
 
-  const receiptByProject = {};
-  (receipts || []).forEach((r) => (receiptByProject[r.project_id] = (receiptByProject[r.project_id] || 0) + Number(r.amount_before_vat || 0)));
+  const claimByProject = {};
+  (claims || []).forEach((r) => (claimByProject[r.project_id] = (claimByProject[r.project_id] || 0) + Number(r.amount_before_vat || 0)));
 
   // CHT/GĐDA/QS: chỉ dự án mình phụ trách. Vai trò cấp công ty: xem hết.
   const summaryProjects = (projects || []).filter((p) => (isSiteLimited ? myProjectIds.has(p.id) : true));
 
   const summaryRows = summaryProjects.map((p) => {
     const doanhThu = revenueByProject[p.id] ?? null;   // null = chưa nhập HĐ đầu ra
-    const thucThu = receiptByProject[p.id] || 0;
+    const sanLuong = claimByProject[p.id] || 0;
     const chiPhi = costByProject[p.id] || 0;
-    const rong = thucThu - chiPhi;
+    const chenhLech = sanLuong - chiPhi;
     // Ghi chú tự sinh — nói đúng điều đáng chú ý nhất của dòng đó, không tô hồng
     let danhGia = '';
-    if (doanhThu == null) danhGia = '⚠️ Chưa nhập HĐ đầu ra — không đánh giá được';
-    else if (!thucThu && !chiPhi) danhGia = 'Chưa phát sinh thu/chi';
-    else if (!thucThu) danhGia = '⚠️ Đã chi nhưng CĐT chưa trả đồng nào';
-    else if (rong < 0) danhGia = `Âm dòng tiền — đang ứng vốn ${fmt(-rong)} ₫`;
-    else danhGia = `Dương dòng tiền ${fmt(rong)} ₫`;
-    const thuPct = doanhThu ? (thucThu / doanhThu) * 100 : null;
-    return { p, doanhThu, thucThu, chiPhi, rong, danhGia, thuPct };
+    if (doanhThu == null) danhGia = '⚠️ Chưa nhập Giá trị HĐ — vào tab Hợp đồng đầu ra (CĐT)';
+    else if (!sanLuong && !chiPhi) danhGia = 'Chưa phát sinh sản lượng/chi phí';
+    else if (!sanLuong) danhGia = '⚠️ Đã chi nhưng CĐT chưa xác nhận sản lượng nào';
+    else if (chenhLech < 0) danhGia = `Âm ${fmt(-chenhLech)} ₫ — chi nhiều hơn sản lượng CĐT đã xác nhận`;
+    else danhGia = `Dương ${fmt(chenhLech)} ₫`;
+    const thuPct = doanhThu ? (sanLuong / doanhThu) * 100 : null;
+    return { p, doanhThu, sanLuong, chiPhi, chenhLech, danhGia, thuPct };
   });
 
   const tDoanhThu = summaryRows.reduce((s2, r) => s2 + (r.doanhThu || 0), 0);
-  const tThucThu = summaryRows.reduce((s2, r) => s2 + r.thucThu, 0);
+  const tSanLuong = summaryRows.reduce((s2, r) => s2 + r.sanLuong, 0);
   const tChiPhi = summaryRows.reduce((s2, r) => s2 + r.chiPhi, 0);
-  const tRong = tThucThu - tChiPhi;
+  const tChenhLech = tSanLuong - tChiPhi;
 
   const summaryTableHtml = `
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
       <div style="padding:14px 16px 0">
-        <div class="card-title" style="margin:0">Dòng tiền theo dự án</div>
-        <div class="card-sub">Mọi con số TRƯỚC THUẾ. <b>Dòng tiền ròng = Thực thu − Chi phí</b> — đây là tiền vào trừ tiền ra, <b>không phải lợi nhuận</b>${isSiteLimited ? ' · chỉ hiện dự án bạn phụ trách' : ''}</div>
+        <div class="card-title" style="margin:0">Tổng hợp theo dự án</div>
+        <div class="card-sub">Mọi con số TRƯỚC THUẾ. <b>Chênh lệch = Sản lượng từ CĐT − Chi phí dự án</b>${isSiteLimited ? ' · chỉ hiện dự án bạn phụ trách' : ''}</div>
       </div>
       <div style="overflow-x:auto"><table><thead><tr>
         <th>Dự án</th>
-        <th style="text-align:right">Doanh thu HĐ</th>
-        <th style="text-align:right">Thực thu từ CĐT</th>
+        <th style="text-align:right">Giá trị HĐ</th>
+        <th style="text-align:right">Sản lượng từ CĐT</th>
         <th style="text-align:right">Chi phí dự án</th>
-        <th style="text-align:right">Dòng tiền ròng</th>
+        <th style="text-align:right">Chênh lệch</th>
         <th>Ghi chú</th>
       </tr></thead><tbody>
       ${summaryRows.length
@@ -159,10 +159,10 @@ export async function render(container, user) {
               (r) => `<tr>
           <td><span class="code-chip" title="${esc(r.p.name)}">${esc(r.p.code)}</span></td>
           <td class="mono" style="text-align:right">${r.doanhThu == null ? '<span style="color:var(--gray3)">—</span>' : fmt(r.doanhThu)}</td>
-          <td class="mono" style="text-align:right">${fmt(r.thucThu)}${r.thuPct != null ? `<div style="font-size:10.5px;color:var(--gray4);font-weight:400">${r.thuPct.toFixed(0)}% HĐ</div>` : ''}</td>
+          <td class="mono" style="text-align:right">${fmt(r.sanLuong)}${r.thuPct != null ? `<div style="font-size:10.5px;color:var(--gray4);font-weight:400">${r.thuPct.toFixed(0)}% HĐ</div>` : ''}</td>
           <td class="mono" style="text-align:right">${fmt(r.chiPhi)}</td>
-          <td class="mono" style="text-align:right;font-weight:700;color:${r.rong < 0 ? 'var(--red)' : 'var(--green)'}">${r.rong >= 0 ? '+' : ''}${fmt(r.rong)}</td>
-          <td style="font-size:12px;color:${r.danhGia.startsWith('⚠️') || r.rong < 0 ? 'var(--amber)' : 'var(--gray6)'}">${esc(r.danhGia)}</td>
+          <td class="mono" style="text-align:right;font-weight:700;color:${r.chenhLech < 0 ? 'var(--red)' : 'var(--green)'}">${r.chenhLech >= 0 ? '+' : ''}${fmt(r.chenhLech)}</td>
+          <td style="font-size:12px;color:${r.danhGia.startsWith('⚠️') || r.chenhLech < 0 ? 'var(--amber)' : 'var(--gray6)'}">${esc(r.danhGia)}</td>
         </tr>`,
             )
             .join('')
@@ -171,9 +171,9 @@ export async function render(container, user) {
       ${summaryRows.length ? `<tfoot><tr style="background:var(--gray1);font-weight:700">
         <td>TỔNG</td>
         <td class="mono" style="text-align:right">${fmt(tDoanhThu)}</td>
-        <td class="mono" style="text-align:right">${fmt(tThucThu)}</td>
+        <td class="mono" style="text-align:right">${fmt(tSanLuong)}</td>
         <td class="mono" style="text-align:right">${fmt(tChiPhi)}</td>
-        <td class="mono" style="text-align:right;color:${tRong < 0 ? 'var(--red)' : 'var(--green)'}">${tRong >= 0 ? '+' : ''}${fmt(tRong)}</td>
+        <td class="mono" style="text-align:right;color:${tChenhLech < 0 ? 'var(--red)' : 'var(--green)'}">${tChenhLech >= 0 ? '+' : ''}${fmt(tChenhLech)}</td>
         <td></td>
       </tr></tfoot>` : ''}
       </table></div>
