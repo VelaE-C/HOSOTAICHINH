@@ -30,9 +30,10 @@ const roleNeedsDept = (r) => !NO_DEPT_ROLES.includes(r);
 
 // Dựng ô tick + ô chọn phòng ban cho 1 vai trò ở 1 bước
 function roleRowHtml(step, role, deptOptions, checked) {
-  return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
-    <input type="checkbox" class="step-role" data-step="${step}" data-role="${role}" ${checked ? 'checked' : ''}>${role}
-    ${roleNeedsDept(role) ? `<select class="step-dept form-input" data-step="${step}" data-role="${role}" style="width:150px;padding:3px 7px;font-size:11px">${deptOptions}</select>` : ''}
+  return `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer;min-width:0">
+    <span style="white-space:nowrap">${role}</span>
+    <input type="checkbox" class="step-role" data-step="${step}" data-role="${role}" ${checked ? 'checked' : ''} style="order:-1">
+    ${roleNeedsDept(role) ? `<select class="step-dept form-input" data-step="${step}" data-role="${role}" style="flex:1 1 0;min-width:0;max-width:150px;padding:3px 7px;font-size:11px">${deptOptions}</select>` : ''}
   </label>`;
 }
 
@@ -112,115 +113,166 @@ function wireStepPreview(modal, roleRows) {
 // ============================================================
 const SUBMIT_ANY = '__ANY__';
 
-function submitterRowHtml(role, subDeptOptions, row) {
-  return `<div style="display:flex;align-items:center;gap:6px">
-    <label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer;min-width:126px">
-      <input type="checkbox" class="sub-role" data-role="${role}" ${row ? 'checked' : ''}>${role}
-    </label>
-    ${roleNeedsDept(role)
-      ? `<select class="sub-dept form-input" data-role="${role}" style="width:126px;padding:3px 7px;font-size:11px">${subDeptOptions}</select>`
-      : `<span style="width:126px"></span>`}
-    <label title="BẬT: chỉ trình được cho dự án mình được phân bổ (QS công trường). TẮT: trình được cho mọi dự án (chuyên viên phòng ban)."
-      style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;color:var(--gray6)">
-      <input type="checkbox" class="sub-assign" data-role="${role}" ${row?.requires_project_assignment ? 'checked' : ''}> thuộc dự án
-    </label>
-  </div>`;
-}
+// Tên tiếng Việt của từng vai trò — người đọc màn quản trị không phải dân IT,
+// đừng bắt họ tự dịch mã QLCPHD_CV trong đầu.
+const ROLE_LABEL = {
+  QS: 'QS — Kỹ sư khối lượng (công trường)',
+  CHT: 'Chỉ huy trưởng',
+  GDDA: 'Giám đốc dự án',
+  ChuyenVienPhongBan: 'Chuyên viên phòng ban',
+  TruongPhongChucNang: 'Trưởng phòng chức năng',
+  PhapChe_CV: 'Chuyên viên Pháp chế',
+  PhapChe_TP: 'Trưởng phòng Pháp chế',
+  KeToan_Vien: 'Kế toán viên',
+  KeToan_Truong: 'Kế toán trưởng',
+  QLCPHD_CV: 'Chuyên viên Quản lý chi phí & Hợp đồng',
+  QLCPHD_TP: 'Trưởng phòng Quản lý chi phí & Hợp đồng',
+  PTGD: 'Phó Tổng Giám đốc',
+  TGD: 'Tổng Giám đốc',
+  Admin: 'Quản trị hệ thống',
+};
+const roleText = (r) => ROLE_LABEL[r] || r;
+// QS/CHT/GĐDA gắn với DỰ ÁN chứ không thuộc phòng ban nào — ghi thêm "phòng nào
+// cũng được" cho mấy vai trò này chỉ làm rối, không mang thông tin gì.
+const roleSitsInDept = (r) => !NO_DEPT_ROLES.includes(r) && r !== 'QS';
 
-function submitAnyRowHtml(row) {
-  return `<div style="grid-column:1/-1;padding-bottom:7px;margin-bottom:5px;border-bottom:1px dashed var(--gray2)">
-    <label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer">
-      <input type="checkbox" class="sub-role" data-role="${SUBMIT_ANY}" ${row ? 'checked' : ''}>
-      <b>Bất kỳ ai được phân bổ vào dự án</b>
-      <span style="color:var(--gray4);font-size:11px">— không cần giữ vai trò nào; đây là luật chạy sẵn lâu nay cho mẫu Công trường</span>
-    </label>
-  </div>`;
-}
-
-function whoCanSubmit(role, dept, needAssign, roleRows) {
-  if (role === SUBMIT_ANY) return '<i style="color:var(--gray5)">mọi người có tên trong danh sách phân bổ của dự án</i>';
-  // Ở khối này, để trống phòng ban = PHÒNG NÀO CŨNG ĐƯỢC (khác với Bước duyệt)
-  const rows = (roleRows || []).filter((r) => r.role_type === role && (dept ? r.department === dept : true));
+// Ai thực sự đang giữ vai trò đó — để nói thẳng TÊN NGƯỜI thay vì để người dùng
+// đoán. Ở khối này, phòng ban để trống = PHÒNG NÀO CŨNG ĐƯỢC (khác Bước duyệt).
+function submitRuleWho(rule, roleRows) {
+  if (!rule.role_type) return 'mọi người có tên trong danh sách phân bổ của dự án';
+  const rows = (roleRows || []).filter((r) => r.role_type === rule.role_type && (rule.department ? r.department === rule.department : true));
   if (!rows.length) {
-    return `<span style="color:var(--red);font-weight:600">⚠️ chưa ai giữ vai trò này${dept ? ' ở ' + dept : ''} — dòng này hiện không có tác dụng</span>`;
+    return `<span style="color:var(--red);font-weight:600">⚠️ hiện chưa ai giữ vai trò này${rule.department ? ' ở ' + rule.department : ''} — dòng này chưa có tác dụng</span>`;
   }
   const names = [...new Set(rows.map((r) => r.users?.full_name || '(không rõ tên)'))];
-  const tail = needAssign
-    ? ' <span style="color:var(--gray5)">— chỉ ở dự án mình được phân bổ</span>'
-    : ' <span style="color:var(--gray5)">— mọi dự án</span>';
-  return `<b style="color:var(--green)">${names.join(', ')}</b>${tail}`;
+  return `<b style="color:var(--green)">${names.join(', ')}</b>`;
 }
 
-function submitBlockHtml(subDeptOptions, rows) {
-  const byRole = {};
-  (rows || []).forEach((r) => (byRole[r.role_type || SUBMIT_ANY] = r));
+// Một dòng quyền trình đã khai, viết thành câu đọc được
+function submitRuleHtml(rule, idx, roleRows) {
+  const isAny = !rule.role_type;
+  const who = isAny
+    ? '<b>Bất kỳ ai được phân bổ vào dự án</b> <span style="color:var(--gray5)">(không cần giữ vai trò nào)</span>'
+    : `<b>${roleText(rule.role_type)}</b>${rule.department
+        ? ` <span style="color:var(--gray5)">· ${rule.department}</span>`
+        : roleSitsInDept(rule.role_type) ? ' <span style="color:var(--gray5)">· phòng nào cũng được</span>' : ''}`;
+  const needAssign = isAny || rule.requires_project_assignment;
+  const scope = needAssign
+    ? '<span style="background:#FEF3C7;color:#92400E;border-radius:4px;padding:1px 6px;font-size:11px;white-space:nowrap">chỉ dự án được phân bổ</span>'
+    : '<span style="background:#DCFCE7;color:#166534;border-radius:4px;padding:1px 6px;font-size:11px;white-space:nowrap">mọi dự án</span>';
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--gray1)">
+    <div style="font-size:13px;line-height:1.65">
+      <div>${who} ${scope}</div>
+      <div style="font-size:11.5px;color:var(--gray5);margin-top:2px">→ ${submitRuleWho(rule, roleRows)}</div>
+    </div>
+    <span data-rm-sub="${idx}" style="cursor:pointer;color:var(--red);font-size:12px;white-space:nowrap">Gỡ</span>
+  </div>`;
+}
+
+// Khối BƯỚC TRÌNH: danh sách đã khai + form thêm dòng mới.
+// CỐ TÌNH bỏ lưới 14 ô tick của bản trước — bắt người đọc dịch mã vai trò rồi tự
+// suy ra luật từ 3 ô điều khiển cạnh nhau là quá nhiều việc cho một màn cấu hình.
+function submitBlockHtml(departments) {
+  const roleOpts =
+    `<option value="${SUBMIT_ANY}">Bất kỳ ai được phân bổ vào dự án (không cần vai trò)</option>` +
+    ALL_ROLES.filter((r) => r !== 'Admin').map((r) => `<option value="${r}">${roleText(r)}</option>`).join('');
+  const deptOpts = `<option value="">Phòng nào cũng được</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
   return `
     <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước trình — ai được TẠO hồ sơ theo mẫu này</div>
-    <div style="font-size:11.5px;color:var(--gray6);background:#ECFDF5;border-radius:7px;padding:9px 12px;margin-bottom:8px">
-      💡 Chỉ cần khớp <b>một dòng</b> là trình được. Ô <b>"thuộc dự án"</b>: bật = chỉ trình được cho dự án mình được phân bổ (QS công trường);
-      tắt = trình được cho <b>mọi dự án</b> (chuyên viên phòng ban). Ô phòng ban ở khối này để trống nghĩa là <b>phòng nào cũng được</b> —
-      khác với ô phòng ban ở các Bước duyệt bên dưới.
+    <div style="font-size:12px;color:var(--gray6);background:#ECFDF5;border-radius:7px;padding:10px 12px;margin-bottom:8px;line-height:1.7">
+      Mỗi dòng bên dưới là <b>một nhóm người được phép trình</b>. Một người khớp <b>bất kỳ dòng nào</b> là trình được — các dòng cộng dồn với nhau, không phải điều kiện "và".
+      <div style="margin-top:7px">Cột phạm vi có 2 lựa chọn:</div>
+      <div style="margin-left:4px"><span style="background:#FEF3C7;color:#92400E;border-radius:4px;padding:1px 6px;font-size:11px">chỉ dự án được phân bổ</span> — người đó chỉ trình được cho những dự án mình có tên trong danh sách phụ trách. Dùng cho <b>QS công trường</b>.</div>
+      <div style="margin-left:4px;margin-top:3px"><span style="background:#DCFCE7;color:#166534;border-radius:4px;padding:1px 6px;font-size:11px">mọi dự án</span> — trình được cho tất cả dự án, không cần phân bổ. Dùng cho <b>chuyên viên phòng ban</b>, vì phòng làm việc cho cả công ty.</div>
+      <div style="margin-top:8px;padding-top:7px;border-top:1px dashed #A7F3D0"><b>Ví dụ mẫu "Bill Vật Tư Thiết Bị"</b> khai 2 dòng:
+        QS · <i>chỉ dự án được phân bổ</i> → QS dự án nào up bill dự án đó;
+        Chuyên viên phòng ban · Phòng Vật Tư Thiết Bị · <i>mọi dự án</i> → chuyên viên phòng up bill thiết bị cho mọi dự án.</div>
     </div>
-    <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
-      ${submitAnyRowHtml(byRole[SUBMIT_ANY])}
-      ${ALL_ROLES.filter((r) => r !== 'Admin').map((r) => submitterRowHtml(r, subDeptOptions, byRole[r])).join('')}
-    </div>
-    <div id="submitPreview" style="font-size:11.5px;line-height:1.75;color:var(--gray6);margin:-6px 0 18px;padding:8px 12px;background:var(--gray1);border-radius:7px"></div>`;
+    <div class="card" style="padding:12px 14px;margin-bottom:18px">
+      <div id="subList" style="margin-bottom:12px"></div>
+      <div style="border-top:1px solid var(--gray2);padding-top:11px">
+        <div style="font-size:11px;text-transform:uppercase;color:var(--gray5);margin-bottom:7px">Thêm một nhóm được trình</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:9px;margin-bottom:9px">
+          <div><label class="form-label">Nhóm người</label>
+            <select id="subAddRole" class="form-input">${roleOpts}</select></div>
+          <div><label class="form-label">Thuộc phòng ban</label>
+            <select id="subAddDept" class="form-input">${deptOpts}</select>
+            <div style="font-size:10.5px;color:var(--gray4);margin-top:3px">Chọn một phòng thì chỉ người của phòng đó được trình.</div></div>
+        </div>
+        <div style="margin-bottom:10px"><label class="form-label">Được trình cho dự án nào</label>
+          <select id="subAddScope" class="form-input">
+            <option value="all">Mọi dự án — không cần được phân bổ vào dự án (chuyên viên phòng ban)</option>
+            <option value="assigned">Chỉ những dự án người đó được phân bổ vào (QS công trường)</option>
+          </select></div>
+        <button type="button" class="btn btn-sm btn-secondary" id="subAdd">+ Thêm nhóm được trình</button>
+      </div>
+    </div>`;
 }
 
-function wireSubmitPreview(modal, roleRows) {
-  const box = modal.querySelector('#submitPreview');
-  if (!box) return () => {};
+// Gắn khối BƯỚC TRÌNH vào modal. Trả về hàm đọc ra danh sách hiện tại để lưu.
+function wireSubmitEditor(modal, initialRules, roleRows) {
+  let rules = (initialRules || []).map((r) => ({
+    role_type: r.role_type || null,
+    department: r.role_type ? r.department || null : null,
+    requires_project_assignment: r.role_type ? !!r.requires_project_assignment : true,
+  }));
+
+  const list = modal.querySelector('#subList');
+  const selRole = modal.querySelector('#subAddRole');
+  const selDept = modal.querySelector('#subAddDept');
+  const selScope = modal.querySelector('#subAddScope');
+  if (!list) return { get: () => rules, set: () => {} };
+
   function draw() {
-    const picks = [...modal.querySelectorAll('.sub-role:checked')];
-    if (!picks.length) {
-      box.innerHTML = '<span style="color:var(--red);font-weight:600">⚠️ Chưa chọn ai — sẽ KHÔNG AI tạo được hồ sơ theo mẫu này</span>';
-      return;
-    }
-    box.innerHTML =
-      `<div style="font-size:10.5px;text-transform:uppercase;color:var(--gray5);margin-bottom:3px">Dự kiến ai được trình</div>` +
-      picks
-        .map((cb) => {
-          const role = cb.dataset.role;
-          if (role === SUBMIT_ANY) return `<div><b>Ai thuộc dự án</b> → ${whoCanSubmit(SUBMIT_ANY)}</div>`;
-          const dept = modal.querySelector(`.sub-dept[data-role="${role}"]`)?.value || null;
-          const need = modal.querySelector(`.sub-assign[data-role="${role}"]`)?.checked || false;
-          return `<div><b>${role}</b>${dept ? ` <span style="color:var(--gray5)">· ${dept}</span>` : ''} → ${whoCanSubmit(role, dept, need, roleRows)}</div>`;
-        })
-        .join('');
+    list.innerHTML = rules.length
+      ? rules.map((r, i) => submitRuleHtml(r, i, roleRows)).join('')
+      : '<div style="color:var(--red);font-weight:600;font-size:12.5px;padding:4px 0">⚠️ Chưa khai dòng nào — hiện KHÔNG AI tạo được hồ sơ theo mẫu này.</div>';
+    list.querySelectorAll('[data-rm-sub]').forEach((el) =>
+      el.addEventListener('click', () => {
+        rules.splice(Number(el.dataset.rmSub), 1);
+        draw();
+      }),
+    );
   }
-  modal.addEventListener('change', (e) => {
-    if (e.target.classList?.contains('sub-role') || e.target.classList?.contains('sub-dept') || e.target.classList?.contains('sub-assign')) draw();
-  });
-  draw();
-  return draw;
-}
 
-// Đọc khối BƯỚC TRÌNH ra mảng sẵn sàng ghi xuống database
-function collectSubmitters(modal) {
-  const out = [];
-  [...modal.querySelectorAll('.sub-role:checked')].forEach((el) => {
-    const role = el.dataset.role;
-    if (role === SUBMIT_ANY) {
-      // role_type để trống = mọi vai trò; LUÔN kèm ràng buộc phải thuộc dự án, nếu
-      // không thì cả công ty ai cũng trình được — không bao giờ là ý muốn.
-      out.push({ role_type: null, department: null, requires_project_assignment: true });
-      return;
+  // Dòng "bất kỳ ai" và các vai trò không gắn phòng ban thì khóa 2 ô còn lại cho đỡ rối
+  function syncAddForm() {
+    const role = selRole.value;
+    const isAny = role === SUBMIT_ANY;
+    const noDept = isAny || NO_DEPT_ROLES.includes(role);
+    selDept.disabled = noDept;
+    if (noDept) selDept.value = '';
+    selScope.disabled = isAny;
+    if (isAny) selScope.value = 'assigned';
+    selDept.style.background = selDept.disabled ? 'var(--gray1)' : '';
+    selScope.style.background = selScope.disabled ? 'var(--gray1)' : '';
+  }
+
+  selRole.addEventListener('change', syncAddForm);
+  modal.querySelector('#subAdd').addEventListener('click', () => {
+    const role = selRole.value === SUBMIT_ANY ? null : selRole.value;
+    const dept = role && !selDept.disabled ? selDept.value.trim() || null : null;
+    const need = role ? selScope.value === 'assigned' : true;
+    if (rules.some((r) => r.role_type === role && (r.department || null) === dept)) {
+      return toast('Nhóm này đã có trong danh sách rồi', 'error');
     }
-    const dept = modal.querySelector(`.sub-dept[data-role="${role}"]`)?.value.trim() || null;
-    const need = modal.querySelector(`.sub-assign[data-role="${role}"]`)?.checked || false;
-    out.push({ role_type: role, department: dept, requires_project_assignment: need });
+    rules.push({ role_type: role, department: dept, requires_project_assignment: need });
+    draw();
   });
-  return out;
-}
 
-// Điền sẵn ô phòng ban của khối BƯỚC TRÌNH (phải chạy sau khi HTML đã dựng xong)
-function fillSubmitterDepts(modal, rows) {
-  (rows || []).forEach((r) => {
-    if (!r.role_type || !r.department) return;
-    const sel = modal.querySelector(`.sub-dept[data-role="${r.role_type}"]`);
-    if (sel) sel.value = r.department;
-  });
+  syncAddForm();
+  draw();
+  return {
+    get: () => rules,
+    set: (rs) => {
+      rules = (rs || []).map((r) => ({
+        role_type: r.role_type || null,
+        department: r.role_type ? r.department || null : null,
+        requires_project_assignment: r.role_type ? !!r.requires_project_assignment : true,
+      }));
+      draw();
+    },
+  };
 }
 
 // Danh sách vai trò gắn với từng người — nguồn để tính khối "Dự kiến ai duyệt"
@@ -356,8 +408,7 @@ async function openCreateTemplateModal(onClose) {
   const { data: departments } = await supabase.from('departments').select('name').order('name');
   const roleHolders = await fetchRoleHolders();
   const deptOptions = `<option value="">— Mọi phòng ban —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
-  const subDeptOptions = `<option value="">— Phòng nào cũng được —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
-  modal.innerHTML = `<div class="panel-box">
+  modal.innerHTML = `<div class="panel-box" style="max-width:940px">
     <div class="panel-header"><div>Tạo mẫu hồ sơ mới</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Mỗi bước phải chọn ít nhất 1 vai trò — bỏ trống 1 bước sẽ khiến hồ sơ bị kẹt mãi ở bước đó, không ai duyệt được.</div>
@@ -374,7 +425,7 @@ async function openCreateTemplateModal(onClose) {
       </div>
       <div style="margin-bottom:13px"><label class="form-label">Mô tả</label><input type="text" id="fDesc" class="form-input"></div>
 
-      ${submitBlockHtml(subDeptOptions, null)}
+      ${submitBlockHtml(departments)}
 
       <div style="font-size:11.5px;color:var(--gray6);background:#FFF7ED;border-radius:7px;padding:9px 12px;margin-bottom:12px">
         💡 Ô phòng ban cạnh mỗi vai trò = <b>chỉ định đích danh người duyệt</b>. Để trống thì hệ thống tự tìm người ở mức toàn công ty.
@@ -383,7 +434,7 @@ async function openCreateTemplateModal(onClose) {
       </div>
       ${[1, 2, 3, 4].map((step) => `
         <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước ${step}</div>
-        <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
+        <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:6px 10px">
           ${ALL_ROLES.map((r) => roleRowHtml(step, r, deptOptions, false)).join('')}
         </div>
         ${stepPreviewHtml(step)}`).join('')}
@@ -397,19 +448,16 @@ async function openCreateTemplateModal(onClose) {
   // ở đầu file. Thay cho việc ẩn/hiện, dưới mỗi bước có khối "Dự kiến ai duyệt" cho
   // biết ngay lựa chọn hiện tại sẽ ra đúng người nào.
   const redrawPreview = wireStepPreview(modal, roleHolders);
-  const redrawSubmit = wireSubmitPreview(modal, roleHolders);
+  const submitEditor = wireSubmitEditor(modal, null, roleHolders);
 
   // Nhân bản: tick sẵn đúng các ô của mẫu được chọn, kể cả phòng ban đã ghi VÀ cả khối
   // BƯỚC TRÌNH — không chép khối này thì mẫu mới sẽ không ai trình được.
   modal.querySelector('#fCopyFrom')?.addEventListener('change', async (e) => {
     modal.querySelectorAll('.step-role').forEach((cb) => (cb.checked = false));
     modal.querySelectorAll('.step-dept').forEach((inp) => (inp.value = ''));
-    modal.querySelectorAll('.sub-role').forEach((cb) => (cb.checked = false));
-    modal.querySelectorAll('.sub-dept').forEach((inp) => (inp.value = ''));
-    modal.querySelectorAll('.sub-assign').forEach((cb) => (cb.checked = false));
+    submitEditor.set([]);
     if (!e.target.value) {
       redrawPreview();
-      redrawSubmit();
       return;
     }
     const [{ data: steps }, { data: subs }] = await Promise.all([
@@ -422,18 +470,8 @@ async function openCreateTemplateModal(onClose) {
       const dept = modal.querySelector(`.step-dept[data-step="${s.step_no}"][data-role="${s.role_type}"]`);
       if (dept && s.department) dept.value = s.department;
     });
-    (subs || []).forEach((s) => {
-      const key = s.role_type || SUBMIT_ANY;
-      const cb = modal.querySelector(`.sub-role[data-role="${key}"]`);
-      if (cb) cb.checked = true;
-      if (!s.role_type) return;
-      const dept = modal.querySelector(`.sub-dept[data-role="${s.role_type}"]`);
-      if (dept && s.department) dept.value = s.department;
-      const need = modal.querySelector(`.sub-assign[data-role="${s.role_type}"]`);
-      if (need) need.checked = !!s.requires_project_assignment;
-    });
+    submitEditor.set(subs || []);
     redrawPreview();
-    redrawSubmit();
     toast('Đã sao chép cấu hình — chỉnh sửa rồi lưu như mẫu mới', 'info');
   });
 
@@ -444,7 +482,7 @@ async function openCreateTemplateModal(onClose) {
     const description = modal.querySelector('#fDesc').value.trim();
     if (!name) return toast('Điền tên mẫu', 'error');
 
-    const submitters = collectSubmitters(modal);
+    const submitters = submitEditor.get();
     if (!submitters.length) return toast('Khối BƯỚC TRÌNH đang trống — phải chọn ít nhất 1 nhóm được trình, nếu không sẽ không ai tạo được hồ sơ theo mẫu này', 'error');
 
     const checked = [...modal.querySelectorAll('.step-role:checked')].map((el) => {
@@ -482,8 +520,7 @@ async function openEditTemplateModal(templateId, onClose) {
   const { data: departments } = await supabase.from('departments').select('name').order('name');
   const roleHolders = await fetchRoleHolders();
   const deptOptions = `<option value="">— Mọi phòng ban —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
-  const subDeptOptions = `<option value="">— Phòng nào cũng được —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
-  modal.innerHTML = `<div class="panel-box">
+  modal.innerHTML = `<div class="panel-box" style="max-width:940px">
     <div class="panel-header"><div>Sửa mẫu hồ sơ — ${tpl.name}</div><button class="panel-close" id="pClose">✕</button></div>
     <div class="panel-body">
       <div style="font-size:12px;background:var(--lblue);color:#1D4ED8;padding:9px 12px;border-radius:7px;margin-bottom:14px">ℹ️ Mỗi bước phải chọn ít nhất 1 vai trò — bỏ trống 1 bước sẽ khiến hồ sơ bị kẹt mãi ở bước đó, không ai duyệt được. Đổi ở đây chỉ ảnh hưởng hồ sơ CHƯA tới bước bị đổi — hồ sơ đã duyệt qua bước đó giữ nguyên lịch sử.</div>
@@ -506,7 +543,7 @@ async function openEditTemplateModal(templateId, onClose) {
       <div style="margin-bottom:13px"><label class="form-label">Mô tả</label><input type="text" id="fDesc" class="form-input" value="${tpl.description || ''}"></div>
       <div style="margin-bottom:13px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="fActive" ${tpl.is_active !== false ? 'checked' : ''}> Đang hoạt động (bỏ tick để ngừng dùng mẫu này — hồ sơ đang chọn mẫu này không bị ảnh hưởng, chỉ ẩn khỏi danh sách chọn khi tạo hồ sơ mới)</label></div>
 
-      ${submitBlockHtml(subDeptOptions, currentSubs)}
+      ${submitBlockHtml(departments)}
 
       <div style="font-size:11.5px;color:var(--gray6);background:#FFF7ED;border-radius:7px;padding:9px 12px;margin-bottom:12px">
         💡 Ô phòng ban cạnh mỗi vai trò = <b>chỉ định đích danh người duyệt</b>. Để trống thì hệ thống tự tìm người ở mức toàn công ty.
@@ -515,7 +552,7 @@ async function openEditTemplateModal(templateId, onClose) {
       </div>
       ${[1, 2, 3, 4].map((step) => `
         <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Bước ${step}</div>
-        <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
+        <div class="card" style="padding:10px 14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:6px 10px">
           ${ALL_ROLES.map((r) => roleRowHtml(step, r, deptOptions, !!(currentSteps || []).find((s) => s.step_no === step && s.role_type === r))).join('')}
         </div>
         ${stepPreviewHtml(step)}`).join('')}
@@ -531,12 +568,10 @@ async function openEditTemplateModal(templateId, onClose) {
     const dept = modal.querySelector(`.step-dept[data-step="${s.step_no}"][data-role="${s.role_type}"]`);
     if (dept) dept.value = s.department;
   });
-  fillSubmitterDepts(modal, currentSubs);
-
   // Ô phòng ban hiện cho MỌI vai trò, ở CẢ hai kiểu Nguồn phát sinh (xem ghi chú đầu file).
   // Khối "Dự kiến ai duyệt" dưới mỗi bước cập nhật ngay theo từng lựa chọn.
   wireStepPreview(modal, roleHolders);
-  wireSubmitPreview(modal, roleHolders);
+  const submitEditor = wireSubmitEditor(modal, currentSubs, roleHolders);
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const name = modal.querySelector('#fName').value.trim();
@@ -546,7 +581,7 @@ async function openEditTemplateModal(templateId, onClose) {
     const is_active = modal.querySelector('#fActive').checked;
     if (!name) return toast('Điền tên mẫu', 'error');
 
-    const submitters = collectSubmitters(modal);
+    const submitters = submitEditor.get();
     if (!submitters.length) return toast('Khối BƯỚC TRÌNH đang trống — phải chọn ít nhất 1 nhóm được trình, nếu không sẽ không ai tạo được hồ sơ theo mẫu này', 'error');
 
     const checked = [...modal.querySelectorAll('.step-role:checked')].map((el) => {
