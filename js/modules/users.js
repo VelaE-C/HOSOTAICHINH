@@ -275,6 +275,68 @@ function wireSubmitEditor(modal, initialRules, roleRows) {
   };
 }
 
+// ============================================================
+// PHÒNG BAN ĐƯỢC XEM — bảng template_viewers
+//
+// TRƯỚC ĐÂY chỉ người ĐÍCH DANH có tên mới xem được hồ sơ: người tạo, hoặc người
+// được gán duyệt. Đo ngày 29/09: chuyên viên phòng VTTB thấy đúng 5 bill trên
+// tổng 159 — hồ sơ cùng luồng do người khác trình thì không thấy, nghỉ phép một
+// hôm là công việc đứng.
+//
+// GIỜ mẫu khai luôn PHÒNG NÀO ĐƯỢC XEM. Ai thuộc phòng đó — trưởng phòng hay
+// chuyên viên — đều xem được mọi hồ sơ theo mẫu đó, ở mọi dự án, bất kể ai trình.
+// CHỈ quyền xem. Ai được duyệt vẫn do các Bước quyết định, không đổi.
+// ============================================================
+function viewerBlockHtml(departments) {
+  const list = (departments || []);
+  return `
+    <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">Phòng ban được XEM hồ sơ theo mẫu này</div>
+    <div style="font-size:12px;color:var(--gray6);background:#EFF6FF;border-radius:7px;padding:10px 12px;margin-bottom:8px;line-height:1.7">
+      Tick phòng nào thì <b>toàn bộ người của phòng đó</b> (trưởng phòng và mọi chuyên viên) xem được <b>mọi hồ sơ theo mẫu này, ở mọi dự án</b> — kể cả hồ sơ do QS công trường trình, không cần đích danh có tên trong luồng.
+      <div style="margin-top:6px">Để phòng làm việc theo phòng: người nghỉ phép thì đồng nghiệp vẫn mở được hồ sơ, không phải chờ.</div>
+      <div style="margin-top:6px;color:var(--gray5)">Đây <b>chỉ là quyền xem</b>. Ai được phê duyệt vẫn do các Bước bên dưới quyết định — tick ở đây không cho ai thêm quyền duyệt.</div>
+    </div>
+    <div class="card" style="padding:12px 14px;margin-bottom:18px">
+      ${list.length
+        ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:7px 12px">
+             ${list.map((d) => `<label style="font-size:12.5px;display:flex;align-items:center;gap:7px;cursor:pointer">
+               <input type="checkbox" class="tv-dept" data-dept="${d.name}">${d.name}
+             </label>`).join('')}
+           </div>
+           <div id="tvPreview" style="font-size:11.5px;line-height:1.7;color:var(--gray6);margin-top:11px;padding:8px 12px;background:var(--gray1);border-radius:7px"></div>`
+        : `<div style="color:var(--gray4);font-size:12px">Chưa có phòng ban nào trong hệ thống.</div>`}
+    </div>`;
+}
+
+function wireViewerBlock(modal, current, roleRows) {
+  const box = modal.querySelector('#tvPreview');
+  function apply(depts) {
+    modal.querySelectorAll('.tv-dept').forEach((cb) => (cb.checked = (depts || []).includes(cb.dataset.dept)));
+    draw();
+  }
+  function draw() {
+    if (!box) return;
+    const picked = [...modal.querySelectorAll('.tv-dept:checked')].map((cb) => cb.dataset.dept);
+    if (!picked.length) {
+      box.innerHTML = '<span style="color:var(--gray5)">Chưa tick phòng nào — chỉ người tạo hồ sơ và người có tên trong luồng duyệt mới xem được.</span>';
+      return;
+    }
+    box.innerHTML =
+      '<div style="font-size:10.5px;text-transform:uppercase;color:var(--gray5);margin-bottom:3px">Những ai sẽ xem được</div>' +
+      picked.map((d) => {
+        const names = [...new Set((roleRows || []).filter((r) => r.department === d).map((r) => r.users?.full_name).filter(Boolean))];
+        return `<div><b>${d}</b> → ${names.length
+          ? `<span style="color:var(--green);font-weight:600">${names.join(', ')}</span>`
+          : '<span style="color:var(--red);font-weight:600">⚠️ phòng này chưa có ai — dòng này chưa có tác dụng</span>'}</div>`;
+      }).join('');
+  }
+  modal.addEventListener('change', (e) => {
+    if (e.target.classList?.contains('tv-dept')) draw();
+  });
+  apply((current || []).map((r) => r.department));
+  return { get: () => [...modal.querySelectorAll('.tv-dept:checked')].map((cb) => cb.dataset.dept), set: apply };
+}
+
 // Danh sách vai trò gắn với từng người — nguồn để tính khối "Dự kiến ai duyệt"
 async function fetchRoleHolders() {
   const { data } = await supabase.from('user_roles').select('role_type, department, users(full_name)');
@@ -427,6 +489,8 @@ async function openCreateTemplateModal(onClose) {
 
       ${submitBlockHtml(departments)}
 
+      ${viewerBlockHtml(departments)}
+
       <div style="font-size:11.5px;color:var(--gray6);background:#FFF7ED;border-radius:7px;padding:9px 12px;margin-bottom:12px">
         💡 Ô phòng ban cạnh mỗi vai trò = <b>chỉ định đích danh người duyệt</b>. Để trống thì hệ thống tự tìm người ở mức toàn công ty.
         Chọn một phòng ban thì chỉ người giữ vai trò đó <b>ở đúng phòng ban ấy</b> mới được gán.
@@ -449,6 +513,7 @@ async function openCreateTemplateModal(onClose) {
   // biết ngay lựa chọn hiện tại sẽ ra đúng người nào.
   const redrawPreview = wireStepPreview(modal, roleHolders);
   const submitEditor = wireSubmitEditor(modal, null, roleHolders);
+  const viewerBlock = wireViewerBlock(modal, null, roleHolders);
 
   // Nhân bản: tick sẵn đúng các ô của mẫu được chọn, kể cả phòng ban đã ghi VÀ cả khối
   // BƯỚC TRÌNH — không chép khối này thì mẫu mới sẽ không ai trình được.
@@ -456,13 +521,15 @@ async function openCreateTemplateModal(onClose) {
     modal.querySelectorAll('.step-role').forEach((cb) => (cb.checked = false));
     modal.querySelectorAll('.step-dept').forEach((inp) => (inp.value = ''));
     submitEditor.set([]);
+    viewerBlock.set([]);
     if (!e.target.value) {
       redrawPreview();
       return;
     }
-    const [{ data: steps }, { data: subs }] = await Promise.all([
+    const [{ data: steps }, { data: subs }, { data: views }] = await Promise.all([
       supabase.from('template_steps').select('step_no, role_type, department').eq('template_id', e.target.value),
       supabase.from('template_submitters').select('role_type, department, requires_project_assignment').eq('template_id', e.target.value),
+      supabase.from('template_viewers').select('department').eq('template_id', e.target.value),
     ]);
     (steps || []).forEach((s) => {
       const cb = modal.querySelector(`.step-role[data-step="${s.step_no}"][data-role="${s.role_type}"]`);
@@ -471,6 +538,7 @@ async function openCreateTemplateModal(onClose) {
       if (dept && s.department) dept.value = s.department;
     });
     submitEditor.set(subs || []);
+    viewerBlock.set(views || []);
     redrawPreview();
     toast('Đã sao chép cấu hình — chỉnh sửa rồi lưu như mẫu mới', 'info');
   });
@@ -505,6 +573,12 @@ async function openCreateTemplateModal(onClose) {
     const { error: subSaveErr } = await supabase.from('template_submitters').insert(submitters.map((s) => ({ template_id: tpl.id, ...s })));
     if (subSaveErr) return toast('Đã tạo mẫu nhưng lỗi lưu BƯỚC TRÌNH: ' + subSaveErr.message, 'error');
 
+    const viewerDepts = viewerBlock.get();
+    if (viewerDepts.length) {
+      const { error: tvErr } = await supabase.from('template_viewers').insert(viewerDepts.map((d) => ({ template_id: tpl.id, department: d })));
+      if (tvErr) return toast('Đã tạo mẫu nhưng lỗi lưu Phòng ban được xem: ' + tvErr.message, 'error');
+    }
+
     toast('Đã tạo mẫu hồ sơ mới', 'success');
     closeModal(modal, onClose);
   });
@@ -517,6 +591,8 @@ async function openEditTemplateModal(templateId, onClose) {
   const { data: currentSteps } = await supabase.from('template_steps').select('step_no, role_type, department').eq('template_id', templateId);
   const { data: currentSubs, error: subLoadErr } = await supabase.from('template_submitters').select('role_type, department, requires_project_assignment').eq('template_id', templateId);
   if (subLoadErr) console.error('Lỗi tải BƯỚC TRÌNH:', subLoadErr);
+  const { data: currentViewers, error: tvLoadErr } = await supabase.from('template_viewers').select('department').eq('template_id', templateId);
+  if (tvLoadErr) console.error('Lỗi tải Phòng ban được xem:', tvLoadErr);
   const { data: departments } = await supabase.from('departments').select('name').order('name');
   const roleHolders = await fetchRoleHolders();
   const deptOptions = `<option value="">— Mọi phòng ban —</option>${(departments || []).map((d) => `<option value="${d.name}">${d.name}</option>`).join('')}`;
@@ -545,6 +621,8 @@ async function openEditTemplateModal(templateId, onClose) {
 
       ${submitBlockHtml(departments)}
 
+      ${viewerBlockHtml(departments)}
+
       <div style="font-size:11.5px;color:var(--gray6);background:#FFF7ED;border-radius:7px;padding:9px 12px;margin-bottom:12px">
         💡 Ô phòng ban cạnh mỗi vai trò = <b>chỉ định đích danh người duyệt</b>. Để trống thì hệ thống tự tìm người ở mức toàn công ty.
         Chọn một phòng ban thì chỉ người giữ vai trò đó <b>ở đúng phòng ban ấy</b> mới được gán.
@@ -572,6 +650,7 @@ async function openEditTemplateModal(templateId, onClose) {
   // Khối "Dự kiến ai duyệt" dưới mỗi bước cập nhật ngay theo từng lựa chọn.
   wireStepPreview(modal, roleHolders);
   const submitEditor = wireSubmitEditor(modal, currentSubs, roleHolders);
+  const viewerBlock = wireViewerBlock(modal, currentViewers, roleHolders);
 
   modal.querySelector('#btnSave').addEventListener('click', async () => {
     const name = modal.querySelector('#fName').value.trim();
@@ -610,6 +689,14 @@ async function openEditTemplateModal(templateId, onClose) {
     await supabase.from('template_submitters').delete().eq('template_id', templateId);
     const { error: subSaveErr } = await supabase.from('template_submitters').insert(submitters.map((s) => ({ template_id: templateId, ...s })));
     if (subSaveErr) return toast('Đã lưu mẫu nhưng lỗi lưu BƯỚC TRÌNH: ' + subSaveErr.message, 'error');
+
+    // Phòng ban được xem: xóa sạch rồi ghi lại, giống hai khối trên
+    const viewerDepts = viewerBlock.get();
+    await supabase.from('template_viewers').delete().eq('template_id', templateId);
+    if (viewerDepts.length) {
+      const { error: tvErr } = await supabase.from('template_viewers').insert(viewerDepts.map((d) => ({ template_id: templateId, department: d })));
+      if (tvErr) return toast('Đã lưu mẫu nhưng lỗi lưu Phòng ban được xem: ' + tvErr.message, 'error');
+    }
 
     toast('Đã lưu thay đổi mẫu hồ sơ', 'success');
     closeModal(modal, onClose);
