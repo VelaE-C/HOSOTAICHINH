@@ -44,9 +44,9 @@ export async function render(container, user) {
   const [{ data: projects }, { data: contracts, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, scope_summary, partners(name), projects(name, code)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, scope_summary, partners(name), projects(name, code)')
-    ).neq('status', 'cancelled').order('created_at', { ascending: false }),
+      ? supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, last_activity_at, scope_summary, partners(name), projects(name, code)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('contracts').select('id, doc_number, contract_type, value, status, current_step, to_trinh_id, project_id, created_at, last_activity_at, scope_summary, partners(name), projects(name, code)')
+    ).neq('status', 'cancelled').order('last_activity_at', { ascending: false, nullsFirst: false }),
   ]);
 
   if (error) {
@@ -54,13 +54,38 @@ export async function render(container, user) {
     return;
   }
 
-  // Ưu tiên: chưa xong (khác 'active') lên trước, trong nhóm thì mới nhất trước
+  // Ưu tiên: chưa xong (khác 'active') lên trước, trong nhóm thì TÁC VỤ MỚI NHẤT
+  // trước — mốc là lần duyệt/trả về/ý kiến gần nhất, không phải ngày tạo. Hồ sơ
+  // chưa ai đụng tới thì lấy thời điểm trình.
+  const actTime = (x) => new Date(x.last_activity_at || x.created_at).getTime();
   const sorted = [...(contracts || [])].sort((a, b) => {
     const ad = a.status === 'active' ? 1 : 0;
     const bd = b.status === 'active' ? 1 : 0;
     if (ad !== bd) return ad - bd;
-    return new Date(b.created_at) - new Date(a.created_at);
+    return actTime(b) - actTime(a);
   });
+
+  // Ai đang đứng duyệt ở BƯỚC HIỆN TẠI của từng hồ sơ đang chạy — một truy vấn gộp
+  // cho cả danh sách, không lặp từng dòng.
+  // ⚠️ PHẢI ghi rõ users!user_id: approval_assignments có HAI khoá ngoại trỏ về users
+  // (user_id và acted_by_admin_id). Viết users(full_name) là nhập nhằng -> PostgREST
+  // trả lỗi -> data null -> cột trống mà không ai biết vì lỗi bị nuốt.
+  const approversByDoc = {};
+  const pendingIds = (contracts || []).filter((c) => c.status === 'pending').map((c) => c.id);
+  if (pendingIds.length) {
+    const { data: assigns, error: assignErr } = await supabase
+      .from('approval_assignments')
+      .select('document_id, step_no, user_id, users!user_id(full_name)')
+      .eq('document_type', 'contract')
+      .eq('status', 'pending')
+      .in('document_id', pendingIds);
+    if (assignErr) console.error('Lỗi tải người duyệt (hợp đồng):', assignErr);
+    const stepById = Object.fromEntries((contracts || []).map((c) => [c.id, c.current_step]));
+    (assigns || []).forEach((a) => {
+      if (a.step_no !== stepById[a.document_id]) return;  // bỏ qua các bước đã qua
+      (approversByDoc[a.document_id] ||= []).push(a.users?.full_name || '—');
+    });
+  }
 
   container.innerHTML = `
     <div style="display:flex;${IS_MOBILE ? 'flex-direction:column;align-items:stretch' : 'justify-content:space-between;flex-wrap:wrap'};margin-bottom:12px;gap:10px">
@@ -74,7 +99,7 @@ export async function render(container, user) {
       <button class="btn btn-primary" id="btnNew" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">+ Trình hợp đồng mới</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác / Nội dung</th><th>Giá trị</th>' : '<th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Nội dung</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th>'}</tr></thead><tbody id="contractTbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Đối tác / Nội dung</th><th>Giá trị</th>' : '<th>Dự án</th><th>Số hồ sơ</th><th>Đối tác</th><th>Nội dung</th><th>Loại</th><th>Giá trị</th><th>Trạng thái</th><th>Người duyệt</th>'}</tr></thead><tbody id="contractTbody"></tbody></table></div>
       <div id="contractPagination"></div>
     </div>`;
 
@@ -84,7 +109,7 @@ export async function render(container, user) {
     const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
     VIEW_PAGE = Math.min(Math.max(1, VIEW_PAGE), totalPages);
     const pageItems = currentList.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
-    container.querySelector('#contractTbody').innerHTML = renderContractRows(pageItems);
+    container.querySelector('#contractTbody').innerHTML = renderContractRows(pageItems, approversByDoc);
     container.querySelector('#contractPagination').innerHTML = paginationHtml(VIEW_PAGE, currentList.length);
     wirePagination(container.querySelector('#contractPagination'), VIEW_PAGE, currentList.length, (p) => {
       VIEW_PAGE = p;
@@ -113,8 +138,8 @@ export async function render(container, user) {
   draw();
 }
 
-function renderContractRows(list) {
-  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 7}" style="text-align:center;color:var(--gray4);padding:20px">Không có hợp đồng nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
+function renderContractRows(list, approversByDoc) {
+  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 3 : 8}" style="text-align:center;color:var(--gray4);padding:20px">Không có hợp đồng nào — kiểm tra lại bộ lọc Dự án/Đối tác nếu đang lọc</td></tr>`;
   return list
     .map((c) => {
       // Nội dung hợp đồng thường dài hơn bề ngang cột rất nhiều -> cắt bằng CSS cho
@@ -128,7 +153,8 @@ function renderContractRows(list) {
     <td><div>${c.partners?.name || '—'}</div>${c.scope_summary ? `<div style="font-size:11px;color:var(--gray5);margin-top:2px">${esc(shorten(c.scope_summary, 70))}</div>` : ''}</td>
     <td class="mono">${fmt(c.value)}</td></tr>`
         : `<tr class="click" data-id="${c.id}"${tip}><td>${c.projects?.code || '—'}</td><td class="mono">${c.doc_number}</td><td>${c.partners?.name || '—'}</td>${scopeCell}<td>${c.contract_type}</td>
-    <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td></tr>`;
+    <td class="mono">${fmt(c.value)}</td><td>${statusBadge(c.status)}</td>
+    <td style="font-size:12px;color:var(--gray6)">${(approversByDoc?.[c.id] || []).join(', ') || '—'}</td></tr>`;
     })
     .join('');
 }
