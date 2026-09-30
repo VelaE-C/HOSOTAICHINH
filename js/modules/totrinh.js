@@ -17,9 +17,9 @@ export async function render(container, user) {
   const [{ data: projects }, { data: rows, error }, { data: linkCounts }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at, projects(name, code)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at, projects(name, code)')
-    ).neq('status', 'cancelled').order('created_at', { ascending: false }),
+      ? supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at, last_activity_at, projects(name, code)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('to_trinh_chu_truong').select('id, doc_number, title, status, current_step, project_id, created_at, last_activity_at, projects(name, code)')
+    ).neq('status', 'cancelled').order('last_activity_at', { ascending: false, nullsFirst: false }),
     supabase.from('contracts').select('to_trinh_id').not('to_trinh_id', 'is', null),
   ]);
 
@@ -28,12 +28,36 @@ export async function render(container, user) {
     return;
   }
 
+  // Chưa xong lên trước, trong nhóm thì TÁC VỤ MỚI NHẤT trước — mốc là lần
+  // duyệt/trả về/ý kiến gần nhất. Chưa ai đụng tới thì lấy thời điểm trình.
+  const actTime = (x) => new Date(x.last_activity_at || x.created_at).getTime();
   const sorted = [...(rows || [])].sort((a, b) => {
     const ad = a.status === 'active' ? 1 : 0;
     const bd = b.status === 'active' ? 1 : 0;
     if (ad !== bd) return ad - bd;
-    return new Date(b.created_at) - new Date(a.created_at);
+    return actTime(b) - actTime(a);
   });
+
+  // Ai đang đứng duyệt ở BƯỚC HIỆN TẠI — một truy vấn gộp cho cả danh sách.
+  // ⚠️ PHẢI ghi rõ users!user_id: approval_assignments có HAI khoá ngoại trỏ về users
+  // (user_id và acted_by_admin_id). Viết users(full_name) là nhập nhằng -> PostgREST
+  // trả lỗi -> data null -> cột trống mà không ai biết vì lỗi bị nuốt.
+  const approversByDoc = {};
+  const pendingIds = (rows || []).filter((t) => t.status === 'pending').map((t) => t.id);
+  if (pendingIds.length) {
+    const { data: assigns, error: assignErr } = await supabase
+      .from('approval_assignments')
+      .select('document_id, step_no, user_id, users!user_id(full_name)')
+      .eq('document_type', 'totrinh')
+      .eq('status', 'pending')
+      .in('document_id', pendingIds);
+    if (assignErr) console.error('Lỗi tải người duyệt (tờ trình):', assignErr);
+    const stepById = Object.fromEntries((rows || []).map((t) => [t.id, t.current_step]));
+    (assigns || []).forEach((a) => {
+      if (a.step_no !== stepById[a.document_id]) return;  // bỏ qua các bước đã qua
+      (approversByDoc[a.document_id] ||= []).push(a.users?.full_name || '—');
+    });
+  }
 
   // Đếm số hợp đồng đã chọn từng tờ trình làm căn cứ, hiện luôn trong bảng cho tiện nhìn
   const countMap = {};
@@ -51,7 +75,7 @@ export async function render(container, user) {
       <button class="btn btn-primary" id="btnNew" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">+ Trình tờ trình chủ trương</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Tiêu đề</th>' : '<th>Dự án</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th>'}</tr></thead><tbody id="totrinhTbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table><thead><tr>${IS_MOBILE ? '<th>Dự án</th><th>Tiêu đề</th>' : '<th>Dự án</th><th>Tiêu đề</th><th>Hợp đồng liên kết</th><th>Trạng thái</th><th>Người duyệt</th>'}</tr></thead><tbody id="totrinhTbody"></tbody></table></div>
       <div id="totrinhPagination"></div>
     </div>`;
 
@@ -61,7 +85,7 @@ export async function render(container, user) {
     const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
     VIEW_PAGE = Math.min(Math.max(1, VIEW_PAGE), totalPages);
     const pageItems = currentList.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
-    container.querySelector('#totrinhTbody').innerHTML = renderTotrinhRows(pageItems, countMap);
+    container.querySelector('#totrinhTbody').innerHTML = renderTotrinhRows(pageItems, countMap, approversByDoc);
     container.querySelector('#totrinhPagination').innerHTML = paginationHtml(VIEW_PAGE, currentList.length);
     wirePagination(container.querySelector('#totrinhPagination'), VIEW_PAGE, currentList.length, (p) => {
       VIEW_PAGE = p;
@@ -86,15 +110,16 @@ export async function render(container, user) {
   draw();
 }
 
-function renderTotrinhRows(list, countMap) {
-  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 2 : 4}" style="text-align:center;color:var(--gray4);padding:20px">Không có tờ trình nào — kiểm tra lại bộ lọc Dự án/Tiêu đề nếu đang lọc</td></tr>`;
+function renderTotrinhRows(list, countMap, approversByDoc) {
+  if (!list.length) return `<tr><td colspan="${IS_MOBILE ? 2 : 5}" style="text-align:center;color:var(--gray4);padding:20px">Không có tờ trình nào — kiểm tra lại bộ lọc Dự án/Tiêu đề nếu đang lọc</td></tr>`;
   return list
     .map((t) =>
       IS_MOBILE
         ? `<tr class="click" data-id="${t.id}"><td>${t.projects?.code || '—'}</td><td>${t.title}</td></tr>`
         : `<tr class="click" data-id="${t.id}"><td>${t.projects?.code || '—'}</td><td>${t.title}</td>
     <td>${countMap[t.id] ? `<span class="code-chip">${countMap[t.id]} hợp đồng</span>` : '<span style="color:var(--gray4);font-size:12px">Chưa có</span>'}</td>
-    <td>${statusBadge(t.status)}</td></tr>`,
+    <td>${statusBadge(t.status)}</td>
+    <td style="font-size:12px;color:var(--gray6)">${(approversByDoc?.[t.id] || []).join(', ') || '—'}</td></tr>`,
     )
     .join('');
 }
