@@ -239,9 +239,9 @@ export async function render(container, user) {
   const [{ data: projects }, { data: bills, error }] = await Promise.all([
     supabase.from('projects').select('id, code, name').order('code'),
     (VIEW_PROJECT !== 'ALL'
-      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name), projects(name, code)').eq('project_id', VIEW_PROJECT)
-      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, partners(name), projects(name, code)')
-    ).neq('status', 'cancelled').order('created_at', { ascending: false }),
+      ? supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, last_activity_at, partners(name), projects(name, code)').eq('project_id', VIEW_PROJECT)
+      : supabase.from('bills').select('id, doc_number, period_no, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, status, current_step, checklist_required, checklist_done, project_id, created_at, last_activity_at, partners(name), projects(name, code)')
+    ).neq('status', 'cancelled').order('last_activity_at', { ascending: false, nullsFirst: false }),
   ]);
 
   if (error) {
@@ -257,12 +257,17 @@ export async function render(container, user) {
   const approversByBill = {};
   const stepStartByBill = {};
   if (pendingBillIds.length) {
-    const { data: assigns } = await supabase
+    // ⚠️ PHẢI ghi rõ users!user_id — approval_assignments có HAI khoá ngoại trỏ về
+    // users (user_id và acted_by_admin_id). Viết users(full_name) là nhập nhằng,
+    // PostgREST trả lỗi, data về null, và cột Người duyệt trống trơn mà không ai
+    // biết vì lỗi bị nuốt. Đây chính là lỗi đã từng gặp ở stepPreview.js.
+    const { data: assigns, error: assignErr } = await supabase
       .from('approval_assignments')
-      .select('document_id, step_no, user_id, created_at, users(full_name)')
+      .select('document_id, step_no, user_id, created_at, users!user_id(full_name)')
       .eq('document_type', 'bill')
       .eq('status', 'pending')
       .in('document_id', pendingBillIds);
+    if (assignErr) console.error('Lỗi tải người duyệt (bill):', assignErr);
     const stepByBill = Object.fromEntries((bills || []).map((b) => [b.id, b.current_step]));
     (assigns || []).forEach((a) => {
       if (a.step_no !== stepByBill[a.document_id]) return; // chỉ lấy đúng người ở bước hiện tại, bỏ qua các bước đã qua
@@ -278,11 +283,17 @@ export async function render(container, user) {
     return (Date.now() - new Date(stepStartByBill[b.id]).getTime()) / 3600000 > slaHours;
   }
 
+  // Sắp xếp: hồ sơ CHƯA XONG lên trước, trong mỗi nhóm thì TÁC VỤ MỚI NHẤT trước.
+  // 'paid' mới là trạng thái kết thúc thật của bill (fn_approve_document đặt 'paid');
+  // code cũ chỉ xét 'closed' nên nhánh đó không bao giờ đúng — bill đã thanh toán
+  // vẫn nằm lẫn với bill đang chạy.
+  const DONE_BILL = ['paid', 'closed'];
+  const actTime = (x) => new Date(x.last_activity_at || x.created_at).getTime();
   const sorted = [...(bills || [])].sort((a, b) => {
-    const ad = a.status === 'closed' ? 1 : 0;
-    const bd = b.status === 'closed' ? 1 : 0;
+    const ad = DONE_BILL.includes(a.status) ? 1 : 0;
+    const bd = DONE_BILL.includes(b.status) ? 1 : 0;
     if (ad !== bd) return ad - bd;
-    return new Date(b.created_at) - new Date(a.created_at);
+    return actTime(b) - actTime(a);
   });
 
   container.innerHTML = `
