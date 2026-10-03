@@ -65,16 +65,21 @@ export function calcClaim(r) {
   const B2 = num(r.amount_before_vat);                       // (2)  thi công kỳ này
   const rate = r.retention_rate == null ? 10 : Number(r.retention_rate);
   const vat = r.vat_rate == null ? 8 : Number(r.vat_rate);
-  // (3) để trống thì tính theo tỉ lệ; điền thì dùng số CĐT đã chốt
+  const wrate = r.warranty_rate == null ? 0 : Number(r.warranty_rate);
+  // (3) và (3b) để trống thì tính theo tỉ lệ; điền thì dùng số CĐT đã chốt
   const B3 = r.retention_period == null || r.retention_period === '' ? Math.round((B2 * rate) / 100) : num(r.retention_period);
-  const B4 = B2 - B3;                                        // (4)  = (2) + (3)
+  // ⭐ BẢO HÀNH là khoản giữ THỨ HAI, tách riêng khỏi giữ lại (xác nhận 02/10).
+  // Hợp đồng kiểu SOLERA giữ 5% đến bàn giao + 5% qua hết bảo hành -> dòng (4)
+  // phải trừ CẢ HAI. Hợp đồng chỉ có một khoản thì warranty_rate = 0, ra y như cũ.
+  const B3b = r.warranty_period == null || r.warranty_period === '' ? Math.round((B2 * wrate) / 100) : num(r.warranty_period);
+  const B4 = B2 - B3 - B3b;                                  // (4) = (2) + (3) + (3b)
   const B7 = num(r.advance_recovery);                        // (7)  hoàn tạm ứng
   const B8 = num(r.deductions);                              // (8)  phạt / khấu trừ
   const B11 = num(r.ncr_withheld);                           // (11) giữ do NCR
   const B9 = B4 - B7 - B8;                                   // (9)  chưa VAT
   const B10 = Math.round(((B2 - B8) * vat) / 100);           // (10) xem ghi chú đầu file
   const B12 = B9 + B10 - B11;                                // (12) = (14) đề nghị TT
-  return { B2, B3, B4, B7, B8, B9, B10, B11, B12, rate, vat };
+  return { B2, B3, B3b, B4, B7, B8, B9, B10, B11, B12, rate, wrate, vat };
 }
 
 // ============================================================
@@ -146,8 +151,8 @@ export async function render(container, user) {
       <div style="overflow-x:auto"><table><thead><tr>
         ${IS_MOBILE
           ? '<th>Dự án</th><th>Đợt</th><th style="text-align:right">Đề nghị TT</th>'
-          : `<th>Dự án</th><th>Đợt</th><th>Kỳ</th>
-             <th style="text-align:right">(2) Thi công kỳ này</th>
+          : `<th>Dự án</th><th>Đợt</th><th>Kỳ</th><th>Hạng mục</th>
+             <th style="text-align:right">(2) Doanh thu kỳ này</th>
              <th style="text-align:right">(1) Lũy kế</th>
              <th style="text-align:right">% HĐ</th>
              <th style="text-align:right">(12) Đề nghị TT kỳ này</th>
@@ -170,6 +175,7 @@ export async function render(container, user) {
           <td><span class="code-chip" title="${esc(r.projects?.name)}">${esc(r.projects?.code || '—')}</span></td>
           <td class="mono" style="font-weight:700">${r.claim_no}</td>
           <td class="mono">${fmtPeriod(r.period_month)}</td>
+          <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gray6)" title="${esc(r.scope_summary)}">${esc(r.scope_summary || '—')}</td>
           <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}</td>
           <td class="mono" style="text-align:right;color:var(--gray6)">${fmt(k.B1)}</td>
           <td class="mono" style="text-align:right;color:var(--gray5)">${pct == null ? '—' : pct + '%'}</td>
@@ -179,7 +185,7 @@ export async function render(container, user) {
         </tr>`;
             })
             .join('')
-        : `<tr><td colspan="${IS_MOBILE ? 3 : 9}" style="text-align:center;color:var(--gray4);padding:22px">Chưa ghi nhận đợt claim nào${VIEW_PROJECT !== 'ALL' ? ' cho dự án này' : ''}</td></tr>`}
+        : `<tr><td colspan="${IS_MOBILE ? 3 : 10}" style="text-align:center;color:var(--gray4);padding:22px">Chưa ghi nhận đợt claim nào${VIEW_PROJECT !== 'ALL' ? ' cho dự án này' : ''}</td></tr>`}
       </tbody></table></div>
     </div>`;
 
@@ -201,39 +207,47 @@ export async function render(container, user) {
         subtitle: 'SẢN LƯỢNG TỪ CHỦ ĐẦU TƯ ĐÃ XÁC NHẬN',
         note: VIEW_PROJECT === 'ALL' ? 'Tất cả dự án' : `Dự án: ${(projects || []).find((p) => p.id === VIEW_PROJECT)?.code || ''}`,
         columns: [
-          { key: 'duan', header: 'Dự án', width: 18 },
-          { key: 'dot', header: 'Đợt', width: 7, center: true },
-          { key: 'ky', header: 'Kỳ', width: 11, center: true },
-          { key: 'giatriHD', header: 'Giá trị HĐ + VO', width: 20, money: true },
-          { key: 'thicong', header: '(2) Thi công kỳ này', width: 20, money: true },
-          { key: 'luyke', header: '(1) Lũy kế', width: 20, money: true },
-          { key: 'giulai', header: '(3) Giữ lại', width: 18, money: true },
-          { key: 'hoantamung', header: '(7) Hoàn tạm ứng', width: 18, money: true },
-          { key: 'khautru', header: '(8) Phạt/khấu trừ', width: 18, money: true },
-          { key: 'chuavat', header: '(9) Chưa VAT', width: 20, money: true },
-          { key: 'thue', header: '(10) Thuế GTGT', width: 18, money: true },
-          { key: 'denghi', header: '(12) Đề nghị TT', width: 20, money: true },
-          { key: 'ngaytra', header: 'Ngày xác nhận', width: 15, center: true },
+          { key: 'stt', header: 'STT', width: 6, center: true },
+          { key: 'maduan', header: 'MÃ DỰ ÁN', width: 14, center: true },
+          { key: 'kyclaim', header: 'KỲ CLAIM', width: 11, center: true },
+          { key: 'tenduan', header: 'Tên dự án', width: 26 },
+          { key: 'hangmuc', header: 'Hạng mục', width: 40 },
+          { key: 'giatriHD', header: 'Giá trị Hợp đồng', width: 20, money: true },
+          { key: 'dukienQT', header: 'Dự kiến Quyết toán', width: 20, money: true },
+          { key: 'doanhthu', header: 'Doanh thu', width: 20, money: true },
+          { key: 'vat', header: 'VAT', width: 18, money: true },
+          { key: 'tamung', header: 'Tạm ứng', width: 18, money: true },
+          { key: 'giulai', header: 'Giữ lại', width: 18, money: true },
+          { key: 'baohanh', header: 'Bảo hành', width: 18, money: true },
+          { key: 'khautru', header: 'Khấu trừ', width: 18, money: true },
+          { key: 'thanhtoandot', header: 'Thanh toán đợt', width: 20, money: true },
+          { key: 'luyke', header: 'Lũy kế sản lượng', width: 20, money: true },
+          { key: 'hoantamung', header: 'Hoàn tạm ứng', width: 18, money: true },
+          { key: 'ngayxn', header: 'Ngày CĐT xác nhận', width: 16, center: true },
           { key: 'ghichu', header: 'Ghi chú', width: 30 },
           { key: 'nguoinhap', header: 'Người nhập', width: 20 },
         ],
-        rows: list.map((r) => {
+        rows: list.map((r, i) => {
           const c = calcClaim(r);
           const k = calcCumulative(r, all);
           return {
-            duan: r.projects?.code || '',
-            dot: r.claim_no,
-            ky: fmtPeriod(r.period_month),
+            stt: i + 1,
+            maduan: r.projects?.code || '',
+            kyclaim: r.claim_no,
+            tenduan: r.projects?.name || '',
+            hangmuc: r.scope_summary || '',
             giatriHD: num(r.contract_amount) + num(r.vo_amount),
-            thicong: c.B2,
-            luyke: k.B1,
+            dukienQT: num(r.forecast_final),
+            doanhthu: c.B2,
+            vat: c.B10,
+            tamung: num(r.advance_payment),
             giulai: c.B3,
-            hoantamung: c.B7,
+            baohanh: c.B3b,
             khautru: c.B8,
-            chuavat: c.B9,
-            thue: c.B10,
-            denghi: c.B12,
-            ngaytra: fmtDate(r.confirmed_date),
+            thanhtoandot: c.B12,
+            luyke: k.B1,
+            hoantamung: c.B7,
+            ngayxn: fmtDate(r.confirmed_date),
             ghichu: r.note || '',
             nguoinhap: r.creator?.full_name || '',
           };
@@ -286,7 +300,10 @@ async function openForm(rec, projects, all, user, onClose) {
   const base = rec || {
     contract_amount: seed?.contract_amount ?? null,
     vo_amount: seed?.vo_amount ?? 0,
+    scope_summary: seed?.scope_summary ?? '',
+    forecast_final: seed?.forecast_final ?? 0,
     retention_rate: seed?.retention_rate ?? 10,
+    warranty_rate: seed?.warranty_rate ?? 0,
     vat_rate: seed?.vat_rate ?? 8,
     claim_no: seed ? Number(seed.claim_no) + 1 : 1,
   };
@@ -322,12 +339,17 @@ async function openForm(rec, projects, all, user, onClose) {
       </div>
 
       <!-- ============ KHỐI A ============ -->
+      <div style="margin-bottom:13px"><label class="form-label">Hạng mục</label>
+        <input type="text" id="fScope" class="form-input" value="${esc(base?.scope_summary || '')}" placeholder="VD: Thi công kết cấu và hoàn thiện 34 căn liền kề">
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">Chỉ là tên để nhận biết hợp đồng — mỗi dự án vẫn một chuỗi đợt claim duy nhất.</div></div>
+
       <div class="card-title" style="font-size:12px;text-transform:uppercase;color:var(--gray5)">A · Giá trị hợp đồng (chưa VAT)</div>
       <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
         <table style="width:100%"><tbody>
           ${rowHtml({ no: '1', label: 'Giá trị hợp đồng ban đầu', sub: 'Contract Amount', id: 'fContract', value: base?.contract_amount || 0, input: true, editable })}
           ${rowHtml({ no: '2', label: 'Giá trị các phát sinh', sub: 'VO Amount', id: 'fVo', value: base?.vo_amount || 0, input: true, editable })}
           ${rowHtml({ no: '', label: '<b>Giá trị hợp đồng sau điều chỉnh</b>', id: 'oTran', bold: true })}
+          ${rowHtml({ no: '', label: 'Dự kiến Quyết toán', sub: 'Ước tính giá trị quyết toán cuối cùng — tự nhập', id: 'fForecast', value: base?.forecast_final || 0, input: true, editable })}
         </tbody></table>
       </div>
       <div style="font-size:11px;color:var(--gray4);margin:-10px 0 16px">
@@ -341,7 +363,8 @@ async function openForm(rec, projects, all, user, onClose) {
           ${rowHtml({ no: '1', label: 'Tổng giá trị thực hiện cộng dồn đến kỳ này', sub: 'Accumulated Workdone', id: 'oB1' })}
           ${rowHtml({ no: '2', label: '<b>Giá trị thi công kỳ này</b>', sub: 'Workdone this period', id: 'fB2', value: rec?.amount_before_vat || 0, input: true, editable })}
           ${rowHtml({ no: '3', label: 'Giá trị giữ lại kỳ này', sub: 'Retention this period', id: 'oB3', negative: true })}
-          ${rowHtml({ no: '4', label: 'Giá trị được thanh toán kỳ này <span style="color:var(--gray4)">(4) = (2) + (3)</span>', id: 'oB4' })}
+          ${rowHtml({ no: '3b', label: 'Giá trị bảo hành giữ lại kỳ này', sub: 'Warranty retention — khoản giữ THỨ HAI, tách riêng', id: 'oB3b', negative: true })}
+          ${rowHtml({ no: '4', label: 'Giá trị được thanh toán kỳ này <span style="color:var(--gray4)">(4) = (2) + (3) + (3b)</span>', id: 'oB4' })}
           ${rowHtml({ no: '5', label: 'Tạm ứng (nếu có)', sub: 'Advance payment', id: 'fB5', value: rec?.advance_payment || 0, input: true, editable })}
           ${rowHtml({ no: '6', label: 'Tạm ứng còn lại của đợt trước', sub: 'Remaining advance of previous payment', id: 'oB6' })}
           ${rowHtml({ no: '7', label: 'Hoàn trả tạm ứng đợt này', sub: 'Advance recovery this payment', id: 'fB7', value: rec?.advance_recovery || 0, input: true, editable })}
@@ -355,15 +378,21 @@ async function openForm(rec, projects, all, user, onClose) {
         </tbody></table>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:13px">
         <div><label class="form-label">Tỉ lệ giữ lại (%)</label>
           <input type="number" id="fRetRate" class="form-input" step="0.1" value="${base?.retention_rate ?? 10}"></div>
+        <div><label class="form-label">Tỉ lệ bảo hành (%)</label>
+          <input type="number" id="fWarRate" class="form-input" step="0.1" value="${base?.warranty_rate ?? 0}">
+          <div style="font-size:10.5px;color:var(--gray4);margin-top:3px">Để 0 nếu hợp đồng chỉ có một khoản giữ lại</div></div>
         <div><label class="form-label">Thuế suất VAT (%)</label>
           <input type="number" id="fVat" class="form-input" step="0.1" value="${base?.vat_rate ?? 8}"></div>
       </div>
 
-      <div style="margin-bottom:13px"><label class="form-label">Ghi đè dòng (3) — chỉ điền khi CĐT tính giữ lại khác tỉ lệ trên</label>
-        <input type="text" inputmode="numeric" id="fRetOverride" class="form-input money-input" value="${rec?.retention_period == null ? '' : formatMoneyInput(rec.retention_period)}" placeholder="Để trống = tính theo tỉ lệ">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-bottom:13px">
+        <div><label class="form-label">Ghi đè dòng (3) Giữ lại</label>
+          <input type="text" inputmode="numeric" id="fRetOverride" class="form-input money-input" value="${rec?.retention_period == null ? '' : formatMoneyInput(rec.retention_period)}" placeholder="Để trống = tính theo tỉ lệ"></div>
+        <div><label class="form-label">Ghi đè dòng (3b) Bảo hành</label>
+          <input type="text" inputmode="numeric" id="fWarOverride" class="form-input money-input" value="${rec?.warranty_period == null ? '' : formatMoneyInput(rec.warranty_period)}" placeholder="Để trống = tính theo tỉ lệ"></div>
       </div>
 
       <div style="font-size:11px;color:var(--gray5);background:#FFF7ED;border-radius:7px;padding:9px 12px;margin-bottom:14px;line-height:1.7">
@@ -393,6 +422,7 @@ async function openForm(rec, projects, all, user, onClose) {
   // ---- gom dữ liệu đang gõ thành 1 bản ghi tạm để tính ----
   function readForm() {
     const ov = modal.querySelector('#fRetOverride').value.trim();
+    const ow = modal.querySelector('#fWarOverride').value.trim();
     return {
       id: rec?.id,
       project_id: modal.querySelector('#fProject').value,
@@ -405,8 +435,12 @@ async function openForm(rec, projects, all, user, onClose) {
       deductions: parseMoneyInput(modal.querySelector('#fB8').value),
       ncr_withheld: parseMoneyInput(modal.querySelector('#fB11').value),
       retention_rate: Number(modal.querySelector('#fRetRate').value),
+      warranty_rate: Number(modal.querySelector('#fWarRate').value),
       vat_rate: Number(modal.querySelector('#fVat').value),
       retention_period: ov === '' ? null : parseMoneyInput(ov),
+      warranty_period: ow === '' ? null : parseMoneyInput(ow),
+      scope_summary: modal.querySelector('#fScope').value.trim() || null,
+      forecast_final: parseMoneyInput(modal.querySelector('#fForecast').value) || null,
     };
   }
 
@@ -427,6 +461,7 @@ async function openForm(rec, projects, all, user, onClose) {
     put('oTran', tran);
     put('oB1', k.B1);
     put('oB3', c.B3, true);
+    put('oB3b', c.B3b, true);
     put('oB4', c.B4);
     put('oB6', k.B6);
     put('oB9', c.B9);
@@ -466,7 +501,10 @@ async function openForm(rec, projects, all, user, onClose) {
     const s = inheritFrom(e.target.value);
     modal.querySelector('#fContract').value = formatMoneyInput(s?.contract_amount || 0);
     modal.querySelector('#fVo').value = formatMoneyInput(s?.vo_amount || 0);
+    modal.querySelector('#fScope').value = s?.scope_summary || '';
+    modal.querySelector('#fForecast').value = formatMoneyInput(s?.forecast_final || 0);
     modal.querySelector('#fRetRate').value = s?.retention_rate ?? 10;
+    modal.querySelector('#fWarRate').value = s?.warranty_rate ?? 0;
     modal.querySelector('#fVat').value = s?.vat_rate ?? 8;
     modal.querySelector('#fClaim').value = s ? Number(s.claim_no) + 1 : 1;
     refresh();
@@ -503,7 +541,7 @@ async function openForm(rec, projects, all, user, onClose) {
     if (!f.contract_amount) return toast('Điền Giá trị hợp đồng ban đầu ở khối A', 'error');
 
     // Chặn ngay ở giao diện cho dễ hiểu — database cũng có ràng buộc CHECK chặn lần nữa
-    for (const [id, ten] of [['fB7', '(7) Hoàn trả tạm ứng'], ['fB8', '(8) Trừ phạt và khấu trừ'], ['fB11', '(11) Tiền giữ do NCR'], ['fRetOverride', 'Ghi đè dòng (3)']]) {
+    for (const [id, ten] of [['fB7', '(7) Hoàn trả tạm ứng'], ['fB8', '(8) Trừ phạt và khấu trừ'], ['fB11', '(11) Tiền giữ do NCR'], ['fRetOverride', 'Ghi đè dòng (3)'], ['fWarOverride', 'Ghi đè dòng (3b)']]) {
       const v = parseMoneyInput(modal.querySelector('#' + id).value);
       if (v < 0) return toast(`Ô ${ten} nhập SỐ DƯƠNG — phần mềm tự trừ. Phiếu giấy ghi trong ngoặc nhưng ở đây không gõ dấu âm.`, 'error');
     }
@@ -525,6 +563,10 @@ async function openForm(rec, projects, all, user, onClose) {
       ncr_withheld: f.ncr_withheld,
       retention_rate: f.retention_rate,
       retention_period: f.retention_period,
+      warranty_rate: f.warranty_rate,
+      warranty_period: f.warranty_period,
+      scope_summary: f.scope_summary,
+      forecast_final: f.forecast_final,
       vat_rate: f.vat_rate,
     };
 
@@ -593,6 +635,7 @@ function openPrintClaim(r, all) {
       <table>
         <tr><td colspan="3" class="title">BẢNG TÓM TẮT THANH TOÁN<div class="sub">SUMMARY OF PAYMENT</div></td></tr>
         <tr><td class="label">Dự án</td><td colspan="2">${esc(r.projects?.name || '—')}</td></tr>
+        <tr><td class="label">Hạng mục</td><td colspan="2">${esc(r.scope_summary || '—')}</td></tr>
         <tr><td class="label">Đợt claim</td><td colspan="2">Đợt ${r.claim_no} — kỳ ${fmtPeriod(r.period_month)}</td></tr>
         <tr><td class="label">Ngày CĐT xác nhận</td><td colspan="2">${vnDate(r.confirmed_date)}</td></tr>
       </table>
@@ -602,6 +645,7 @@ function openPrintClaim(r, all) {
         <tr><td class="no">1</td><td>Giá trị hợp đồng ban đầu<div class="sub">Contract Amount</div></td><td class="num">${m(r.contract_amount)}</td></tr>
         <tr><td class="no">2</td><td>Giá trị các phát sinh<div class="sub">VO Amount</div></td><td class="num">${num(r.vo_amount) ? m(r.vo_amount) : '—'}</td></tr>
         <tr><td class="no"></td><td><b>Giá trị hợp đồng sau điều chỉnh</b></td><td class="num"><b>${m(tran)}</b></td></tr>
+        <tr><td class="no"></td><td>Dự kiến Quyết toán</td><td class="num">${num(r.forecast_final) ? m(r.forecast_final) : '—'}</td></tr>
       </table>
 
       <table>
@@ -609,7 +653,8 @@ function openPrintClaim(r, all) {
         <tr><td class="no">1</td><td>Tổng giá trị thực hiện cộng dồn đến kỳ này<div class="sub">Accumulated Workdone</div></td><td class="num">${m(k.B1)}</td></tr>
         <tr><td class="no">2</td><td><b>Giá trị thi công kỳ này</b><div class="sub">Workdone this period</div></td><td class="num"><b>${m(c.B2)}</b></td></tr>
         <tr><td class="no">3</td><td>Giá trị giữ lại kỳ này<div class="sub">Retention this period</div></td><td class="num">${neg(c.B3)}</td></tr>
-        <tr><td class="no">4</td><td>Giá trị được thanh toán kỳ này (4) = (2) + (3)</td><td class="num">${m(c.B4)}</td></tr>
+        <tr><td class="no">3b</td><td>Giá trị bảo hành giữ lại kỳ này<div class="sub">Warranty retention</div></td><td class="num">${neg(c.B3b)}</td></tr>
+        <tr><td class="no">4</td><td>Giá trị được thanh toán kỳ này (4) = (2) + (3) + (3b)</td><td class="num">${m(c.B4)}</td></tr>
         <tr><td class="no">5</td><td>Tạm ứng (nếu có)<div class="sub">Advance payment</div></td><td class="num">${num(r.advance_payment) ? m(r.advance_payment) : '—'}</td></tr>
         <tr><td class="no">6</td><td>Tạm ứng còn lại của đợt trước<div class="sub">Remaining advance of previous payment</div></td><td class="num">${m(k.B6)}</td></tr>
         <tr><td class="no">7</td><td>Hoàn trả tạm ứng đợt này<div class="sub">Advance recovery on this payment</div></td><td class="num">${neg(c.B7)}</td></tr>
