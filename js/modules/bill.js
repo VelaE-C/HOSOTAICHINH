@@ -487,7 +487,11 @@ export async function openDetail(id, user, onClose) {
 
   const canEditNow = b.created_by === user.id && ['draft', 'rejected'].includes(b.status);
   const isAdmin = (user.roles || []).includes('Admin');
-  const canCancel = isAdmin && ['draft', 'rejected'].includes(b.status);
+  // Người TRÌNH tự hủy được bill của mình khi còn Nháp / Bị từ chối (mở quyền 03/10).
+  // Bill không có gì bám vào (bill_budget_lines là dòng chi tiết con, đi theo bill),
+  // nên không có phép kiểm tra ràng buộc nào — nhưng số hồ sơ vẫn bị đóng dấu /HUY
+  // như cũ để không ai dùng lại.
+  const canCancel = (isAdmin || b.created_by === user.id) && ['draft', 'rejected'].includes(b.status);
   const canExportPdf = b.current_step >= 3 || b.status === 'active';
   const box = modal.querySelector('.panel-box');
   box.innerHTML = `
@@ -539,7 +543,7 @@ export async function openDetail(id, user, onClose) {
   box.querySelector('#btnEdit')?.addEventListener('click', () => openEditModal(b, user, onClose));
   box.querySelector('#btnLinkContract')?.addEventListener('click', () => openLinkContractModal(b, user, onClose));
   box.querySelector('#btnCancel')?.addEventListener('click', async () => {
-    if (!confirm(`Hủy hồ sơ "${b.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
+    if (!confirm(`Hủy bill "${b.doc_number}"?\n\nBill biến khỏi mọi danh sách, nhưng DỮ LIỆU VẪN CÒN NGUYÊN — sau này vẫn tra lại được ai trình, bị trả về vì sao.\n\nSố hồ sơ bị đóng dấu /HUY để không ai dùng lại, và kỳ bill tiếp theo tính như chưa từng có bill này.\n\nBấm nhầm thì nhờ Admin khôi phục.`)) return;
     const reason = prompt('Lý do hủy (không bắt buộc):') || null;
     loading(true);
     const { error } = await supabase.rpc('fn_cancel_document', { p_doc_type: 'bill', p_doc_id: b.id, p_reason: reason });
