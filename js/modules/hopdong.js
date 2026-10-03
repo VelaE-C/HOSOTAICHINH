@@ -257,7 +257,10 @@ export async function openDetail(id, user, onClose) {
 
   const canEditNow = c.created_by === user.id && ['draft', 'rejected'].includes(c.status);
   const isAdmin = (user.roles || []).includes('Admin');
-  const canCancel = isAdmin && ['draft', 'rejected'].includes(c.status);
+  // Người TRÌNH tự hủy được hồ sơ của mình khi còn Nháp / Bị từ chối — không phải
+  // nhờ Admin nữa (mở quyền 03/10). Database mới là chốt chặn thật: fn_cancel_document
+  // kiểm lại người gọi, trạng thái, và mọi thứ đang bám vào (bill, phụ lục, dòng BCTC).
+  const canCancel = (isAdmin || c.created_by === user.id) && ['draft', 'rejected'].includes(c.status);
   const isKscp = (user.roles || []).some((r) => ['Admin', 'QLCPHD_CV', 'QLCPHD_TP'].includes(r));
   const canExportPdf = c.current_step >= 3 || c.status === 'active'; // từ khi TỚI Bước 3 (không cần đợi duyệt xong), hoặc đã hoàn tất
   const box = modal.querySelector('.panel-box');
@@ -309,7 +312,7 @@ export async function openDetail(id, user, onClose) {
   box.querySelector('#btnAddPLHD')?.addEventListener('click', () => openCreatePLHDModal(c, user, onClose));
   box.querySelectorAll('[data-plhd-id]').forEach((row) => row.addEventListener('click', () => openDetail(row.dataset.plhdId, user, onClose)));
   box.querySelector('#btnCancel')?.addEventListener('click', async () => {
-    if (!confirm(`Hủy hồ sơ "${c.doc_number}"?\n\nHồ sơ sẽ chuyển sang trạng thái "Đã hủy", ẩn khỏi danh sách chính — dữ liệu vẫn được giữ nguyên, không mất gì cả. Không hoàn tác được qua giao diện.`)) return;
+    if (!confirm(`Hủy hồ sơ "${c.doc_number}"?\n\nHồ sơ biến khỏi mọi danh sách, nhưng DỮ LIỆU VẪN CÒN NGUYÊN — sau này vẫn tra lại được ai trình, bị trả về vì sao.\n\nNếu còn bill, phụ lục hoặc dòng Báo cáo tài chính đang bám vào, hệ thống sẽ chặn và nói rõ vướng cái gì.\n\nBấm nhầm thì nhờ Admin khôi phục.`)) return;
     const reason = prompt('Lý do hủy (không bắt buộc):') || null;
     loading(true);
     const { error } = await supabase.rpc('fn_cancel_document', { p_doc_type: 'contract', p_doc_id: c.id, p_reason: reason });
