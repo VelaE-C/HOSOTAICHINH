@@ -1,5 +1,24 @@
 // ============================================================
-// thucthu.js — Sản lượng từ Chủ đầu tư (CĐT) đã được xác nhận
+// thucthu.js — DOANH THU DỰ ÁN (trước đây: "Sản lượng CĐT")
+//
+// ⚠️ SỬA 08/10/2026 — ĐỔI TÊN TAB + ĐỔI BỘ CỘT TRÊN BẢNG DANH SÁCH
+//   Bỏ 3 cột: "(12) Đề nghị TT kỳ này", "Ngày XN", "Người nhập".
+//   Thêm 1 cột: "Hợp đồng (chưa VAT)" = contract_amount + vo_amount.
+//   Đặt ngay trước cột Doanh thu, vì nó chính là MẪU SỐ của cột "% HĐ" ngay bên
+//   cạnh — trước đây người đọc thấy "34%" mà không biết 34% của bao nhiêu.
+//
+//   Ô thống kê thứ 3 đổi từ "Tổng đề nghị thanh toán (có VAT)" sang
+//   "Tổng giá trị hợp đồng (chưa VAT)". Giữ con số đề nghị TT ở chỗ nổi bật nhất
+//   trang trong khi đã bỏ cột đó đi là mâu thuẫn — và đó cũng đúng con số đang
+//   lệch với bảng Excel của công ty (xem ghi chú VAT bên dưới).
+//
+//   KHÔNG đụng vào: phiếu claim chi tiết (14 dòng theo mẫu giấy), công thức
+//   calcClaim/calcCumulative, và bản xuất Excel — bản xuất vẫn đủ 19 cột theo
+//   bảng theo dõi của công ty, chỉ đổi tiêu đề và tên file.
+//
+// ⚠️ CÒN TREO: khấu trừ có làm giảm doanh thu chịu thuế VAT không?
+//   Hệ thống: (Doanh thu - Khấu trừ) x 8%   |   Excel công ty: Doanh thu x 8%
+//   Chênh đúng bằng 8% khấu trừ. Chưa chốt — đừng sửa calcClaim trước khi chốt.
 //
 // Ghi nhận SẢN LƯỢNG CĐT đã xác nhận theo từng đợt claim, dựng đúng theo mẫu giấy
 // "BẢNG TÓM TẮT THANH TOÁN / SUMMARY OF PAYMENT" mà CĐT đang dùng.
@@ -122,7 +141,8 @@ export async function render(container, user) {
   const all = rows || [];
   const list = VIEW_PROJECT === 'ALL' ? all : all.filter((r) => r.project_id === VIEW_PROJECT);
   const tongSanLuong = list.reduce((s, r) => s + num(r.amount_before_vat), 0);
-  const tongDeNghi = list.reduce((s, r) => s + calcClaim(r).B12, 0);
+  // Trần hợp đồng = giá gốc + phát sinh (VO) — cùng mẫu số với cột "% HĐ"
+  const tongHopDong = list.reduce((s, r) => s + num(r.contract_amount) + num(r.vo_amount), 0);
   const editable = canEdit(user);
 
   container.innerHTML = `
@@ -141,7 +161,7 @@ export async function render(container, user) {
       <div class="stat-row" style="grid-template-columns:repeat(3,1fr)">
         <div><div class="card-sub" style="margin:0">Số đợt claim đã ghi nhận</div><div class="stat-num">${list.length}</div></div>
         <div><div class="card-sub" style="margin:0">Tổng sản lượng (trước thuế)</div><div class="stat-num teal">${fmt(tongSanLuong)} ₫</div></div>
-        <div><div class="card-sub" style="margin:0">Tổng đề nghị thanh toán (có VAT)</div><div class="stat-num">${fmt(tongDeNghi)} ₫</div></div>
+        <div><div class="card-sub" style="margin:0">Tổng giá trị hợp đồng (chưa VAT)</div><div class="stat-num">${fmt(tongHopDong)} ₫</div></div>
       </div>
     </div>
 
@@ -150,13 +170,12 @@ export async function render(container, user) {
     <div class="card" style="padding:0;overflow:hidden">
       <div style="overflow-x:auto"><table><thead><tr>
         ${IS_MOBILE
-          ? '<th>Dự án</th><th>Đợt</th><th style="text-align:right">Đề nghị TT</th>'
+          ? '<th>Dự án</th><th>Đợt</th><th style="text-align:right">Doanh thu</th>'
           : `<th>Dự án</th><th>Đợt</th><th>Kỳ</th><th>Hạng mục</th>
+             <th style="text-align:right">Hợp đồng (chưa VAT)</th>
              <th style="text-align:right">(2) Doanh thu kỳ này</th>
              <th style="text-align:right">(1) Lũy kế</th>
-             <th style="text-align:right">% HĐ</th>
-             <th style="text-align:right">(12) Đề nghị TT kỳ này</th>
-             <th>Ngày XN</th><th>Người nhập</th>`}
+             <th style="text-align:right">% HĐ</th>`}
       </tr></thead><tbody>
       ${list.length
         ? list
@@ -169,23 +188,21 @@ export async function render(container, user) {
                 return `<tr class="click" data-id="${r.id}" style="cursor:pointer">
                   <td><span class="code-chip">${esc(r.projects?.code || '—')}</span></td>
                   <td class="mono" style="font-weight:700">${r.claim_no}</td>
-                  <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B12)}</td></tr>`;
+                  <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}</td></tr>`;
               }
               return `<tr class="click" data-id="${r.id}" style="cursor:pointer">
           <td><span class="code-chip" title="${esc(r.projects?.name)}">${esc(r.projects?.code || '—')}</span></td>
           <td class="mono" style="font-weight:700">${r.claim_no}</td>
           <td class="mono">${fmtPeriod(r.period_month)}</td>
           <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gray6)" title="${esc(r.scope_summary)}">${esc(r.scope_summary || '—')}</td>
+          <td class="mono" style="text-align:right;color:var(--gray6)">${tran > 0 ? fmt(tran) : '—'}</td>
           <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}</td>
           <td class="mono" style="text-align:right;color:var(--gray6)">${fmt(k.B1)}</td>
           <td class="mono" style="text-align:right;color:var(--gray5)">${pct == null ? '—' : pct + '%'}</td>
-          <td class="mono" style="text-align:right;font-weight:700;color:var(--green,#16A34A)">${fmt(c.B12)}</td>
-          <td>${fmtDate(r.confirmed_date)}</td>
-          <td style="font-size:11.5px;color:var(--gray5)">${esc(r.creator?.full_name || '—')}</td>
         </tr>`;
             })
             .join('')
-        : `<tr><td colspan="${IS_MOBILE ? 3 : 10}" style="text-align:center;color:var(--gray4);padding:22px">Chưa ghi nhận đợt claim nào${VIEW_PROJECT !== 'ALL' ? ' cho dự án này' : ''}</td></tr>`}
+        : `<tr><td colspan="${IS_MOBILE ? 3 : 8}" style="text-align:center;color:var(--gray4);padding:22px">Chưa ghi nhận đợt claim nào${VIEW_PROJECT !== 'ALL' ? ' cho dự án này' : ''}</td></tr>`}
       </tbody></table></div>
     </div>`;
 
@@ -204,7 +221,7 @@ export async function render(container, user) {
   container.querySelector('#btnExport').addEventListener('click', () =>
     exportListExcel(
       {
-        subtitle: 'SẢN LƯỢNG TỪ CHỦ ĐẦU TƯ ĐÃ XÁC NHẬN',
+        subtitle: 'DOANH THU DỰ ÁN — SẢN LƯỢNG CHỦ ĐẦU TƯ ĐÃ XÁC NHẬN',
         note: VIEW_PROJECT === 'ALL' ? 'Tất cả dự án' : `Dự án: ${(projects || []).find((p) => p.id === VIEW_PROJECT)?.code || ''}`,
         columns: [
           { key: 'stt', header: 'STT', width: 6, center: true },
@@ -252,8 +269,8 @@ export async function render(container, user) {
             nguoinhap: r.creator?.full_name || '',
           };
         }),
-        fileBase: 'San_luong_CDT',
-        sheetName: 'Sản lượng CĐT',
+        fileBase: 'Doanh_thu_du_an',
+        sheetName: 'Doanh thu du an',
       },
       (msg) => toast(msg, 'error'),
     ),
