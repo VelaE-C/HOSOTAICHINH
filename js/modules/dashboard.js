@@ -27,6 +27,10 @@
 //   4. Đổi tên cột "Sản lượng từ CĐT" -> "Doanh thu", và đổi tên hai biến
 //      doanhThu/sanLuong cho khớp nghĩa mới (bản cũ đặt tên NGƯỢC: biến tên
 //      doanhThu lại đang giữ giá trị hợp đồng).
+//
+//   5. BỎ cột "Ghi chú" (yêu cầu 08/10). Bỏ luôn biến danhGia sinh ra nội dung
+//      cột đó, không để lại code chết. Dự án chưa nhập giá trị HĐ nay chỉ hiện
+//      dấu "—" xám ở cột Giá trị HĐ, không còn câu nhắc kèm theo.
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, tyi, budgetColor, toast, IS_MOBILE } from '../core/utils.js';
@@ -158,15 +162,8 @@ export async function render(container, user) {
     const doanhThu = claimByProject[p.id] || 0;
     const chiPhi = costByProject[p.id] || 0;
     const chenhLech = doanhThu - chiPhi;
-    // Ghi chú tự sinh — nói đúng điều đáng chú ý nhất của dòng đó, không tô hồng
-    let danhGia = '';
-    if (giaTriHD == null) danhGia = '⚠️ Chưa nhập Giá trị HĐ — vào tab Doanh thu dự án, mở đợt claim mới nhất';
-    else if (!doanhThu && !chiPhi) danhGia = 'Chưa phát sinh doanh thu/chi phí';
-    else if (!doanhThu) danhGia = '⚠️ Đã chi nhưng CĐT chưa xác nhận doanh thu nào';
-    else if (chenhLech < 0) danhGia = `Âm ${fmt(-chenhLech)} ₫ — chi nhiều hơn doanh thu CĐT đã xác nhận`;
-    else danhGia = `Dương ${fmt(chenhLech)} ₫`;
     const thuPct = giaTriHD ? (doanhThu / giaTriHD) * 100 : null;
-    return { p, giaTriHD, doanhThu, chiPhi, chenhLech, danhGia, thuPct };
+    return { p, giaTriHD, doanhThu, chiPhi, chenhLech, thuPct };
   });
 
   const tGiaTriHD = summaryRows.reduce((s2, r) => s2 + (r.giaTriHD || 0), 0);
@@ -186,7 +183,6 @@ export async function render(container, user) {
         <th style="text-align:right">Doanh thu</th>
         <th style="text-align:right">Chi phí dự án</th>
         <th style="text-align:right">Chênh lệch</th>
-        <th>Ghi chú</th>
       </tr></thead><tbody>
       ${summaryRows.length
         ? summaryRows
@@ -197,11 +193,10 @@ export async function render(container, user) {
           <td class="mono" style="text-align:right">${fmt(r.doanhThu)}${r.thuPct != null ? `<div style="font-size:10.5px;color:var(--gray4);font-weight:400">${r.thuPct.toFixed(0)}% HĐ</div>` : ''}</td>
           <td class="mono" style="text-align:right">${fmt(r.chiPhi)}</td>
           <td class="mono" style="text-align:right;font-weight:700;color:${r.chenhLech < 0 ? 'var(--red)' : 'var(--green)'}">${r.chenhLech >= 0 ? '+' : ''}${fmt(r.chenhLech)}</td>
-          <td style="font-size:12px;color:${r.danhGia.startsWith('⚠️') || r.chenhLech < 0 ? 'var(--amber)' : 'var(--gray6)'}">${esc(r.danhGia)}</td>
         </tr>`,
             )
             .join('')
-        : `<tr><td colspan="6" style="text-align:center;color:var(--gray4);padding:20px">Không có dự án nào trong phạm vi của bạn</td></tr>`}
+        : `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Không có dự án nào trong phạm vi của bạn</td></tr>`}
       </tbody>
       ${summaryRows.length ? `<tfoot><tr style="background:var(--gray1);font-weight:700">
         <td>TỔNG</td>
@@ -209,7 +204,6 @@ export async function render(container, user) {
         <td class="mono" style="text-align:right">${fmt(tDoanhThu)}</td>
         <td class="mono" style="text-align:right">${fmt(tChiPhi)}</td>
         <td class="mono" style="text-align:right;color:${tChenhLech < 0 ? 'var(--red)' : 'var(--green)'}">${tChenhLech >= 0 ? '+' : ''}${fmt(tChenhLech)}</td>
-        <td></td>
       </tr></tfoot>` : ''}
       </table></div>
     </div>`;
