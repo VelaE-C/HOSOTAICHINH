@@ -252,8 +252,12 @@ export async function render(container, user) {
       } else {
         // Module đó chưa có hàm openDetail(id, user, onDone). Thay vì bấm không
         // ăn, chuyển người dùng sang tab của loại hồ sơ đó.
-        console.warn(`[duyet.js] ${file}.js chưa có openDetail() — chuyển sang tab #${type}.`);
-        location.hash = `#${type}`;
+        // XÁC NHẬN 08/10 từ shell.js: mã tab = TÊN FILE module (hàm loadModule nạp
+        // theo tên), nên phải dùng `file` chứ KHÔNG phải `type`. Bản 03/10 tôi viết
+        // `#${type}` — với BCTC thì trùng nhau nên vẫn chạy, nhưng hợp đồng sẽ ra
+        // '#contract' trong khi mã tab thật là '#hopdong' -> bấm không ăn gì.
+        console.warn(`[duyet.js] ${file}.js chưa có openDetail() — chuyển sang tab #${file}.`);
+        location.hash = `#${file}`;
       }
     }),
   );
