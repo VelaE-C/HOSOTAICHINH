@@ -12,6 +12,25 @@
 //     · địa chỉ  #thucthu  trên thanh địa chỉ, có thể đã có người lưu/gửi qua email
 //   Đổi mã tab thì phải sửa đồng thời cả ba, mà chẳng được thêm gì — người dùng
 //   chỉ nhìn label, không nhìn mã.
+//
+// ⚠️ SỬA 08/10/2026 (2) — ẨN TAB "Hợp đồng đầu ra (CĐT)"
+//   Lý do: giá trị hợp đồng với CĐT nay đã nằm sẵn trên phiếu claim
+//   (owner_progress_claims.contract_amount và .forecast_final), không cần nhập
+//   hai nơi nữa.
+//
+//   CÁCH ẨN: chỉ CHÚ THÍCH dòng NAV của nó, KHÔNG xóa hẳn. Hàm accessibleTabs
+//   lọc theo NAV (NAV.filter(...)), nên không có dòng trong NAV là tab biến mất
+//   khỏi menu trái, menu ⋯ và cả đường dẫn #hopdongdaura — không ai vào được nữa.
+//   Muốn bật lại: bỏ 2 dấu // ở đầu dòng đó, xong.
+//
+//   CỐ Ý GIỮ nguyên chữ 'hopdongdaura' trong TAB_BY_ROLE bên dưới: khi NAV không
+//   còn dòng đó thì mấy chữ này là vô hại (lọc ra rỗng), mà giữ lại thì bật lại
+//   chỉ tốn 1 dòng thay vì sửa 5 vai trò.
+//
+//   🔴 CHƯA ĐƯỢC XÓA BẢNG revenue_contracts TRONG DATABASE. Bản kiểm kê 30/09
+//   ghi rõ Tổng quan (dashboard.js) đang đọc bảng đó để lấy Doanh thu. Xóa bảng
+//   mà dashboard.js còn hỏi tới thì tab Tổng quan BÁO LỖI, không phải chỉ trống.
+//   Phải chuyển nguồn Doanh thu của Tổng quan sang owner_progress_claims trước.
 // ============================================================
 import { supabase } from './config.js';
 
@@ -24,7 +43,9 @@ const NAV = [
   { id: 'totrinh', label: 'Tờ trình chủ trương', icon: '🗂️', group: 'HỒ SƠ', more: true, title: 'Tờ trình phê duyệt chủ trương', sub: 'Căn cứ cho hợp đồng' },
   { id: 'bctc', label: 'Báo cáo tài chính', icon: '📈', group: 'HỒ SƠ', more: true, title: 'Báo cáo tài chính dự án', sub: 'Doanh thu · Chi phí · Lợi nhuận — theo từng Rev' },
   { id: 'thucthu', label: 'Doanh thu dự án', icon: '💰', group: 'HỒ SƠ', more: true, title: 'Doanh thu dự án', sub: 'Sản lượng Chủ đầu tư đã xác nhận theo từng đợt claim — QLCP&HĐ ghi nhận, không qua duyệt' },
-  { id: 'hopdongdaura', label: 'Hợp đồng đầu ra (CĐT)', icon: '📑', group: 'HỒ SƠ', more: true, title: 'Hợp đồng đầu ra (CĐT)', sub: 'Giá trị hợp đồng ký với Chủ đầu tư — nguồn Doanh thu của Dashboard' },
+  // ẨN 08/10/2026 — giá trị hợp đồng CĐT đã nằm trên phiếu claim, không nhập hai nơi.
+  // Bật lại: bỏ 2 dấu // ở đầu dòng dưới.
+  // { id: 'hopdongdaura', label: 'Hợp đồng đầu ra (CĐT)', icon: '📑', group: 'HỒ SƠ', more: true, title: 'Hợp đồng đầu ra (CĐT)', sub: 'Giá trị hợp đồng ký với Chủ đầu tư — nguồn Doanh thu của Dashboard' },
   { id: 'doitac', label: 'Đối tác', icon: '🏗️', group: 'QUẢN TRỊ', more: true, title: 'Đối tác NTP / NCC', sub: 'Hồ sơ và lịch sử giao dịch' },
   { id: 'users', label: 'Người dùng', icon: '👤', group: 'QUẢN TRỊ', more: true, title: 'Quản trị hệ thống', sub: 'Dự án, người dùng, mẫu hồ sơ (luồng duyệt)' },
 ];
@@ -35,7 +56,8 @@ const NAV = [
 // và CHT/GĐDA (chỉ dự án mình được phân công — phần lọc theo dự án nằm trong
 // dashboard.js). Trưởng phòng chức năng và Pháp chế KHÔNG còn thấy Dashboard:
 // bảng tổng là số liệu tài chính toàn dự án, không thuộc phạm vi 2 nhóm này.
-// Doanh thu dự án (mã tab 'thucthu') và Hợp đồng đầu ra: chỉ QLCP&HĐ nhập, các cấp trên xem.
+// Doanh thu dự án (mã tab 'thucthu'): chỉ QLCP&HĐ nhập, các cấp trên xem.
+// Chữ 'hopdongdaura' dưới đây CỐ Ý giữ lại dù tab đã ẩn — xem ghi chú đầu file.
 const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
