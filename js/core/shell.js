@@ -1,6 +1,17 @@
 // ============================================================
 // shell.js — Khung chính của app: topbar, sidebar, bottom nav.
 // Tab nào hiện ra phụ thuộc vào vai trò thật của người đăng nhập (không phải giả lập nữa).
+//
+// ⚠️ SỬA 08/10/2026 — ĐỔI TÊN TAB "Sản lượng CĐT" -> "Doanh thu dự án"
+//   Sửa đúng MỘT dòng trong mảng NAV: label (menu trái + menu ⋯), title (tiêu đề
+//   đầu trang) và sub (dòng mô tả bên dưới tiêu đề).
+//
+//   MÃ TAB VẪN LÀ 'thucthu' — CỐ Ý KHÔNG ĐỔI. Mã đó đồng thời là:
+//     · tên file  js/modules/thucthu.js  (hàm loadModule nạp theo tên)
+//     · khóa trong TAB_BY_ROLE bên dưới (14 vai trò đang tham chiếu)
+//     · địa chỉ  #thucthu  trên thanh địa chỉ, có thể đã có người lưu/gửi qua email
+//   Đổi mã tab thì phải sửa đồng thời cả ba, mà chẳng được thêm gì — người dùng
+//   chỉ nhìn label, không nhìn mã.
 // ============================================================
 import { supabase } from './config.js';
 
@@ -12,7 +23,7 @@ const NAV = [
   { id: 'bill', label: 'Bill thanh toán', icon: '💵', group: 'HỒ SƠ', bn: true, title: 'Bill thanh toán theo kỳ', sub: 'Tạm ứng, thanh toán sản lượng, quyết toán' },
   { id: 'totrinh', label: 'Tờ trình chủ trương', icon: '🗂️', group: 'HỒ SƠ', more: true, title: 'Tờ trình phê duyệt chủ trương', sub: 'Căn cứ cho hợp đồng' },
   { id: 'bctc', label: 'Báo cáo tài chính', icon: '📈', group: 'HỒ SƠ', more: true, title: 'Báo cáo tài chính dự án', sub: 'Doanh thu · Chi phí · Lợi nhuận — theo từng Rev' },
-  { id: 'thucthu', label: 'Sản lượng CĐT', icon: '💰', group: 'HỒ SƠ', more: true, title: 'Sản lượng từ Chủ đầu tư', sub: 'Khối lượng CĐT đã xác nhận theo từng đợt claim — QLCP&HĐ ghi nhận, không qua duyệt' },
+  { id: 'thucthu', label: 'Doanh thu dự án', icon: '💰', group: 'HỒ SƠ', more: true, title: 'Doanh thu dự án', sub: 'Sản lượng Chủ đầu tư đã xác nhận theo từng đợt claim — QLCP&HĐ ghi nhận, không qua duyệt' },
   { id: 'hopdongdaura', label: 'Hợp đồng đầu ra (CĐT)', icon: '📑', group: 'HỒ SƠ', more: true, title: 'Hợp đồng đầu ra (CĐT)', sub: 'Giá trị hợp đồng ký với Chủ đầu tư — nguồn Doanh thu của Dashboard' },
   { id: 'doitac', label: 'Đối tác', icon: '🏗️', group: 'QUẢN TRỊ', more: true, title: 'Đối tác NTP / NCC', sub: 'Hồ sơ và lịch sử giao dịch' },
   { id: 'users', label: 'Người dùng', icon: '👤', group: 'QUẢN TRỊ', more: true, title: 'Quản trị hệ thống', sub: 'Dự án, người dùng, mẫu hồ sơ (luồng duyệt)' },
@@ -24,7 +35,7 @@ const NAV = [
 // và CHT/GĐDA (chỉ dự án mình được phân công — phần lọc theo dự án nằm trong
 // dashboard.js). Trưởng phòng chức năng và Pháp chế KHÔNG còn thấy Dashboard:
 // bảng tổng là số liệu tài chính toàn dự án, không thuộc phạm vi 2 nhóm này.
-// Sản lượng CĐT và Hợp đồng đầu ra: chỉ QLCP&HĐ nhập, các cấp trên xem.
+// Doanh thu dự án (mã tab 'thucthu') và Hợp đồng đầu ra: chỉ QLCP&HĐ nhập, các cấp trên xem.
 const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
