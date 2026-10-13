@@ -34,6 +34,10 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, tyi, budgetColor, toast, IS_MOBILE } from '../core/utils.js';
+// Danh sách vai trò cấp toàn công ty — nhập từ shell.js, KHÔNG chép lại.
+// Bản cũ gõ thẳng mảng này ở 2 chỗ bên dưới; sửa một chỗ quên chỗ kia là hai
+// phép lọc chạy lệch nhau mà không báo lỗi gì.
+import { COMPANY_WIDE_ROLES } from '../core/shell.js';
 
 // Chống vỡ HTML khi tên đối tác/dự án có ký tự đặc biệt (&, <, ">, dấu nháy)
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
@@ -43,7 +47,7 @@ const DOC_TYPE_LABEL = { contract: 'Hợp đồng', bill: 'Bill', totrinh: 'Tờ
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải dữ liệu…</div>`;
 
-  const isTopLevel = (user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
+  const isTopLevel = (user.roles || []).some((r) => COMPANY_WIDE_ROLES.includes(r));
 
   const [{ data: projects }, { data: budgetRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: claims }] =
     await Promise.all([
@@ -84,7 +88,7 @@ export async function render(container, user) {
   // dự án đó — vai trò văn phòng thuần (Kế toán/Pháp chế/QLCP&HĐ không gắn dự án
   // cụ thể) vẫn thấy toàn bộ như trước, đúng vai trò xuyên suốt của họ.
   const myProjectIds = new Set((myAssignments || []).map((a) => a.project_id).filter(Boolean));
-  const isSiteLimited = myProjectIds.size > 0 && !(user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'].includes(r));
+  const isSiteLimited = myProjectIds.size > 0 && !(user.roles || []).some((r) => COMPANY_WIDE_ROLES.includes(r));
 
   // budgetRowsFiltered / revenueRowsFiltered đã gỡ cùng 2 khối thống kê ngân sách.
   // contractsFiltered đã bỏ cùng bảng "Danh sách đơn vị đã ký hợp đồng" — không còn nơi nào dùng
