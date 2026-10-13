@@ -71,7 +71,17 @@ export const NAV = [
 // Ý nghĩa: giữ một trong các vai trò này = XEM TOÀN CÔNG TY, kể cả khi người đó
 // cũng được gán vào một dự án cụ thể. Người KHÔNG giữ vai trò nào ở đây mà CÓ
 // được gán dự án thì chỉ thấy đúng dự án đó (xem dashboard.js — isSiteLimited).
-export const COMPANY_WIDE_ROLES = ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'];
+// ⚠️ 13/10/2026 — BỎ 'QLCPHD_CV'. Chuyên viên QLCP&HĐ nay chỉ xem dự án được
+// phân công; Trưởng phòng (QLCPHD_TP) giữ nguyên toàn công ty để kiêm nhiệm
+// những dự án chưa có chuyên viên.
+//
+// 🔴 DANH SÁCH NÀY PHẢI KHỚP TỪNG CHỮ VỚI HÀM is_top_level() TRONG POSTGRES.
+//    Đây mới là chỗ quyết định quyền thật; mảng dưới đây chỉ lọc màn hình và
+//    in ra cột "Phạm vi dự án" ở bảng phân quyền. Sửa một bên quên bên kia thì
+//    bảng phân quyền nói một đằng, hệ thống chạy một nẻo — đúng thứ mà chính
+//    bảng đó đang dán băng đỏ cảnh báo.
+//    File SQL đi kèm: VELA_HSTC_thu_quyen_QLCPHD_CV.sql (chạy TRƯỚC khi up file này).
+export const COMPANY_WIDE_ROLES = ['QLCPHD_TP', 'PTGD', 'TGD', 'Admin'];
 
 export const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
