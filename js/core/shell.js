@@ -62,6 +62,17 @@ export const NAV = [
 // bảng tổng là số liệu tài chính toàn dự án, không thuộc phạm vi 2 nhóm này.
 // Doanh thu dự án (mã tab 'thucthu'): chỉ QLCP&HĐ nhập, các cấp trên xem.
 // Chữ 'hopdongdaura' dưới đây CỐ Ý giữ lại dù tab đã ẩn — xem ghi chú đầu file.
+// ⭐ 13/10/2026 — MỘT NGUỒN DUY NHẤT cho "vai trò cấp toàn công ty".
+// Trước đây danh sách này bị CHÉP ở 2 chỗ trong dashboard.js (isTopLevel và
+// isSiteLimited). Chép thì sớm muộn sửa một nơi quên nơi kia -> hai màn hình
+// lọc dữ liệu khác nhau mà không ai biết. Nay dashboard.js và users.js đều nhập
+// từ đây.
+//
+// Ý nghĩa: giữ một trong các vai trò này = XEM TOÀN CÔNG TY, kể cả khi người đó
+// cũng được gán vào một dự án cụ thể. Người KHÔNG giữ vai trò nào ở đây mà CÓ
+// được gán dự án thì chỉ thấy đúng dự án đó (xem dashboard.js — isSiteLimited).
+export const COMPANY_WIDE_ROLES = ['QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'];
+
 export const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
