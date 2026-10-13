@@ -4,6 +4,8 @@
 // ============================================================
 import { supabase } from '../core/config.js';
 import { toast, loading, fmtDate, pushModalHistory, popModalHistory } from '../core/utils.js';
+// ⭐ Nhập THẲNG bảng phân quyền tab từ shell.js — không chép lại, không bao giờ lệch.
+import { NAV, TAB_BY_ROLE } from '../core/shell.js';
 
 const ALL_ROLES = ['QS', 'CHT', 'GDDA', 'ChuyenVienPhongBan', 'TruongPhongChucNang', 'PhapChe_CV', 'PhapChe_TP', 'KeToan_Vien', 'KeToan_Truong', 'QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'];
 // Bất kỳ vai trò nào cũng có thể được chỉ đích danh theo dự án (trừ Admin — thuần kỹ thuật, không tham gia duyệt)
@@ -345,6 +347,145 @@ async function fetchRoleHolders() {
 
 const SCOPE_HINT = 'Dùng để TÌM PTGD phụ trách: Công trường = PTGD của dự án; Phòng ban = PTGD của phòng người trình. KHÔNG còn quyết định ai được trình — việc đó nay do khối BƯỚC TRÌNH bên dưới quyết định.';
 
+// ============================================================
+// ⭐ 13/10/2026 — CHIA MÀN QUẢN TRỊ THÀNH 3 TAB NHỎ + 3 BẢNG PHÂN QUYỀN
+//
+//   Khai báo    : Dự án · Phòng ban · Mã ngân sách      (danh mục nền, ít đổi)
+//   Luồng duyệt : Mẫu hồ sơ + BẢNG ai TRÌNH / ai DUYỆT bước nào / phòng nào XEM
+//   Nhân sự     : Người dùng (đã mở rộng thành bảng phân quyền theo người)
+//                 + BẢNG vai trò × tab
+//
+// ⚠️ CẢ 3 BẢNG ĐỀU ĐỌC THẲNG TỪ NGUỒN THẬT, KHÔNG CHÉP TAY:
+//   · Bảng vai trò × tab  <- import NAV + TAB_BY_ROLE từ core/shell.js
+//   · Bảng theo nhân sự   <- users + user_roles + project_role_assignments
+//   · Bảng luồng duyệt    <- template_submitters + template_steps + template_viewers
+//   Chép tay là sớm muộn màn hình nói một đằng hệ thống chạy một nẻo — đúng cái
+//   bẫy stepPreview.js đã mắc (nhân bản logic của database sang JS).
+//
+// 🔴 BẢNG "VAI TRÒ × TAB" CHỈ NÓI AI *THẤY* GÌ, KHÔNG NÓI AI *LÀM ĐƯỢC* GÌ.
+//   TAB_BY_ROLE chỉ giấu nút trên menu. Quyền thật nằm ở RLS trong Postgres.
+//   Bằng chứng: 08/10 ẩn tab "Hợp đồng đầu ra" nhưng KHÔNG ai bị thu hồi quyền
+//   ghi vào bảng revenue_contracts — chỉ là không còn đường bấm vào.
+//   Vì vậy tiêu đề bảng phải ghi đúng là "thấy tab nào", và có dòng cảnh báo.
+//   Bảng trả lời đúng câu "ai làm được gì" là BẢNG LUỒNG DUYỆT ở tab giữa.
+//
+// 🐞 TIỆN THỂ SỬA MỘT LỖI CÓ SẴN: bản cũ gắn sự kiện mở người dùng bằng
+//   querySelectorAll('[data-id]') — mà dòng DỰ ÁN cũng mang data-id. Với Admin,
+//   bấm vào một dự án sẽ mở modal Dự án rồi bị modal Người dùng đè lên, tra bằng
+//   mã dự án nên không tải được gì. Nay dùng selector riêng '.user-row'.
+// ============================================================
+
+let ACTIVE_SUB = 'khaibao'; // giữ ở cấp module để đổi tab không nhảy về đầu
+
+const SUB_TABS = [
+  { id: 'khaibao', label: 'Khai báo', hint: 'Dự án · Phòng ban · Mã ngân sách' },
+  { id: 'luongduyet', label: 'Luồng duyệt', hint: 'Mẫu hồ sơ · ai trình, ai duyệt' },
+  { id: 'nhansu', label: 'Nhân sự', hint: 'Người dùng · phân quyền' },
+];
+
+// Chặn dữ liệu người dùng phá vỡ HTML (tên dự án/phòng ban có dấu nháy kép là
+// chuyện bình thường — value="${...}" sẽ vỡ bố cục). Bài học từ doitac.js 08/10.
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function subTabBarHtml() {
+  return `<div style="display:flex;gap:2px;border-bottom:2px solid var(--gray2);margin-bottom:18px;overflow-x:auto">
+    ${SUB_TABS.map((t) => {
+      const on = t.id === ACTIVE_SUB;
+      return `<button class="sub-tab" data-sub="${t.id}" title="${esc(t.hint)}"
+        style="border:0;background:none;cursor:pointer;padding:9px 16px 8px;font-size:13.5px;white-space:nowrap;
+               font-weight:${on ? '700' : '500'};color:${on ? 'var(--navy,#1e293b)' : 'var(--gray5)'};
+               border-bottom:2px solid ${on ? 'var(--navy,#1e293b)' : 'transparent'};margin-bottom:-2px">${t.label}</button>`;
+    }).join('')}
+  </div>`;
+}
+
+// ---- BẢNG 1 — VAI TRÒ × TAB -------------------------------------------------
+// Cột lấy từ NAV (tab THẬT đang có), ô tick lấy từ TAB_BY_ROLE. Tab nào bị chú
+// thích trong NAV (như hopdongdaura) sẽ tự biến mất khỏi bảng — và được nêu
+// riêng ở dòng cuối để biết TAB_BY_ROLE còn khai thừa chữ nào.
+function tabMatrixHtml() {
+  const navIds = NAV.map((n) => n.id);
+  const roles = ALL_ROLES.filter((r) => TAB_BY_ROLE[r]);
+  const thua = [...new Set(Object.values(TAB_BY_ROLE).flat())].filter((id) => !navIds.includes(id));
+  return `
+    <div class="card-title" style="margin:0 0 4px">Bảng phân quyền theo tab</div>
+    <div class="card-sub" style="margin-bottom:8px">Vai trò nào <b>THẤY</b> tab nào trên menu. Đọc thẳng từ <span class="mono">TAB_BY_ROLE</span> trong core/shell.js.</div>
+    <div style="font-size:12px;background:#FEF3C7;color:#92400E;padding:9px 12px;border-radius:7px;margin-bottom:10px">
+      ⚠️ Bảng này chỉ nói <b>ai THẤY gì</b>, không nói <b>ai LÀM được gì</b>. Giấu tab trên menu không phải là phân quyền —
+      quyền thật nằm ở luật RLS trong database. Muốn biết ai được trình / ai duyệt bước nào, xem tab <b>Luồng duyệt</b>.
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
+      <div style="overflow-x:auto"><table><thead><tr>
+        <th style="white-space:nowrap">Vai trò</th>
+        ${NAV.map((n) => `<th style="text-align:center;font-size:11px;white-space:nowrap">${esc(n.label)}</th>`).join('')}
+        <th style="text-align:center;white-space:nowrap">Tổng</th>
+      </tr></thead><tbody>
+      ${roles.map((r) => {
+        const have = TAB_BY_ROLE[r] || [];
+        const n = navIds.filter((id) => have.includes(id)).length;
+        return `<tr>
+          <td><span class="code-chip">${esc(r)}</span></td>
+          ${NAV.map((nv) => `<td style="text-align:center">${have.includes(nv.id)
+            ? '<span style="color:var(--green,#16A34A);font-weight:700">✓</span>'
+            : '<span style="color:var(--gray3)">·</span>'}</td>`).join('')}
+          <td style="text-align:center;font-weight:700">${n}</td>
+        </tr>`;
+      }).join('')}
+      </tbody><tfoot><tr style="background:var(--gray1);font-weight:700">
+        <td>Số vai trò thấy được</td>
+        ${NAV.map((nv) => `<td style="text-align:center">${roles.filter((r) => (TAB_BY_ROLE[r] || []).includes(nv.id)).length}</td>`).join('')}
+        <td></td>
+      </tr></tfoot></table></div>
+    </div>
+    ${thua.length ? `<div style="font-size:11.5px;color:var(--gray5);margin:-14px 0 22px">
+      ℹ️ <span class="mono">TAB_BY_ROLE</span> còn khai ${thua.map((t) => `<b>${esc(t)}</b>`).join(', ')} nhưng <span class="mono">NAV</span> không có tab đó
+      (đã ẩn) — vô hại, giữ lại để bật lại chỉ tốn một dòng.</div>` : ''}`;
+}
+
+// ---- BẢNG 3 — AI TRÌNH / AI DUYỆT / AI XEM, THEO TỪNG MẪU HỒ SƠ -------------
+// Đây mới là bảng trả lời đúng câu "ai làm được gì" — vì đây chính là dữ liệu
+// mà hàm can_submit_document() và _create_step_assignments() bên database đọc.
+function flowMatrixHtml(templates, subs, steps, viewers) {
+  const byTpl = (arr, id) => (arr || []).filter((x) => x.template_id === id);
+  const subTxt = (s) => {
+    const who = s.role_type ? esc(s.role_type) : '<b>Mọi vai trò</b>';
+    const dept = s.department ? ` <span style="color:var(--gray5)">· ${esc(s.department)}</span>` : '';
+    const scope = s.requires_project_assignment
+      ? ' <span style="color:var(--amber)">(chỉ dự án được phân công)</span>'
+      : ' <span style="color:var(--gray5)">(mọi dự án)</span>';
+    return `<div style="margin-bottom:2px">${who}${dept}${scope}</div>`;
+  };
+  return `
+    <div class="card-title" style="margin:0 0 4px">Bảng phân quyền theo luồng duyệt</div>
+    <div class="card-sub" style="margin-bottom:10px">Đọc thẳng từ <span class="mono">template_submitters</span> / <span class="mono">template_steps</span> / <span class="mono">template_viewers</span> — đúng ba bảng mà database dùng để quyết định quyền. <b>Đây mới là quyền thật.</b></div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
+      <div style="overflow-x:auto"><table><thead><tr>
+        <th>Mẫu hồ sơ</th><th>Loại</th><th>Ai được TRÌNH</th><th>Các bước DUYỆT</th><th>Phòng được XEM</th>
+      </tr></thead><tbody>
+      ${(templates || []).length ? (templates || []).map((t) => {
+        const s = byTpl(subs, t.id);
+        const st = byTpl(steps, t.id);
+        const vw = byTpl(viewers, t.id).map((v) => v.department).filter(Boolean);
+        const stepNos = [...new Set(st.map((x) => x.step_no))].sort((a, b) => a - b);
+        return `<tr>
+          <td>${esc(t.name)}</td>
+          <td><span class="badge info">${esc(DOC_TYPE_LABEL[t.doc_type] || t.doc_type)}</span></td>
+          <td style="font-size:12px">${s.length ? s.map(subTxt).join('')
+            : `<span style="color:var(--amber)">Chưa khai — chạy luật cũ suy từ "${t.origin_scope === 'site' ? 'Công trường' : 'Phòng ban'}"</span>`}</td>
+          <td style="font-size:12px">${stepNos.length ? stepNos.map((no) => {
+              const names = st.filter((x) => x.step_no === no)
+                .map((x) => esc(x.role_type) + (x.department ? ` <span style="color:var(--gray5)">·${esc(x.department)}</span>` : ''));
+              return `<div style="margin-bottom:2px"><b>B${no}</b> ${names.join(' hoặc ')}</div>`;
+            }).join('') : '<span style="color:var(--red)">Chưa khai bước nào</span>'}</td>
+          <td style="font-size:12px">${vw.length ? vw.map((d) => `<span class="code-chip" style="margin:1px 3px 1px 0">${esc(d)}</span>`).join('')
+            : '<span style="color:var(--gray4)">— (chỉ người trong luồng và người trình)</span>'}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Chưa có mẫu hồ sơ nào</td></tr>`}
+      </tbody></table></div>
+      <div style="font-size:11px;color:var(--gray4);padding:8px 14px">Mỗi bước chỉ cần MỘT trong các vai trò liệt kê duyệt là bước đó xong ("hoặc"). Bấm vào dòng mẫu ở bảng trên để sửa.</div>
+    </div>`;
+}
+
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
   const isAdmin = (user.roles || []).includes('Admin'); // chỉ Admin mới thêm/sửa được tài khoản + vai trò hệ thống
@@ -356,20 +497,28 @@ export async function render(container, user) {
     { data: templates },
     { data: allSteps },
     { data: allSubmitters, error: subErr },
+    { data: allViewers },
     { data: projects, error: projErr },
     { data: departments, error: deptErr },
     { data: budgetCats, error: bcErr },
     { data: users, error },
     { data: roles },
+    { data: projAssigns },
   ] = await Promise.all([
     supabase.from('document_templates').select('id, name, doc_type, origin_scope, is_active'),
-    supabase.from('template_steps').select('template_id, step_no'),
-    supabase.from('template_submitters').select('template_id'),
+    // ⭐ lấy thêm role_type/department: dùng CHUNG cho cả đếm số bước lẫn bảng luồng duyệt,
+    // không gọi thêm truy vấn nào.
+    supabase.from('template_steps').select('template_id, step_no, role_type, department'),
+    supabase.from('template_submitters').select('template_id, role_type, department, requires_project_assignment'),
+    supabase.from('template_viewers').select('template_id, department'),
     supabase.from('projects').select('id, code, name, investor, location, project_type, unit_count, status').order('code'),
     supabase.from('departments').select('name').order('name'),
     supabase.from('budget_categories').select('code, name, group_code').order('code'),
     supabase.from('users').select('id, email, full_name, is_active').order('full_name'),
     supabase.from('user_roles').select('user_id, role_type'),
+    // ⭐ vai trò gắn theo dự án — cột "Vai trò theo dự án" của bảng phân quyền nhân sự.
+    // effective_to is null = đang còn hiệu lực.
+    supabase.from('project_role_assignments').select('user_id, role_type, projects(code)').is('effective_to', null),
   ]);
   if (subErr) console.error('Lỗi tải BƯỚC TRÌNH:', subErr);
 
@@ -380,23 +529,39 @@ export async function render(container, user) {
   const hasSubmitters = new Set((allSubmitters || []).map((s) => s.template_id));
 
   if (error) {
-    container.innerHTML = `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${error.message}</div>`;
+    container.innerHTML = `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${esc(error.message)}</div>`;
     return;
   }
   const roleMap = {};
   (roles || []).forEach((r) => (roleMap[r.user_id] = [...(roleMap[r.user_id] || []), r.role_type]));
 
-  const statusVN = { active: 'Đang thi công', completed: 'Hoàn thành', paused: 'Tạm dừng' };
+  // Vai trò theo dự án, gom theo người: { user_id: ["QS — VEGACITY66CAN", ...] }
+  const projRoleMap = {};
+  (projAssigns || []).forEach((a) => {
+    projRoleMap[a.user_id] = [...(projRoleMap[a.user_id] || []), `${a.role_type} — ${a.projects?.code || '—'}`];
+  });
+  // Số tab mỗi người thấy được = hợp (union) các tab của mọi vai trò họ giữ,
+  // giao với NAV (tab thật đang có). Cùng công thức accessibleTabs() của shell.js.
+  const navIds = NAV.map((n) => n.id);
+  const tabCount = (uid) => {
+    const set = new Set();
+    (roleMap[uid] || []).forEach((r) => (TAB_BY_ROLE[r] || []).forEach((t) => set.add(t)));
+    return navIds.filter((id) => set.has(id)).length;
+  };
 
-  container.innerHTML = `
+  const statusVN = { active: 'Đang thi công', completed: 'Hoàn thành', paused: 'Tạm dừng' };
+  const chuaGanVaiTro = (users || []).filter((u) => u.is_active && !(roleMap[u.id] || []).length).length;
+
+  // ---------- TAB 1: KHAI BÁO ----------
+  const panelKhaiBao = `
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
       <div class="card-title" style="margin:0">Dự án</div>
       <button class="btn btn-primary btn-sm" id="btnNewProject">+ Tạo dự án mới</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
-      ${projErr ? `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${projErr.message}</div>` : `
+      ${projErr ? `<div class="empty-note">⚠️ Không có quyền xem, hoặc lỗi: ${esc(projErr.message)}</div>` : `
       <table><thead><tr><th>Mã</th><th>Tên dự án</th><th>Chủ đầu tư</th><th>Địa điểm</th><th>Loại hình</th><th>Số căn</th><th>Trạng thái</th></tr></thead><tbody>
-      ${projects && projects.length ? projects.map((p) => `<tr class="click proj-row" data-id="${p.id}" data-name="${p.name}"><td class="mono">${p.code}</td><td>${p.name}</td><td>${p.investor || '—'}</td><td>${p.location || '—'}</td><td>${p.project_type || '—'}</td><td>${p.unit_count || '—'}</td><td><span class="badge idle">${statusVN[p.status] || p.status}</span></td></tr>`).join('') :
+      ${projects && projects.length ? projects.map((p) => `<tr class="click proj-row" data-proj-id="${esc(p.id)}" data-name="${esc(p.name)}"><td class="mono">${esc(p.code)}</td><td>${esc(p.name)}</td><td>${esc(p.investor) || '—'}</td><td>${esc(p.location) || '—'}</td><td>${esc(p.project_type) || '—'}</td><td>${esc(p.unit_count) || '—'}</td><td><span class="badge idle">${esc(statusVN[p.status] || p.status)}</span></td></tr>`).join('') :
       `<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:20px">Chưa có dự án nào</td></tr>`}
       </tbody></table>`}
     </div>
@@ -406,8 +571,8 @@ export async function render(container, user) {
       <button class="btn btn-primary btn-sm" id="btnNewDept">+ Tạo phòng ban mới</button>
     </div>
     <div class="card" style="margin-bottom:22px">
-      ${deptErr ? `<div class="empty-note">⚠️ Lỗi: ${deptErr.message}</div>` :
-      departments && departments.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${departments.map((d) => `<span class="code-chip dept-chip" data-name="${d.name}" style="cursor:pointer">${d.name}</span>`).join('')}</div>` :
+      ${deptErr ? `<div class="empty-note">⚠️ Lỗi: ${esc(deptErr.message)}</div>` :
+      departments && departments.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${departments.map((d) => `<span class="code-chip dept-chip" data-name="${esc(d.name)}" style="cursor:pointer">${esc(d.name)}</span>`).join('')}</div>` :
       `<div class="empty-note">Chưa có phòng ban nào — tạo trước khi gán Trưởng phòng/Chuyên viên/PTGD theo phòng ban.</div>`}
     </div>
 
@@ -416,21 +581,23 @@ export async function render(container, user) {
       <button class="btn btn-primary btn-sm" id="btnNewBudgetCat">+ Tạo mã ngân sách mới</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
-      ${bcErr ? `<div class="empty-note">⚠️ Lỗi: ${bcErr.message}</div>` : `
+      ${bcErr ? `<div class="empty-note">⚠️ Lỗi: ${esc(bcErr.message)}</div>` : `
       <table><thead><tr><th>Mã</th><th>Tên</th><th>Nhóm</th></tr></thead><tbody>
-      ${budgetCats && budgetCats.length ? budgetCats.map((c) => `<tr class="click bc-row" data-code="${c.code}"><td class="mono">${c.code}</td><td>${c.name}</td><td>${c.group_code || '—'}</td></tr>`).join('') :
+      ${budgetCats && budgetCats.length ? budgetCats.map((c) => `<tr class="click bc-row" data-code="${esc(c.code)}"><td class="mono">${esc(c.code)}</td><td>${esc(c.name)}</td><td>${esc(c.group_code) || '—'}</td></tr>`).join('') :
       `<tr><td colspan="3" style="text-align:center;color:var(--gray4);padding:20px">Chưa có mã ngân sách nào</td></tr>`}
       </tbody></table>`}
       <div style="font-size:11px;color:var(--gray4);padding:8px 14px">Đây là danh mục MẪU dùng chung — khi tạo phiên bản ngân sách cho từng dự án, chỉ cần chọn đúng những mã liên quan tới dự án đó, không bắt buộc dùng hết.</div>
-    </div>
+    </div>`;
 
+  // ---------- TAB 2: LUỒNG DUYỆT ----------
+  const panelLuongDuyet = `
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
       <div class="card-title" style="margin:0">Mẫu hồ sơ (luồng duyệt)</div>
       <button class="btn btn-primary btn-sm" id="btnNewTemplate">+ Tạo mẫu mới</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px">
       <table><thead><tr><th>Tên mẫu</th><th>Áp dụng cho loại hồ sơ</th><th>Ai được trình</th><th>Nguồn (tìm PTGD)</th><th>Số bước</th></tr></thead><tbody>
-      ${templates && templates.length ? templates.map((t) => `<tr class="click" data-template-id="${t.id}"><td>${t.name}</td><td><span class="badge info">${DOC_TYPE_LABEL[t.doc_type] || t.doc_type}</span></td>
+      ${templates && templates.length ? templates.map((t) => `<tr class="click" data-template-id="${esc(t.id)}"><td>${esc(t.name)}</td><td><span class="badge info">${esc(DOC_TYPE_LABEL[t.doc_type] || t.doc_type)}</span></td>
       <td>${hasSubmitters.has(t.id) ? '<span class="badge done">Đã khai</span>' : '<span class="badge" style="background:#FEF3C7;color:#92400E">Chưa khai — chạy luật cũ</span>'}</td>
       <td>${t.origin_scope === 'site' ? 'Công trường' : 'Phòng ban'}</td><td>${stepCountMap[t.id] || 0} vai trò / ${new Set((allSteps || []).filter((s) => s.template_id === t.id).map((s) => s.step_no)).size} bước</td></tr>`).join('') :
       `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Chưa có mẫu hồ sơ nào</td></tr>`}
@@ -438,20 +605,59 @@ export async function render(container, user) {
       <div style="font-size:11px;color:var(--gray4);padding:8px 14px">Cột "Ai được trình" = khối BƯỚC TRÌNH trong mẫu. Mẫu còn "Chưa khai" vẫn chạy bằng luật cũ suy từ cột Nguồn — mở mẫu ra, tick người được trình rồi Lưu là xong.</div>
     </div>
 
+    ${flowMatrixHtml(templates, allSubmitters, allSteps, allViewers)}`;
+
+  // ---------- TAB 3: NHÂN SỰ ----------
+  // Bảng "Người dùng" cũ ĐƯỢC MỞ RỘNG thành luôn bảng phân quyền theo nhân sự
+  // (thêm 2 cột: Vai trò theo dự án, Số tab thấy được) — thay vì vẽ hai bảng
+  // chứa cùng một danh sách người, đọc hai lần.
+  const panelNhanSu = `
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
-      <div class="card-title" style="margin:0">Người dùng</div>
+      <div class="card-title" style="margin:0">Bảng phân quyền theo nhân sự</div>
       ${isAdmin ? `<button class="btn btn-primary btn-sm" id="btnNew">+ Thêm người dùng</button>` : ''}
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th></tr></thead><tbody>
-    ${users && users.length ? users.map((u) => `<tr ${isAdmin ? 'class="click"' : ''} data-id="${u.id}"><td>${u.full_name}</td><td class="mono">${u.email}</td>
-    <td>${(roleMap[u.id] || []).map((r) => `<span class="code-chip" style="margin:1px 3px 1px 0">${r}</span>`).join('') || '<span style="color:var(--amber);font-size:12px">Chưa gán</span>'}</td>
-    <td>${u.is_active ? '<span class="badge done">Đang hoạt động</span>' : '<span class="badge danger">Đã khóa</span>'}</td></tr>`).join('') :
-    `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Chưa có người dùng nào</td></tr>`}
-    </tbody></table></div>
-    ${!isAdmin ? `<div style="font-size:11.5px;color:var(--gray4);margin-top:6px">Chỉ Admin mới thêm/sửa được tài khoản và vai trò hệ thống — phần này chỉ xem được.</div>` : ''}`;
+    <div class="card-sub" style="margin-bottom:8px">Vai trò hệ thống + vai trò gắn theo dự án của từng người. ${isAdmin ? 'Bấm vào một dòng để sửa.' : ''}</div>
+    ${chuaGanVaiTro ? `<div style="font-size:12.5px;background:#FEF3C7;color:#92400E;padding:9px 12px;border-radius:7px;margin-bottom:10px">
+      ⚠️ <b>${chuaGanVaiTro} người đang hoạt động nhưng chưa gán vai trò nào</b> — đăng nhập được nhưng không thấy gì và không làm được gì. Ai còn làm thì gán vai trò, ai nghỉ thì khóa tài khoản.</div>` : ''}
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px"><div style="overflow-x:auto"><table><thead><tr>
+      <th>Họ tên</th><th>Email</th><th>Vai trò hệ thống</th><th>Vai trò theo dự án</th><th style="text-align:center">Số tab</th><th>Trạng thái</th>
+    </tr></thead><tbody>
+    ${users && users.length ? users.map((u) => `<tr ${isAdmin ? 'class="click user-row"' : 'class="user-row"'} data-user-id="${esc(u.id)}">
+      <td>${esc(u.full_name)}</td><td class="mono" style="font-size:11.5px">${esc(u.email)}</td>
+      <td>${(roleMap[u.id] || []).map((r) => `<span class="code-chip" style="margin:1px 3px 1px 0">${esc(r)}</span>`).join('') || '<span style="color:var(--amber);font-size:12px">Chưa gán</span>'}</td>
+      <td style="font-size:11.5px">${(projRoleMap[u.id] || []).map((x) => `<div style="color:var(--gray6)">${esc(x)}</div>`).join('') || '<span style="color:var(--gray3)">—</span>'}</td>
+      <td style="text-align:center" class="mono">${tabCount(u.id) || '<span style="color:var(--gray3)">0</span>'}</td>
+      <td>${u.is_active ? '<span class="badge done">Đang hoạt động</span>' : '<span class="badge danger">Đã khóa</span>'}</td></tr>`).join('') :
+    `<tr><td colspan="6" style="text-align:center;color:var(--gray4);padding:20px">Chưa có người dùng nào</td></tr>`}
+    </tbody></table></div></div>
+    ${!isAdmin ? `<div style="font-size:11.5px;color:var(--gray4);margin:-14px 0 22px">Chỉ Admin mới thêm/sửa được tài khoản và vai trò hệ thống — phần này chỉ xem được.</div>` : ''}
+
+    ${tabMatrixHtml()}`;
+
+  const show = (id) => (id === ACTIVE_SUB ? '' : 'display:none');
+  container.innerHTML = subTabBarHtml() + `
+    <div data-panel="khaibao" style="${show('khaibao')}">${panelKhaiBao}</div>
+    <div data-panel="luongduyet" style="${show('luongduyet')}">${panelLuongDuyet}</div>
+    <div data-panel="nhansu" style="${show('nhansu')}">${panelNhanSu}</div>`;
+
+  // Đổi tab = chỉ ẩn/hiện, KHÔNG gọi lại render — dữ liệu đã tải đủ cho cả 3 tab,
+  // bấm qua lại không tốn thêm một lượt mạng nào.
+  container.querySelectorAll('.sub-tab').forEach((b) =>
+    b.addEventListener('click', () => {
+      ACTIVE_SUB = b.dataset.sub;
+      container.querySelectorAll('[data-panel]').forEach((p) => (p.style.display = p.dataset.panel === ACTIVE_SUB ? '' : 'none'));
+      container.querySelectorAll('.sub-tab').forEach((x) => {
+        const on = x.dataset.sub === ACTIVE_SUB;
+        x.style.fontWeight = on ? '700' : '500';
+        x.style.color = on ? 'var(--navy,#1e293b)' : 'var(--gray5)';
+        x.style.borderBottom = `2px solid ${on ? 'var(--navy,#1e293b)' : 'transparent'}`;
+      });
+      container.scrollTop = 0;
+    }),
+  );
 
   container.querySelector('#btnNewProject').addEventListener('click', () => openCreateProjectModal(() => render(container, user)));
-  container.querySelectorAll('.proj-row').forEach((row) => row.addEventListener('click', () => openProjectAssignModal(row.dataset.id, row.dataset.name, user, () => render(container, user))));
+  container.querySelectorAll('.proj-row').forEach((row) => row.addEventListener('click', () => openProjectAssignModal(row.dataset.projId, row.dataset.name, user, () => render(container, user))));
   container.querySelector('#btnNewDept').addEventListener('click', () => openCreateDeptModal(() => render(container, user)));
   container.querySelectorAll('.dept-chip').forEach((chip) => chip.addEventListener('click', () => openEditDeptModal(chip.dataset.name, () => render(container, user))));
   container.querySelector('#btnNewBudgetCat').addEventListener('click', () => openCreateBudgetCatModal(() => render(container, user)));
@@ -460,7 +666,9 @@ export async function render(container, user) {
   container.querySelectorAll('[data-template-id]').forEach((row) => row.addEventListener('click', () => openEditTemplateModal(row.dataset.templateId, () => render(container, user))));
   if (isAdmin) {
     container.querySelector('#btnNew').addEventListener('click', () => openCreateUserModal(user, () => render(container, user)));
-    container.querySelectorAll('[data-id]').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.id, user, () => render(container, user))));
+    // '.user-row' + data-user-id: KHÔNG dùng '[data-id]' như bản cũ — dòng Dự án
+    // cũng mang data-id nên bấm vào dự án bị mở nhầm cả modal Người dùng.
+    container.querySelectorAll('.user-row').forEach((r) => r.addEventListener('click', () => openUserDetail(r.dataset.userId, user, () => render(container, user))));
   }
 }
 
