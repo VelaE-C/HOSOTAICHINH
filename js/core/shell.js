@@ -34,7 +34,11 @@
 // ============================================================
 import { supabase } from './config.js';
 
-const NAV = [
+// ⭐ export 13/10/2026 — users.js nhập NAV và TAB_BY_ROLE để dựng BẢNG PHÂN QUYỀN.
+// Nhập thẳng từ đây chứ KHÔNG chép lại sang file khác: sửa ở đây là bảng tự đổi
+// theo, không bao giờ có chuyện màn hình nói một đằng hệ thống chạy một nẻo.
+// (Đúng cái bẫy stepPreview.js đã mắc — chép logic DB sang JS rồi quên đồng bộ.)
+export const NAV = [
   { id: 'dashboard', label: 'Tổng quan', icon: '📊', group: 'TỔNG QUAN', bn: true, title: 'Tổng quan', sub: 'Tình hình tài chính dự án theo thời gian thực' },
   { id: 'duyet', label: 'Duyệt hồ sơ', icon: '✅', group: 'HỒ SƠ', bn: true, title: 'Hộp thư chờ duyệt', sub: 'Hồ sơ đang chờ bạn xử lý — gộp mọi dự án' },
   { id: 'hosocuatoi', label: 'Hồ sơ của tôi', icon: '📤', group: 'HỒ SƠ', bn: true, title: 'Hồ sơ của tôi', sub: 'Hồ sơ bạn đã trình — theo dõi tiến độ, nhắc duyệt' },
@@ -58,7 +62,7 @@ const NAV = [
 // bảng tổng là số liệu tài chính toàn dự án, không thuộc phạm vi 2 nhóm này.
 // Doanh thu dự án (mã tab 'thucthu'): chỉ QLCP&HĐ nhập, các cấp trên xem.
 // Chữ 'hopdongdaura' dưới đây CỐ Ý giữ lại dù tab đã ẩn — xem ghi chú đầu file.
-const TAB_BY_ROLE = {
+export const TAB_BY_ROLE = {
   QS: ['hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   CHT: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
   GDDA: ['dashboard', 'duyet', 'hopdong', 'bill', 'totrinh', 'bctc', 'doitac', 'hosocuatoi'],
