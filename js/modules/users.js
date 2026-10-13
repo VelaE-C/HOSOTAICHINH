@@ -5,7 +5,7 @@
 import { supabase } from '../core/config.js';
 import { toast, loading, fmtDate, pushModalHistory, popModalHistory } from '../core/utils.js';
 // ⭐ Nhập THẲNG bảng phân quyền tab từ shell.js — không chép lại, không bao giờ lệch.
-import { NAV, TAB_BY_ROLE } from '../core/shell.js';
+import { NAV, TAB_BY_ROLE, COMPANY_WIDE_ROLES } from '../core/shell.js';
 
 const ALL_ROLES = ['QS', 'CHT', 'GDDA', 'ChuyenVienPhongBan', 'TruongPhongChucNang', 'PhapChe_CV', 'PhapChe_TP', 'KeToan_Vien', 'KeToan_Truong', 'QLCPHD_CV', 'QLCPHD_TP', 'PTGD', 'TGD', 'Admin'];
 // Bất kỳ vai trò nào cũng có thể được chỉ đích danh theo dự án (trừ Admin — thuần kỹ thuật, không tham gia duyệt)
@@ -419,6 +419,7 @@ function tabMatrixHtml() {
         <th style="white-space:nowrap">Vai trò</th>
         ${NAV.map((n) => `<th style="text-align:center;font-size:11px;white-space:nowrap">${esc(n.label)}</th>`).join('')}
         <th style="text-align:center;white-space:nowrap">Tổng</th>
+        <th style="white-space:nowrap">Phạm vi dự án</th>
       </tr></thead><tbody>
       ${roles.map((r) => {
         const have = TAB_BY_ROLE[r] || [];
@@ -429,17 +430,112 @@ function tabMatrixHtml() {
             ? '<span style="color:var(--green,#16A34A);font-weight:700">✓</span>'
             : '<span style="color:var(--gray3)">·</span>'}</td>`).join('')}
           <td style="text-align:center;font-weight:700">${n}</td>
+          <td style="font-size:11.5px;white-space:nowrap">${COMPANY_WIDE_ROLES.includes(r)
+            ? '<span style="color:var(--gray6)">Toàn công ty</span>'
+            : '<span style="color:var(--amber)">Chỉ dự án được gán</span>'}</td>
         </tr>`;
       }).join('')}
       </tbody><tfoot><tr style="background:var(--gray1);font-weight:700">
         <td>Số vai trò thấy được</td>
         ${NAV.map((nv) => `<td style="text-align:center">${roles.filter((r) => (TAB_BY_ROLE[r] || []).includes(nv.id)).length}</td>`).join('')}
-        <td></td>
+        <td></td><td></td>
       </tr></tfoot></table></div>
     </div>
-    ${thua.length ? `<div style="font-size:11.5px;color:var(--gray5);margin:-14px 0 22px">
+    <div style="font-size:11.5px;color:var(--gray5);margin:-14px 0 10px;line-height:1.6">
+      <b>Cột "Phạm vi dự án"</b> — <span style="color:var(--gray6)">Toàn công ty</span> = thấy mọi dự án, kể cả khi cũng được gán vào một dự án cụ thể
+      (${COMPANY_WIDE_ROLES.map((r) => `<span class="mono">${esc(r)}</span>`).join(', ')}).
+      <span style="color:var(--amber)">Chỉ dự án được gán</span> = hễ ĐƯỢC GÁN vào dự án nào thì chỉ thấy dự án đó;
+      chưa được gán dự án nào thì vẫn thấy toàn công ty. Đọc thẳng từ <span class="mono">COMPANY_WIDE_ROLES</span> trong core/shell.js.
+    </div>
+    ${thua.length ? `<div style="font-size:11.5px;color:var(--gray5);margin:0 0 22px">
       ℹ️ <span class="mono">TAB_BY_ROLE</span> còn khai ${thua.map((t) => `<b>${esc(t)}</b>`).join(', ')} nhưng <span class="mono">NAV</span> không có tab đó
       (đã ẩn) — vô hại, giữ lại để bật lại chỉ tốn một dòng.</div>` : ''}`;
+}
+
+// ---- BẢNG 2B — NHÂN SỰ THEO DỰ ÁN ------------------------------------------
+// Dự án / Nhân sự / Chức danh / Email. Đọc từ project_role_assignments, gom theo
+// dự án. Dự án không có ai được phân công hiện thành dòng cảnh báo đỏ — đó là
+// tình trạng làm hồ sơ của dự án đó KHÔNG tìm được người duyệt, nhưng chỉ lộ ra
+// đúng lúc ai đó bấm Trình và nhận lỗi.
+function projectStaffHtml(projects, assigns) {
+  const byProject = {};
+  (assigns || []).forEach((a) => {
+    if (!a.project_id) return;
+    (byProject[a.project_id] = byProject[a.project_id] || []).push(a);
+  });
+  const rows = [];
+  (projects || []).forEach((p) => {
+    const list = (byProject[p.id] || []).slice().sort((x, y) => String(x.role_type).localeCompare(String(y.role_type), 'vi'));
+    if (!list.length) {
+      rows.push(`<tr><td><span class="code-chip" title="${esc(p.name)}">${esc(p.code)}</span></td>
+        <td colspan="3" style="color:var(--red);font-size:12px">⚠️ Chưa phân công ai cho dự án này — hồ sơ của dự án sẽ không tìm được người duyệt</td></tr>`);
+      return;
+    }
+    list.forEach((a, i) => {
+      rows.push(`<tr>
+        <td>${i === 0 ? `<span class="code-chip" title="${esc(p.name)}">${esc(p.code)}</span>` : ''}</td>
+        <td>${esc(a.users?.full_name) || '<span style="color:var(--amber)">(không tra được người)</span>'}</td>
+        <td><span class="code-chip" style="margin:0">${esc(a.role_type)}</span></td>
+        <td class="mono" style="font-size:11.5px;color:var(--gray6)">${esc(a.users?.email) || '—'}</td>
+      </tr>`);
+    });
+  });
+  const tongPC = (assigns || []).filter((a) => a.project_id).length;
+  const duAnTrong = (projects || []).filter((p) => !(byProject[p.id] || []).length).length;
+  return `
+    <div class="card-title" style="margin:0 0 4px">Nhân sự theo dự án</div>
+    <div class="card-sub" style="margin-bottom:8px">${(projects || []).length} dự án · ${tongPC} lượt phân công còn hiệu lực. Đây là vai trò gắn ĐÍCH DANH theo dự án — khác với vai trò hệ thống ở bảng trên.</div>
+    ${duAnTrong ? `<div style="font-size:12.5px;background:#FEE2E2;color:#991B1B;padding:9px 12px;border-radius:7px;margin-bottom:10px">
+      🔴 <b>${duAnTrong} dự án chưa phân công ai</b> — người trình hồ sơ của những dự án này sẽ bị chặn ở bước tìm người duyệt.</div>` : ''}
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px"><div style="overflow-x:auto">
+      <table><thead><tr><th>Dự án</th><th>Nhân sự</th><th>Chức danh</th><th>Email</th></tr></thead><tbody>
+      ${rows.length ? rows.join('') : `<tr><td colspan="4" style="text-align:center;color:var(--gray4);padding:20px">Chưa có dự án nào</td></tr>`}
+      </tbody></table></div>
+      <div style="font-size:11px;color:var(--gray4);padding:8px 14px">Sửa phân công: sang tab <b>Khai báo</b> → bấm vào dòng dự án.</div>
+    </div>`;
+}
+
+// ---- PHẠM VI XEM — PHẦN DUY NHẤT TRONG FILE NÀY VIẾT TAY --------------------
+// ⚠️ ĐỌC KỸ: bảng dấu ✓ bên trên tự sinh từ TAB_BY_ROLE nên không bao giờ sai.
+// PHẦN NÀY THÌ KHÔNG — phạm vi dữ liệu nằm ở luật RLS trong Postgres và ở phần
+// lọc trong từng module, không có cách nào đọc ngược ra từ trình duyệt.
+// Sửa RLS hoặc sửa phần lọc trong module mà quên sửa ở đây là ở đây NÓI DỐI.
+// Mỗi dòng ghi kèm chỗ lấy căn cứ để người sau còn đi đối chiếu.
+const TAB_SCOPE = {
+  dashboard:    { xem: 'Toàn công ty. Riêng người CÓ gán dự án mà KHÔNG thuộc cấp công ty thì chỉ thấy đúng dự án mình.', ghi: '—', can_cu: 'dashboard.js · isSiteLimited' },
+  duyet:        { xem: 'Chỉ hồ sơ đang chờ CHÍNH MÌNH duyệt.', ghi: 'Duyệt / trả về hồ sơ tới lượt mình', can_cu: 'duyet.js · approval_assignments.user_id' },
+  hosocuatoi:   { xem: 'Chỉ hồ sơ do chính mình trình.', ghi: 'Hủy hồ sơ nháp / bị từ chối của mình', can_cu: 'created_by = app_uid()' },
+  hopdong:      { xem: 'Người trình · người có tên trong luồng duyệt · người được gán dự án · phòng ban được khai ở mẫu · cấp toàn công ty.', ghi: 'Theo khối BƯỚC TRÌNH của từng mẫu', can_cu: 'RLS can_see_document() / can_submit_document()' },
+  bill:         { xem: 'Như Hợp đồng.', ghi: 'Như Hợp đồng', can_cu: 'RLS can_see_document()' },
+  totrinh:      { xem: 'Như Hợp đồng.', ghi: 'Như Hợp đồng', can_cu: 'RLS can_see_document()' },
+  bctc:         { xem: 'Người tạo · người có tên trong luồng · QLCPHD_TP/PTGD/TGD/Admin · người được gán dự án với vai trò QS, CHT, GĐDA hoặc QLCPHD_CV.', ghi: 'Ai thuộc dự án thì lập được BCTC của dự án đó', can_cu: 'RLS bctc_revisions_select (sửa 25/09)' },
+  thucthu:      { xem: 'Mọi vai trò có tab này.', ghi: 'CHỈ phòng QLCP&HĐ nhập số liệu', can_cu: 'thucthu.js · canEdit()' },
+  doitac:       { xem: 'Mọi vai trò có tab này.', ghi: 'Ai cũng khai báo được đối tác mới. Sửa thông tin (nhất là SỐ TÀI KHOẢN) chỉ Admin / QLCPHD_CV / QLCPHD_TP.', can_cu: 'doitac.js · isKscp' },
+  users:        { xem: 'Chỉ QLCPHD_TP và Admin.', ghi: 'Chỉ Admin thêm/sửa tài khoản và vai trò hệ thống', can_cu: 'users.js · isAdmin' },
+};
+
+function tabScopeHtml() {
+  return `
+    <div class="card-title" style="margin:0 0 4px">Phạm vi dữ liệu của từng tab</div>
+    <div style="font-size:12px;background:#FEE2E2;color:#991B1B;padding:9px 12px;border-radius:7px;margin-bottom:10px">
+      🔴 <b>Bảng này VIẾT TAY, không tự sinh từ code.</b> Bảng dấu ✓ bên trên đọc thẳng từ <span class="mono">TAB_BY_ROLE</span> nên luôn đúng;
+      bảng này thì không — phạm vi dữ liệu nằm ở luật RLS trong database, trình duyệt không đọc ngược ra được.
+      <b>Sửa RLS mà quên sửa bảng này là bảng này nói dối.</b> Cột "Căn cứ" ghi sẵn chỗ để đi đối chiếu.
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:22px"><div style="overflow-x:auto">
+      <table><thead><tr><th>Tab</th><th>Thấy được những gì</th><th>Làm được gì</th><th>Căn cứ</th></tr></thead><tbody>
+      ${NAV.map((nv) => {
+        const sc = TAB_SCOPE[nv.id];
+        if (!sc) return `<tr><td>${esc(nv.label)}</td><td colspan="3" style="color:var(--amber);font-size:12px">⚠️ Chưa ghi chú phạm vi cho tab này — bổ sung vào TAB_SCOPE trong users.js</td></tr>`;
+        return `<tr>
+          <td style="white-space:nowrap"><b>${esc(nv.label)}</b></td>
+          <td style="font-size:12px">${esc(sc.xem)}</td>
+          <td style="font-size:12px;color:var(--gray6)">${esc(sc.ghi)}</td>
+          <td class="mono" style="font-size:10.5px;color:var(--gray4);white-space:nowrap">${esc(sc.can_cu)}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>
+    </div>`;
 }
 
 // ---- BẢNG 3 — AI TRÌNH / AI DUYỆT / AI XEM, THEO TỪNG MẪU HỒ SƠ -------------
@@ -516,9 +612,14 @@ export async function render(container, user) {
     supabase.from('budget_categories').select('code, name, group_code').order('code'),
     supabase.from('users').select('id, email, full_name, is_active').order('full_name'),
     supabase.from('user_roles').select('user_id, role_type'),
-    // ⭐ vai trò gắn theo dự án — cột "Vai trò theo dự án" của bảng phân quyền nhân sự.
-    // effective_to is null = đang còn hiệu lực.
-    supabase.from('project_role_assignments').select('user_id, role_type, projects(code)').is('effective_to', null),
+    // ⭐ vai trò gắn theo dự án — dùng cho cột "Vai trò theo dự án" VÀ bảng Nhân sự theo dự án.
+    // ⚠️ Luật "còn hiệu lực" phải là  effective_to TRỐNG *HOẶC* >= hôm nay — giống hệt
+    // câu truy vấn trong openProjectAssignModal. Bản đầu tôi chỉ lọc  is null  nên bỏ sót
+    // những phân công có ngày kết thúc trong tương lai (vẫn đang có hiệu lực).
+    supabase
+      .from('project_role_assignments')
+      .select('user_id, role_type, project_id, projects(code, name), users!user_id(full_name, email)')
+      .or(`effective_to.is.null,effective_to.gte.${new Date().toISOString().slice(0, 10)}`),
   ]);
   if (subErr) console.error('Lỗi tải BƯỚC TRÌNH:', subErr);
 
@@ -632,7 +733,11 @@ export async function render(container, user) {
     </tbody></table></div></div>
     ${!isAdmin ? `<div style="font-size:11.5px;color:var(--gray4);margin:-14px 0 22px">Chỉ Admin mới thêm/sửa được tài khoản và vai trò hệ thống — phần này chỉ xem được.</div>` : ''}
 
-    ${tabMatrixHtml()}`;
+    ${projectStaffHtml(projects, projAssigns)}
+
+    ${tabMatrixHtml()}
+
+    ${tabScopeHtml()}`;
 
   const show = (id) => (id === ACTIVE_SUB ? '' : 'display:none');
   container.innerHTML = subTabBarHtml() + `
