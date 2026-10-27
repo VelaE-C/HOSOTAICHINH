@@ -5,6 +5,7 @@ import { supabase } from '../core/config.js';
 import { fmt, toast, loading, statusBadge, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, normalizeSearchText, paginationHtml, wirePagination, PAGE_SIZE, IS_MOBILE, searchSelectHtml, initSearchSelect, setSearchSelectValue } from '../core/utils.js';
 import { loadApprovalState, railHtml, timelineHtml, wireTimelineAttachments, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
+import { makeSorter } from '../core/tableSort.js';
 
 let VIEW_PROJECT = 'ALL';
 let VIEW_PAGE = 1;
@@ -105,10 +106,40 @@ export async function render(container, user) {
 
   let currentList = sorted;
 
+  // ---- Sắp xếp theo cột: bấm vào tiêu đề để xếp tăng/giảm ----------------
+  // ⚠️ Thứ tự các cột ở đây PHẢI khớp đúng với thứ tự <th> ở trên, và phải
+  //    khớp cả ở hai nhánh IS_MOBILE (điện thoại 3 cột, máy tính 8 cột).
+  // ⚠️ Sắp xếp chạy trên TOÀN BỘ danh sách rồi mới cắt trang — xem phần
+  //    giải thích đầu file js/core/tableSort.js.
+  const SORT_COLS = IS_MOBILE
+    ? [
+        { get: (c) => c.projects?.code },
+        { get: (c) => c.partners?.name },
+        { get: (c) => Number(c.value) },
+      ]
+    : [
+        { get: (c) => c.projects?.code },
+        { get: (c) => c.doc_number },
+        { get: (c) => c.partners?.name },
+        { get: (c) => c.scope_summary },
+        { get: (c) => c.contract_type },
+        { get: (c) => Number(c.value) },
+        { get: (c) => c.status },
+        { get: (c) => (approversByDoc?.[c.id] || []).join(', ') },
+      ];
+
+  const sorter = makeSorter({
+    key: 'hopdong',
+    columns: SORT_COLS,
+    onChange: () => { VIEW_PAGE = 1; draw(); },
+  });
+  sorter.attach(container.querySelector('table'));
+
   function draw() {
-    const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
+    const view = sorter.apply(currentList);
+    const totalPages = Math.max(1, Math.ceil(view.length / PAGE_SIZE));
     VIEW_PAGE = Math.min(Math.max(1, VIEW_PAGE), totalPages);
-    const pageItems = currentList.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
+    const pageItems = view.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
     container.querySelector('#contractTbody').innerHTML = renderContractRows(pageItems, approversByDoc);
     container.querySelector('#contractPagination').innerHTML = paginationHtml(VIEW_PAGE, currentList.length);
     wirePagination(container.querySelector('#contractPagination'), VIEW_PAGE, currentList.length, (p) => {
