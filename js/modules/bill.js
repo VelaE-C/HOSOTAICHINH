@@ -11,6 +11,7 @@ const partnerSubFn = (p) => `(MST ${p.mst})`;
 import { loadApprovalState, railHtml, timelineHtml, wireTimelineAttachments, actionFooterHtml, wireActions, resolveDefaultTemplates, loadStepPreview } from '../core/approvalUI.js';
 import { renderAttachments, renderFilePicker, uploadStagedFiles } from '../core/attachments.js';
 import { flowPreviewHtml } from '../core/stepPreview.js';
+import { makeSorter } from '../core/tableSort.js';
 
 let VIEW_PROJECT = 'ALL';
 let VIEW_PAGE = 1;
@@ -314,10 +315,42 @@ export async function render(container, user) {
 
   let currentList = sorted;
 
+  // ---- Sắp xếp theo cột: bấm vào tiêu đề để xếp tăng/giảm ----------------
+  // ⚠️ Thứ tự các cột ở đây PHẢI khớp đúng với thứ tự <th> ở trên, và phải
+  //    khớp cả ở hai nhánh IS_MOBILE (điện thoại 3 cột, máy tính 8 cột).
+  //    Lệch một cột là bấm "Giá trị hợp đồng" ra kết quả của cột khác.
+  // ⚠️ Sắp xếp chạy trên TOÀN BỘ danh sách rồi mới cắt trang — xem phần
+  //    giải thích đầu file js/core/tableSort.js.
+  const SORT_COLS = IS_MOBILE
+    ? [
+        { get: (b) => b.projects?.code },
+        { get: (b) => b.partners?.name },
+        { get: (b) => calcBill(b).K },
+      ]
+    : [
+        { get: (b) => b.projects?.code },
+        { get: (b) => b.partners?.name },
+        { get: (b) => Number(b.period_no) },
+        { get: (b) => calcBill(b).C },
+        { get: (b) => Number(b.val_d) },
+        { get: (b) => calcBill(b).K },
+        // Cột Trạng thái hiện % trước, badge sau -> xếp theo chính con số %
+        { get: (b) => { const { C } = calcBill(b); return C > 0 ? Math.round((Number(b.val_d) / C) * 100) : null; } },
+        { get: (b) => (approversByBill?.[b.id] || []).join(', ') },
+      ];
+
+  const sorter = makeSorter({
+    key: 'bill',
+    columns: SORT_COLS,
+    onChange: () => { VIEW_PAGE = 1; draw(); },
+  });
+  sorter.attach(container.querySelector('table'));
+
   function draw() {
-    const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
+    const view = sorter.apply(currentList);
+    const totalPages = Math.max(1, Math.ceil(view.length / PAGE_SIZE));
     VIEW_PAGE = Math.min(Math.max(1, VIEW_PAGE), totalPages);
-    const pageItems = currentList.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
+    const pageItems = view.slice((VIEW_PAGE - 1) * PAGE_SIZE, VIEW_PAGE * PAGE_SIZE);
     container.querySelector('#billTbody').innerHTML = renderBillRows(pageItems, approversByBill, isBillOverdue);
     container.querySelector('#billPagination').innerHTML = paginationHtml(VIEW_PAGE, currentList.length);
     wirePagination(container.querySelector('#billPagination'), VIEW_PAGE, currentList.length, (p) => {
