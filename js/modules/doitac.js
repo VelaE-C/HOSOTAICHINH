@@ -115,18 +115,67 @@ function friendlyError(error, ctx = {}) {
 export async function render(container, user) {
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
 
-  const [{ data: partners, error }, { data: contractCounts }] = await Promise.all([
+  const [{ data: partners, error }, { data: contractRows }, { data: paidBills }] = await Promise.all([
     supabase.from('partners').select('id, name, abbr, mst, type').order('name'),
-    supabase.from('contracts').select('partner_id'),
+    // value + mã dự án: để tính tổng giá trị hợp đồng và biết cấp cho dự án nào.
+    // projects(code) là join sang bảng projects qua khoá ngoại project_id.
+    supabase.from('contracts').select('partner_id, status, value, projects(code)'),
+    // Bill ĐÃ THANH TOÁN. 'paid' mới là trạng thái kết thúc thật của bill
+    // (fn_approve_document đặt 'paid'), không phải 'closed'.
+    supabase
+      .from('bills')
+      .select('partner_id, val_a, val_b, val_d, val_e, val_f, val_g, val_h, val_i, vat_rate, status')
+      .eq('status', 'paid'),
   ]);
   if (error) {
     container.innerHTML = `<div class="empty-note">⚠️ Lỗi tải dữ liệu: ${esc(error.message)}</div>`;
     return;
   }
 
-  // Đếm số hợp đồng theo từng đối tác — gộp lại ở client
-  const countMap = {};
-  (contractCounts || []).forEach((c) => (countMap[c.partner_id] = (countMap[c.partner_id] || 0) + 1));
+  // ---- TỔNG GIÁ TRỊ HỢP ĐỒNG + DANH SÁCH DỰ ÁN (chốt 28/10: bỏ hợp đồng đã hủy) --
+  // ⚠️ PLHĐ được lưu như một dòng contracts riêng, value = giá trị ĐIỀU CHỈNH
+  //    (âm nếu giảm). Cộng tất cả các dòng lại chính là giá trị hợp đồng sau điều
+  //    chỉnh — đúng ý "tổng giá trị", không phải cộng trùng.
+  // ⚠️ value ĐÃ BAO GỒM VAT (xem nhãn ở hopdong.js: "Giá trị HĐ/PLHĐ … đã bao gồm
+  //    VAT"). Cột tiền bill bên cạnh cũng đã gồm VAT -> hai cột so được với nhau.
+  // ⚠️ Dùng Set cho dự án: một đối tác ký 3 hợp đồng trên cùng 1 dự án thì mã dự án
+  //    đó chỉ hiện MỘT lần, không lặp 3 lần.
+  const valueMap = {};
+  const projSet = {};
+  (contractRows || []).forEach((c) => {
+    if (c.status === 'cancelled') return;
+    valueMap[c.partner_id] = (valueMap[c.partner_id] || 0) + Number(c.value || 0);
+    const code = c.projects?.code;
+    if (code) (projSet[c.partner_id] ||= new Set()).add(code);
+  });
+
+  // ---- TỔNG BILL ĐÃ THANH TOÁN ------------------------------------------------
+  // K = số tiền phải trả CỦA RIÊNG KỲ ĐÓ (đã trừ giữ lại, hoàn tạm ứng, và trừ phần
+  // đã trả các kỳ trước ở ô J). Nên cộng K của nhiều kỳ KHÔNG bị tính trùng.
+  // ⚠️ KHÔNG được cộng val_d: val_d là LŨY KẾ từ đầu hợp đồng, cộng qua các kỳ là
+  //    tính trùng gấp nhiều lần.
+  // Dùng chung đúng hàm calcBill của trang Bill để không bao giờ lệch số.
+  const paidMap = {};
+  (paidBills || []).forEach((b) => {
+    if (!b.partner_id) return;
+    paidMap[b.partner_id] = (paidMap[b.partner_id] || 0) + calcBill(b).K;
+  });
+  const projMap = {};
+  Object.entries(projSet).forEach(([pid, s]) => {
+    projMap[pid] = [...s].sort((a, b) => a.localeCompare(b, 'vi', { numeric: true }));
+  });
+
+  // Nhiều đối tác chỉ làm 1-2 dự án, nhưng vài nhà cung cấp lớn phủ gần hết.
+  // Hiện tối đa 3 mã cho bảng khỏi giãn ngang, phần còn lại gộp thành "+N nữa";
+  // rê chuột lên ô là hiện đủ danh sách.
+  const MAX_CHIP = 3;
+  function projectCellHtml(pid) {
+    const list = projMap[pid] || [];
+    if (!list.length) return `<td style="color:var(--gray3)">—</td>`;
+    const shown = list.slice(0, MAX_CHIP).map((c) => `<span class="code-chip">${esc(c)}</span>`).join(' ');
+    const rest = list.length - MAX_CHIP;
+    return `<td title="${esc(list.join(', '))}" style="white-space:nowrap">${shown}${rest > 0 ? ` <span style="font-size:11.5px;color:var(--gray5)">+${rest} nữa</span>` : ''}</td>`;
+  }
 
   // Đối tác CHƯA CÓ MÃ VIẾT TẮT: ràng buộc duy nhất không chặn được ô rỗng
   // (Postgres coi mỗi NULL là một giá trị khác nhau), nên nhóm này sẽ gây trùng
@@ -142,13 +191,17 @@ export async function render(container, user) {
         <button class="btn btn-primary" id="btnNew">+ Khai báo đối tác mới</button>
       </div>
     </div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Đối tác</th><th>Mã viết tắt</th><th>MST</th><th>Loại</th><th>Số hợp đồng</th></tr></thead><tbody id="partnerTbody"></tbody></table></div>`;
+    <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table><thead><tr><th>Đối tác</th><th>Mã viết tắt</th><th>MST</th><th>Loại</th><th>Tổng giá trị HĐ</th><th>Đã thanh toán</th><th>Cấp cho dự án</th></tr></thead><tbody id="partnerTbody"></tbody></table></div></div>`;
+
+  // Ô tiền: 0 thì hiện "—" cho đỡ rối mắt — bảng này phần lớn đối tác chưa có bill,
+  // một rừng số 0 làm chìm mất những dòng có số thật.
+  const moneyCell = (v) => `<td class="mono" style="white-space:nowrap">${v ? fmt(v) : '<span style="color:var(--gray3)">—</span>'}</td>`;
 
   function renderRows(list) {
-    if (!list.length) return `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Không có đối tác nào khớp bộ lọc</td></tr>`;
+    if (!list.length) return `<tr><td colspan="7" style="text-align:center;color:var(--gray4);padding:20px">Không có đối tác nào khớp bộ lọc</td></tr>`;
     return list
       .map((p) => `<tr class="click" data-id="${esc(p.id)}"><td>${esc(p.name)}</td><td>${p.abbr && String(p.abbr).trim() ? `<span class="code-chip">${esc(p.abbr)}</span>` : `<span style="color:var(--red);font-size:11.5px;font-weight:700">⚠️ thiếu mã</span>`}</td><td class="mono">${esc(p.mst)}</td>
-    <td><span class="badge ${p.type === 'NCC' ? 'info' : 'done'}">${esc(p.type)}</span></td><td>${countMap[p.id] || 0}</td></tr>`)
+    <td><span class="badge ${p.type === 'NCC' ? 'info' : 'done'}">${esc(p.type)}</span></td>${moneyCell(valueMap[p.id] || 0)}${moneyCell(paidMap[p.id] || 0)}${projectCellHtml(p.id)}</tr>`)
       .join('');
   }
 
@@ -191,14 +244,20 @@ export async function render(container, user) {
           { key: 'abbr', header: 'MÃ VIẾT TẮT', width: 18, center: true },
           { key: 'mst', header: 'MST', width: 20, center: true },
           { key: 'type', header: 'LOẠI', width: 26 },
-          { key: 'count', header: 'SỐ HỢP ĐỒNG', width: 16, num: true },
+          { key: 'value', header: 'TỔNG GIÁ TRỊ HĐ (đã gồm VAT)', width: 26, num: true },
+          { key: 'paid', header: 'ĐÃ THANH TOÁN (đã gồm VAT)', width: 26, num: true },
+          { key: 'projects', header: 'CẤP CHO DỰ ÁN', width: 42 },
         ],
         rows: currentList.map((p) => ({
           name: p.name,
           abbr: p.abbr,
           mst: p.mst, // để dạng chữ — MST có số 0 đứng đầu, ép thành số sẽ mất số 0
           type: PARTNER_TYPE_LABEL[p.type] || p.type,
-          count: countMap[p.id] || 0,
+          value: valueMap[p.id] || 0,
+          paid: paidMap[p.id] || 0,
+          // Trên bảng chỉ hiện 3 mã cho gọn, nhưng file Excel ghi ĐỦ — xuất ra là để
+          // đối chiếu, cắt bớt ở đây là làm hỏng chính việc đó.
+          projects: (projMap[p.id] || []).join(', '),
         })),
       },
       (msg) => toast('Lỗi xuất Excel: ' + msg, 'error'),
