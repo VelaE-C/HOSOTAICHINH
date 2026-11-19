@@ -16,9 +16,13 @@
 //   calcClaim/calcCumulative, và bản xuất Excel — bản xuất vẫn đủ 19 cột theo
 //   bảng theo dõi của công ty, chỉ đổi tiêu đề và tên file.
 //
-// ⚠️ CÒN TREO: khấu trừ có làm giảm doanh thu chịu thuế VAT không?
-//   Hệ thống: (Doanh thu - Khấu trừ) x 8%   |   Excel công ty: Doanh thu x 8%
-//   Chênh đúng bằng 8% khấu trừ. Chưa chốt — đừng sửa calcClaim trước khi chốt.
+// ✅ ĐÃ CHỐT 19/11/2026: khấu trừ KHÔNG làm giảm doanh thu chịu thuế VAT.
+//   Dòng (10) = (2) x thuế suất. Trước đó hệ thống lấy [(2) - (8)] x thuế suất,
+//   nên lệch với bảng Excel của công ty đúng bằng 8% của khoản khấu trừ.
+//   Nay hai bên khớp nhau.
+//   Sửa này làm ĐỔI SỐ của 4 đợt claim đã nhập có khấu trừ khác 0 — dòng (10),
+//   (12) và (13) của HANGHAI đ1, KNPARADISE29CAN đ1, SIMONA đ1, UOA đ1 đều tăng,
+//   tổng cộng 341.187.360 đ. Không phải lỗi, là hệ quả đúng của việc đổi công thức.
 //
 // Ghi nhận SẢN LƯỢNG CĐT đã xác nhận theo từng đợt claim, dựng đúng theo mẫu giấy
 // "BẢNG TÓM TẮT THANH TOÁN / SUMMARY OF PAYMENT" mà CĐT đang dùng.
@@ -46,14 +50,19 @@
 //   dấu âm thì sớm muộn cũng có người nhập nhầm, mà sai thì không ai nhìn ra.
 //
 // ⚠️ CÔNG THỨC THUẾ KHÁC CHỮ IN TRÊN PHIẾU:
-//   Phiếu ghi "(10) = [(1)+(8)] x 8%", nhưng số thật 184.662.307 chỉ khớp khi lấy
-//   (2)+(8) — giá trị thi công kỳ này, không phải tổng cộng dồn. Đã đối chiếu:
-//       (2)+(8) x8% = 184.662.307  ✓ khớp phiếu
-//       (4)+(8) x8% = 161.849.245
-//       (9)     x8% = 127.629.653
-//   Code làm theo SỐ THẬT, và đó cũng đúng bản chất: giữ lại bảo hành và hoàn tạm
-//   ứng là chuyện dòng tiền, không làm giảm doanh thu nên không trừ trước khi
-//   tính thuế. Ô công thức trên mẫu Excel của CĐT nhiều khả năng ghi nhầm.
+//   Phiếu của CĐT in "(10) = [(1)+(8)] x 8%" — lấy (1) tổng cộng dồn. Code KHÔNG
+//   làm theo chữ in đó: thuế của kỳ này phải tính trên khối lượng của kỳ này, lấy
+//   số cộng dồn là tính trùng với các kỳ trước. Nên (10) = (2) x thuế suất.
+//
+//   Lý do bản chất: giữ lại bảo hành, hoàn tạm ứng và phạt/khấu trừ đều là chuyện
+//   DÒNG TIỀN — tiền đã làm ra rồi, chỉ là chưa trả hoặc bị trừ. Chúng không làm
+//   giảm doanh thu, nên không trừ trước khi tính thuế.
+//
+//   Lưu ý lịch sử: bản tháng 10 từng lấy [(2)-(8)] x 8%, căn cứ một phiếu giấy có
+//   số thuế 184.662.307 chỉ khớp theo cách đó. Phiếu ấy KHÔNG còn trong dữ liệu
+//   hiện tại (đã dò toàn bộ owner_progress_claims ngày 19/11, không có dòng nào
+//   ra con số đó theo cả hai công thức) nên không đối chiếu lại được. Nếu sau này
+//   gặp lại phiếu giấy ấy mà số vẫn chỉ khớp khi trừ (8) thì phải mở lại vấn đề.
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, fmtDate, fmtDateTime, toast, loading, wireMoneyInputs, parseMoneyInput, formatMoneyInput, pushModalHistory, popModalHistory, IS_MOBILE } from '../core/utils.js';
@@ -96,7 +105,9 @@ export function calcClaim(r) {
   const B8 = num(r.deductions);                              // (8)  phạt / khấu trừ
   const B11 = num(r.ncr_withheld);                           // (11) giữ do NCR
   const B9 = B4 - B7 - B8;                                   // (9)  chưa VAT
-  const B10 = Math.round(((B2 - B8) * vat) / 100);           // (10) xem ghi chú đầu file
+  // (10) CHỈ tính trên (2) — chốt 19/11/2026. Khấu trừ KHÔNG làm giảm doanh thu
+  // chịu thuế. B8 vẫn trừ ở dòng (9) như cũ, chỉ không còn đụng vào thuế.
+  const B10 = Math.round((B2 * vat) / 100);                  // (10) xem ghi chú đầu file
   const B12 = B9 + B10 - B11;                                // (12) = (14) đề nghị TT
   return { B2, B3, B3b, B4, B7, B8, B9, B10, B11, B12, rate, wrate, vat };
 }
@@ -387,7 +398,7 @@ async function openForm(rec, projects, all, user, onClose) {
           ${rowHtml({ no: '7', label: 'Hoàn trả tạm ứng đợt này', sub: 'Advance recovery this payment', id: 'fB7', value: rec?.advance_recovery || 0, input: true, editable })}
           ${rowHtml({ no: '8', label: 'Trừ các khoản phạt và khấu trừ', sub: 'Penalties and deductions', id: 'fB8', value: rec?.deductions || 0, input: true, editable })}
           ${rowHtml({ no: '9', label: '<b>Tổng giá trị được thanh toán kỳ này (chưa VAT)</b> <span style="color:var(--gray4)">(9) = (4) + (7) + (8)</span>', id: 'oB9', bold: true, highlight: true })}
-          ${rowHtml({ no: '10', label: 'Thuế GTGT <span id="vatLabel" style="color:var(--gray4)"></span>', sub: 'VAT — tính trên (2) + (8), xem ghi chú bên dưới', id: 'oB10' })}
+          ${rowHtml({ no: '10', label: 'Thuế GTGT <span id="vatLabel" style="color:var(--gray4)"></span>', sub: 'VAT — tính trên (2), xem ghi chú bên dưới', id: 'oB10' })}
           ${rowHtml({ no: '11', label: 'Khoản tiền bị giữ do NCR', sub: 'Withholding money due to NCR', id: 'fB11', value: rec?.ncr_withheld || 0, input: true, editable })}
           ${rowHtml({ no: '12', label: '<b>Tổng giá trị được thanh toán kỳ này (bao gồm VAT)</b>', id: 'oB12', bold: true, highlight: true })}
           ${rowHtml({ no: '13', label: 'Tổng đã thanh toán cộng dồn đến kỳ này', sub: 'Bao gồm tạm ứng', id: 'oB13' })}
@@ -413,9 +424,10 @@ async function openForm(rec, projects, all, user, onClose) {
       </div>
 
       <div style="font-size:11px;color:var(--gray5);background:#FFF7ED;border-radius:7px;padding:9px 12px;margin-bottom:14px;line-height:1.7">
-        ⚠️ <b>Về dòng (10):</b> mẫu giấy của CĐT in công thức <i>[(1) + (8)] × 8%</i>, nhưng số thật trên phiếu
-        chỉ khớp khi lấy <b>(2) + (8)</b>. Hệ thống làm theo số thật — và đó cũng đúng bản chất, vì giữ lại bảo
-        hành với hoàn tạm ứng là chuyện dòng tiền, không làm giảm doanh thu nên không trừ trước khi tính thuế.
+        ⚠️ <b>Về dòng (10):</b> thuế tính trên <b>(2) Giá trị thi công kỳ này</b>, không trừ dòng (8).
+        Mẫu giấy của CĐT in <i>[(1) + (8)] × 8%</i> nhưng (1) là số cộng dồn — lấy nó thì tính trùng với các kỳ
+        trước. Giữ lại bảo hành, hoàn tạm ứng và khấu trừ đều là chuyện dòng tiền, không làm giảm doanh thu,
+        nên không trừ trước khi tính thuế.
       </div>
 
       <div style="margin-bottom:13px"><label class="form-label">Ghi chú</label>
@@ -677,7 +689,7 @@ function openPrintClaim(r, all) {
         <tr><td class="no">7</td><td>Hoàn trả tạm ứng đợt này<div class="sub">Advance recovery on this payment</div></td><td class="num">${neg(c.B7)}</td></tr>
         <tr><td class="no">8</td><td>Trừ các khoản phạt và khấu trừ<div class="sub">Penalties and deductions</div></td><td class="num">${neg(c.B8)}</td></tr>
         <tr class="hl"><td class="no">9</td><td>Tổng giá trị được thanh toán kỳ này (chưa VAT) (9) = (4) + (7) + (8)</td><td class="num">${m(c.B9)}</td></tr>
-        <tr><td class="no">10</td><td>Thuế GTGT (${c.vat}%)<div class="sub">Tính trên (2) + (8)</div></td><td class="num">${m(c.B10)}</td></tr>
+        <tr><td class="no">10</td><td>Thuế GTGT (${c.vat}%)<div class="sub">Tính trên (2)</div></td><td class="num">${m(c.B10)}</td></tr>
         <tr><td class="no">11</td><td>Khoản tiền bị giữ do NCR<div class="sub">Withholding money due to NCR</div></td><td class="num">${neg(c.B11)}</td></tr>
         <tr class="hl"><td class="no">12</td><td>Tổng giá trị được thanh toán kỳ này (bao gồm VAT)</td><td class="num">${m(c.B12)}</td></tr>
         <tr><td class="no">13</td><td>Tổng đã thanh toán cộng dồn đến kỳ này<div class="sub">Bao gồm tạm ứng</div></td><td class="num">${m(k.B13)}</td></tr>
