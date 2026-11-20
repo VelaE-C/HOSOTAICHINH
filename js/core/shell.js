@@ -39,7 +39,10 @@ import { supabase } from './config.js';
 // theo, không bao giờ có chuyện màn hình nói một đằng hệ thống chạy một nẻo.
 // (Đúng cái bẫy stepPreview.js đã mắc — chép logic DB sang JS rồi quên đồng bộ.)
 export const NAV = [
-  { id: 'dashboard', label: 'Tổng quan', icon: '📊', group: 'TỔNG QUAN', bn: true, title: 'Tổng quan', sub: 'Tình hình tài chính dự án theo thời gian thực' },
+  // noHead: tab này KHÔNG hiện dải tiêu đề trang. Trang Tổng quan để trình bày cho
+  // BGĐ xem, mỗi dòng chữ thừa là một dòng đẩy biểu đồ rơi khỏi màn hình. Chữ
+  // "Tổng quan" đã có sẵn ở menu bên trái. Giữ title/sub để nơi khác còn tra được.
+  { id: 'dashboard', label: 'Tổng quan', icon: '📊', group: 'TỔNG QUAN', bn: true, noHead: true, title: 'Tổng quan', sub: 'Tình hình tài chính dự án theo thời gian thực' },
   { id: 'duyet', label: 'Duyệt hồ sơ', icon: '✅', group: 'HỒ SƠ', bn: true, title: 'Hộp thư chờ duyệt', sub: 'Hồ sơ đang chờ bạn xử lý — gộp mọi dự án' },
   { id: 'hosocuatoi', label: 'Hồ sơ của tôi', icon: '📤', group: 'HỒ SƠ', bn: true, title: 'Hồ sơ của tôi', sub: 'Hồ sơ bạn đã trình — theo dõi tiến độ, nhắc duyệt' },
   { id: 'hopdong', label: 'Hợp đồng', icon: '📄', group: 'HỒ SƠ', bn: true, title: 'Hợp đồng đầu vào', sub: 'Thầu phụ, nhà cung cấp' },
@@ -281,6 +284,10 @@ export async function switchView(id) {
   const n = NAV.find((x) => x.id === id);
   document.getElementById('pgTitle').textContent = n?.title || '';
   document.getElementById('pgSub').textContent = n?.sub || '';
+  // Ẩn/hiện cả dải tiêu đề. ⚠️ PHẢI đặt lại display mỗi lần chuyển tab, không chỉ
+  // ẩn khi gặp noHead — ẩn một lần rồi sang tab khác là mất tiêu đề của cả app.
+  const pageHead = document.querySelector('.page-head');
+  if (pageHead) pageHead.style.display = n?.noHead ? 'none' : '';
 
   const container = document.getElementById('view-content');
   container.innerHTML = `<div class="empty-note">Đang tải…</div>`;
