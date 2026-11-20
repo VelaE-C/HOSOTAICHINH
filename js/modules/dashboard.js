@@ -67,19 +67,11 @@ export async function render(container, user) {
       supabase.from('owner_progress_claims').select('project_id, claim_no, amount_before_vat, contract_amount, vo_amount, confirmed_date'),
     ]);
 
-  // Khối "Vai trò của tôi" — tra cứu nhanh đang giữ vị trí gì, ở đâu, không cần lật từng hồ sơ
-  const myRoleChips = [
-    ...(user.roles || [])
-      .filter((r) => !['CHT', 'GDDA', 'PTGD', 'QS'].includes(r)) // vai trò gắn dự án hiện riêng bên dưới, tránh trùng
-      .map((r) => `<span class="code-chip">${r}</span>`),
-    ...(myAssignments || []).map((a) => `<span class="code-chip">${a.role_type} — ${a.projects?.code || '—'}</span>`),
-  ];
-  const myRolesHtml = myRoleChips.length
-    ? `<div class="card" style="margin-bottom:12px;padding:9px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="card-sub" style="margin:0">Vai trò của tôi</span>${myRoleChips.join('')}</div>`
-    : '';
+  // Khối "Vai trò của tôi" ĐÃ BỎ 20/11/2026 theo yêu cầu — vai trò tra được ở
+  // tab Người dùng, không cần chiếm một dải ngang đầu trang Tổng quan.
 
   if (!projects || projects.length === 0) {
-    container.innerHTML = myRolesHtml + `<div class="empty-note">Chưa có dự án nào trong hệ thống, hoặc bạn chưa được phân công dự án nào.</div>`;
+    container.innerHTML = `<div class="empty-note">Chưa có dự án nào trong hệ thống, hoặc bạn chưa được phân công dự án nào.</div>`;
     return;
   }
 
@@ -399,7 +391,6 @@ Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ
   container.innerHTML =
     compactCss +
     '<div id="dashCompact">' +
-    myRolesHtml +
     tilesHtml +
     (IS_MOBILE
       ? summaryTableHtml + camKetHtml + amHtml
