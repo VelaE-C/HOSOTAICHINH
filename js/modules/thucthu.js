@@ -151,9 +151,24 @@ export async function render(container, user) {
 
   const all = rows || [];
   const list = VIEW_PROJECT === 'ALL' ? all : all.filter((r) => r.project_id === VIEW_PROJECT);
+  // SẢN LƯỢNG thì CỘNG MỌI ĐỢT — ô (2) là phần thi công RIÊNG kỳ đó, không phải lũy kế.
   const tongSanLuong = list.reduce((s, r) => s + num(r.amount_before_vat), 0);
+
+  // GIÁ TRỊ HỢP ĐỒNG thì NGƯỢC LẠI — chỉ lấy ĐỢT CLAIM MỚI NHẤT của mỗi dự án.
+  // ⚠️ Sửa 20/11/2026. Bản cũ cộng trần hợp đồng của MỌI đợt claim, nên dự án nào
+  //   có 2 đợt thì giá trị hợp đồng bị tính đôi, 3 đợt thì gấp ba. Ô này đang hiện
+  //   1.008 tỷ trong khi số thật là 673 tỷ — cộng dư 335 tỷ.
+  // ⚠️ Mỗi phiếu claim CHỤP LẠI giá trị hợp đồng tại thời điểm lập. Đợt sau đã bao
+  //   gồm cả phát sinh của đợt trước, nên cộng dồn là sai bản chất chứ không chỉ
+  //   sai số học. Lấy đợt mới nhất mới ra trần hợp đồng hiện hành.
+  // ⚠️ Cùng quy tắc với cột "Giá trị HĐ" ở trang Tổng quan — hai màn hình phải khớp.
+  const latestClaimByProject = {};
+  list.forEach((r) => {
+    const cur = latestClaimByProject[r.project_id];
+    if (!cur || Number(r.claim_no || 0) > Number(cur.claim_no || 0)) latestClaimByProject[r.project_id] = r;
+  });
   // Trần hợp đồng = giá gốc + phát sinh (VO) — cùng mẫu số với cột "% HĐ"
-  const tongHopDong = list.reduce((s, r) => s + num(r.contract_amount) + num(r.vo_amount), 0);
+  const tongHopDong = Object.values(latestClaimByProject).reduce((s, r) => s + num(r.contract_amount) + num(r.vo_amount), 0);
   const editable = canEdit(user);
 
   container.innerHTML = `
