@@ -33,7 +33,7 @@
 //      dấu "—" xám ở cột Giá trị HĐ, không còn câu nhắc kèm theo.
 // ============================================================
 import { supabase } from '../core/config.js';
-import { fmt, tyi, budgetColor, toast, IS_MOBILE } from '../core/utils.js';
+import { fmt, IS_MOBILE } from '../core/utils.js';
 // Danh sách vai trò cấp toàn công ty — nhập từ shell.js, KHÔNG chép lại.
 // Bản cũ gõ thẳng mảng này ở 2 chỗ bên dưới; sửa một chỗ quên chỗ kia là hai
 // phép lọc chạy lệch nhau mà không báo lỗi gì.
@@ -49,11 +49,9 @@ export async function render(container, user) {
 
   const isTopLevel = (user.roles || []).some((r) => COMPANY_WIDE_ROLES.includes(r));
 
-  const [{ data: projects }, { data: budgetRows }, { data: flagged }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: claims }] =
+  const [{ data: projects }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: claims }] =
     await Promise.all([
       supabase.from('projects').select('id, code, name').order('code'),
-      supabase.from('v_budget_summary').select('*'),
-      supabase.from('v_flagged_documents').select('*'),
       // Bổ sung status / parent_contract_id / projects(code,name) để bảng cảnh báo
       // tra được Dự án, Nhà cung cấp và cộng dồn PLHĐ mà không phải gọi thêm query
       // contract_type thêm 20/11/2026 cho khối "Cam kết theo loại hợp đồng"
@@ -77,7 +75,7 @@ export async function render(container, user) {
     ...(myAssignments || []).map((a) => `<span class="code-chip">${a.role_type} — ${a.projects?.code || '—'}</span>`),
   ];
   const myRolesHtml = myRoleChips.length
-    ? `<div class="card" style="margin-bottom:16px"><div class="card-sub" style="margin-bottom:8px">Vai trò của tôi</div><div style="display:flex;flex-wrap:wrap;gap:6px">${myRoleChips.join('')}</div></div>`
+    ? `<div class="card" style="margin-bottom:12px;padding:9px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="card-sub" style="margin:0">Vai trò của tôi</span>${myRoleChips.join('')}</div>`
     : '';
 
   if (!projects || projects.length === 0) {
@@ -95,19 +93,6 @@ export async function render(container, user) {
   // budgetRowsFiltered / revenueRowsFiltered đã gỡ cùng 2 khối thống kê ngân sách.
   // contractsFiltered đã bỏ cùng bảng "Danh sách đơn vị đã ký hợp đồng" — không còn nơi nào dùng
 
-  // Tổng hợp ngân sách 3 lớp — giờ ai cũng xem được (đã mở RLS), lọc theo dự án nếu cần
-  // Các số tổng ngân sách/cam kết/thực chi đã gỡ cùng 2 khối thống kê tương ứng.
-  // budgetRows VẪN GIỮ vì bảng cảnh báo Case 2 (vượt ngân sách) còn dùng để tính.
-
-  // Lũy kế đã bill theo từng hợp đồng — bảng cảnh báo Case 1 dùng để tính phần vượt
-  const lũyKeByContract = {};
-  (bills || []).forEach((b) => {
-    if (!b.contract_id) return;
-    lũyKeByContract[b.contract_id] = Math.max(lũyKeByContract[b.contract_id] || 0, Number(b.val_d || 0));
-  });
-  // Bảng "Danh sách đơn vị đã ký hợp đồng" ĐÃ GỠ theo yêu cầu 25/09/2026 — thông tin
-  // đó vẫn tra được đầy đủ ở tab Hợp đồng. Biến lũyKeByContract bên trên GIỮ LẠI vì
-  // bảng cảnh báo Case 1 vẫn dùng để tính phần vượt.
 
   // ============================================================
   // BẢNG TỔNG THEO DỰ ÁN — Giá trị HĐ · Doanh thu · Sản lượng · Chênh lệch
@@ -194,35 +179,61 @@ export async function render(container, user) {
   const tChiPhi = summaryRows.reduce((s2, r) => s2 + r.chiPhi, 0);
   const tChenhLech = tDoanhThu - tChiPhi;
 
+  // ============================================================
+  // BẢNG TỔNG HỢP — gộp luôn biểu đồ vào trong bảng (20/11/2026)
+  //
+  // Trước đó có MỘT biểu đồ thanh ngang riêng + MỘT bảng số riêng, cùng nói về
+  // một bộ số. Cộng lại cao hơn 1.400px, không lọt một màn hình, mà cũng vi phạm
+  // nguyên tắc "một con số chỉ hiện một chỗ".
+  // Nay nhập làm một: mỗi dòng có 2 thanh so sánh Doanh thu / Sản lượng ngay
+  // trong ô. Vẫn nhìn được hơn kém ở một cái liếc, mà chỉ cao bằng cái bảng.
+  //
+  // Xếp theo chênh lệch từ cao xuống thấp — dự án đang âm rơi xuống cuối bảng,
+  // đúng chỗ người đọc tìm.
+  // ============================================================
+  const tableRows = [...summaryRows].sort((a, b) => b.chenhLech - a.chenhLech);
+  const maxBar = Math.max(1, ...tableRows.map((r) => Math.max(r.doanhThu, r.chiPhi)));
+  const barW = (v) => (v > 0 ? Math.max(1.5, (v / maxBar) * 100) : 0);
+
   const summaryTableHtml = `
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
       <div style="padding:14px 16px 0">
         <div class="card-title" style="margin:0">Tổng hợp theo dự án</div>
         <div class="card-sub">Mọi con số TRƯỚC THUẾ. <b>Chênh lệch = Doanh thu − Sản lượng</b>${isSiteLimited ? ' · chỉ hiện dự án bạn phụ trách' : ''}</div>
+        ${IS_MOBILE ? '' : `<div style="display:flex;gap:16px;margin-top:8px;font-size:12px;color:var(--gray6)">
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#2a78d6;margin-right:5px"></span>Doanh thu</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#eb6834;margin-right:5px"></span>Sản lượng</span>
+        </div>`}
       </div>
       <div style="overflow-x:auto"><table><thead><tr>
         <th>Dự án</th>
+        ${IS_MOBILE ? '' : '<th style="width:150px">So sánh</th>'}
         <th style="text-align:right">Giá trị HĐ</th>
         <th style="text-align:right">Doanh thu</th>
         <th style="text-align:right">Sản lượng</th>
         <th style="text-align:right">Chênh lệch</th>
       </tr></thead><tbody>
-      ${summaryRows.length
-        ? summaryRows
+      ${tableRows.length
+        ? tableRows
             .map(
               (r) => `<tr>
           <td><span class="code-chip" title="${esc(r.p.name)}">${esc(r.p.code)}</span></td>
+          ${IS_MOBILE ? '' : `<td style="padding-top:9px;padding-bottom:9px">
+            <div style="height:9px;border-radius:3px;background:#2a78d6;width:${barW(r.doanhThu)}%"></div>
+            <div style="height:9px;border-radius:3px;background:#eb6834;width:${barW(r.chiPhi)}%;margin-top:2px"></div>
+          </td>`}
           <td class="mono" style="text-align:right">${r.giaTriHD == null ? '<span style="color:var(--gray3)">—</span>' : fmt(r.giaTriHD)}</td>
-          <td class="mono" style="text-align:right">${fmt(r.doanhThu)}${r.thuPct != null ? `<div style="font-size:10.5px;color:var(--gray4);font-weight:400">${r.thuPct.toFixed(0)}% HĐ</div>` : ''}</td>
+          <td class="mono" style="text-align:right">${fmt(r.doanhThu)}${r.thuPct != null ? `<div style="font-size:10.5px;color:var(--gray4);font-weight:400">${r.thuPct > 0 && r.thuPct < 1 ? '<1' : r.thuPct.toFixed(0)}% HĐ</div>` : ''}</td>
           <td class="mono" style="text-align:right">${fmt(r.chiPhi)}</td>
           <td class="mono" style="text-align:right;font-weight:700;color:${r.chenhLech < 0 ? 'var(--red)' : 'var(--green)'}">${r.chenhLech >= 0 ? '+' : ''}${fmt(r.chenhLech)}</td>
         </tr>`,
             )
             .join('')
-        : `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Không có dự án nào trong phạm vi của bạn</td></tr>`}
+        : `<tr><td colspan="${IS_MOBILE ? 5 : 6}" style="text-align:center;color:var(--gray4);padding:20px">Không có dự án nào trong phạm vi của bạn</td></tr>`}
       </tbody>
       ${summaryRows.length ? `<tfoot><tr style="background:var(--gray1);font-weight:700">
         <td>TỔNG</td>
+        ${IS_MOBILE ? '' : '<td></td>'}
         <td class="mono" style="text-align:right">${fmt(tGiaTriHD)}</td>
         <td class="mono" style="text-align:right">${fmt(tDoanhThu)}</td>
         <td class="mono" style="text-align:right">${fmt(tChiPhi)}</td>
@@ -231,149 +242,8 @@ export async function render(container, user) {
       </table></div>
     </div>`;
 
-  // ============================================================
-  // BẢNG "HỒ SƠ ĐANG CÓ CẢNH BÁO" — dựng dữ liệu
-  // View v_flagged_documents chỉ trả về loại/số hồ sơ/lý do, nên Dự án và Nhà
-  // cung cấp được tra ngược từ danh sách contracts/bills đã tải sẵn ở trên
-  // (không tốn thêm truy vấn). Ưu tiên khớp theo id, không có thì khớp theo
-  // số hồ sơ — doc_number là duy nhất trong từng bảng.
-  // ============================================================
-  const contractById = Object.fromEntries((contracts || []).map((c) => [c.id, c]));
-  const contractByNumber = Object.fromEntries((contracts || []).map((c) => [c.doc_number, c]));
-  const billById = Object.fromEntries((bills || []).map((b) => [b.id, b]));
-  const billByNumber = Object.fromEntries((bills || []).map((b) => [b.doc_number, b]));
-
-  // PLHĐ con của từng hợp đồng gốc, TÁCH RIÊNG đã duyệt / đang duyệt.
-  // Chỉ PLHĐ đã duyệt (status='active') mới được cộng vào giá trị hợp đồng —
-  // PLHĐ còn đang duyệt thì về pháp lý chưa có hiệu lực, cộng vào sẽ làm cảnh báo
-  // tự tắt oan chỉ vì ai đó vừa bấm lưu nháp. PLHĐ đang duyệt hiện thành một dòng
-  // riêng, để biết cảnh báo sắp được gỡ bằng cách nào.
-  const plhdByParent = {};
-  (contracts || []).forEach((c) => {
-    if (!c.parent_contract_id) return;
-    const g = (plhdByParent[c.parent_contract_id] = plhdByParent[c.parent_contract_id] || { active: [], pending: [] });
-    if (c.status === 'active') g.active.push(c);
-    else if (c.status === 'pending' || c.status === 'draft') g.pending.push(c);
-  });
-  const plhdGroup = (contractId) => plhdByParent[contractId] || { active: [], pending: [] };
-  const sumVal = (arr) => (arr || []).reduce((s, k) => s + Number(k.value || 0), 0);
-  // Giá trị hợp đồng ĐANG CÓ HIỆU LỰC = HĐ gốc + điều chỉnh tay + các PLHĐ đã duyệt xong.
-  // Công thức này PHẢI khớp đúng hàm fn_contract_ceiling() bên database — nếu sau này
-  // sửa một bên thì phải sửa cả bên kia, nếu không số trên màn hình sẽ khác số dùng để
-  // gắn cảnh báo, và không ai biết tin bên nào.
-  const effectiveValue = (c) => (c ? Number(c.value || 0) + Number(c.value_adjustment || 0) + sumVal(plhdGroup(c.id).active) : 0);
-
-  const flaggedRows = (flagged || []).map((f, i) => {
-    const docType = f.doc_type || 'contract';
-    const isContract = docType === 'contract';
-    const rawId = f.doc_id || f.document_id || f.id || null;
-    const rec = isContract ? contractById[rawId] || contractByNumber[f.doc_number] || null : billById[rawId] || billByNumber[f.doc_number] || null;
-    // Bill lấy Dự án + NCC theo đúng hợp đồng nó đang thanh toán
-    const contract = isContract ? rec : rec ? contractById[rec.contract_id] || null : null;
-    return {
-      idx: i,
-      docType,
-      typeLabel: DOC_TYPE_LABEL[docType] || docType,
-      docNumber: f.doc_number || '—',
-      reason: f.flag_reason || '—',
-      projectCode: contract?.projects?.code || '—',
-      projectName: contract?.projects?.name || '',
-      partner: contract?.partners?.name || '—',
-      recId: rec?.id || null,
-      contract,
-      bill: isContract ? null : rec,
-    };
-  });
-  // Gom theo dự án cho dễ đọc khi đang xem nhiều dự án cùng lúc
-  flaggedRows.sort((a, b) => a.projectCode.localeCompare(b.projectCode, 'vi') || a.docType.localeCompare(b.docType) || a.docNumber.localeCompare(b.docNumber, 'vi'));
-  const flaggedProjects = [...new Set(flaggedRows.map((r) => r.projectCode))].filter((c) => c !== '—').sort((a, b) => a.localeCompare(b, 'vi'));
-
-  // Dòng chi tiết bung ra khi bấm — chỉ hiện đúng các con số của CHÍNH cảnh báo đó
-  function flagDetailHtml(r) {
-    const kv = (k, v, style = '') => `<div style="color:var(--gray5)">${k}</div><div class="mono" style="${style}">${v}</div>`;
-    const pct = (over, base) => (base > 0 ? ` <span style="color:var(--gray5)">(${((over / base) * 100).toFixed(0)}% giá trị HĐ)</span>` : '');
-    let body = '';
-    let hint = '';
-
-    // ---- Case 2: vượt ngân sách phân bổ (so ngân sách dự án, không liên quan PLHĐ) ----
-    if (/ngân sách/i.test(r.reason)) {
-      const rows = (budgetRows || []).filter((b) => b.project_id === r.contract?.project_id);
-      const alloc = rows.reduce((s, b) => s + Number(b.allocated_value || 0), 0);
-      const commit = rows.reduce((s, b) => s + Number(b.committed || 0), 0);
-      body =
-        kv('Dự án', esc(r.projectName || r.projectCode)) +
-        kv('Ngân sách phân bổ', fmt(alloc) + ' ₫') +
-        kv('Đã cam kết (hợp đồng)', fmt(commit) + ' ₫', 'font-weight:700') +
-        kv('Phần vượt ngân sách', commit > alloc ? fmt(commit - alloc) + ' ₫' + pct(commit - alloc, alloc) : '—', `font-weight:700;color:${commit > alloc ? 'var(--red)' : 'var(--green)'}`) +
-        kv('Giá trị hợp đồng này', fmt(r.contract?.value) + ' ₫');
-      hint = 'Hướng xử lý: điều chỉnh ngân sách phân bổ của dự án, hoặc rà lại giá trị hợp đồng trước khi duyệt.';
-      return flagDetailWrap(r, body, hint);
-    }
-
-    // ---- Case 1: lấy hợp đồng làm gốc, phân biệt PLHĐ đã duyệt / đang duyệt ----
-    const c = r.contract;
-    if (!c) {
-      return flagDetailWrap(r, kv('Chi tiết', 'Không tra được hồ sơ gốc — có thể ngoài phạm vi bạn được xem.'), '');
-    }
-    const g = plhdGroup(c.id);
-    const eff = effectiveValue(c); // HĐ gốc + PLHĐ ĐÃ DUYỆT
-    const pendingSum = sumVal(g.pending); // PLHĐ đang duyệt — chưa có hiệu lực
-    // Hợp đồng: so với lũy kế cao nhất của mọi bill. Bill: so với chính đợt đó.
-    const lk = r.docType === 'contract' ? lũyKeByContract[c.id] || 0 : Number(r.bill?.val_d || 0);
-    const over = lk - eff;
-
-    body =
-      (r.docType === 'bill' ? kv('Hợp đồng liên kết', esc(c.doc_number)) : '') +
-      kv('Giá trị HĐ gốc', fmt(c.value) + ' ₫') +
-      kv(`PLHĐ đã duyệt (${g.active.length})`, g.active.length ? '+' + fmt(sumVal(g.active)) + ' ₫' : '<span style="color:var(--gray4)">Chưa có PLHĐ nào được duyệt</span>') +
-      kv('Giá trị HĐ đang có hiệu lực', fmt(eff) + ' ₫', 'font-weight:700') +
-      kv(r.docType === 'contract' ? 'Lũy kế đã bill (cao nhất)' : 'Lũy kế đến đợt này (D)', fmt(lk) + ' ₫') +
-      kv('Phần vượt', over > 0 ? fmt(over) + ' ₫' + pct(over, eff) : '—', `font-weight:700;color:${over > 0 ? 'var(--red)' : 'var(--green)'}`) +
-      (g.pending.length ? kv(`PLHĐ đang duyệt (${g.pending.length})`, fmt(pendingSum) + ' ₫ <span style="color:var(--gray5)">— chưa tính vào giá trị trên</span>', 'color:var(--amber);font-weight:600') : '');
-
-    if (over <= 0) {
-      hint = '✅ Hiện không còn vượt — có thể PLHĐ vừa được duyệt xong. Tải lại trang (Ctrl+Shift+R) là cảnh báo sẽ biến mất.';
-    } else if (g.pending.length && pendingSum >= over) {
-      const du = pendingSum - over;
-      hint = `⏳ PLHĐ <b>${esc(g.pending.map((k) => k.doc_number).join(', '))}</b> đang chờ duyệt. Duyệt xong sẽ bù đủ phần vượt${du > 0 ? ` và còn dư <b>${fmt(du)} ₫</b>` : ''} → cảnh báo tự hết. <b>Việc cần làm: đẩy PLHĐ này qua nốt luồng duyệt.</b>`;
-    } else if (g.pending.length) {
-      hint = `⚠️ PLHĐ đang duyệt chỉ bù được ${fmt(pendingSum)} ₫, <b>vẫn thiếu ${fmt(over - pendingSum)} ₫</b>. Cần tạo thêm PLHĐ hoặc rà lại giá trị bill đã trình.`;
-    } else {
-      hint = `⚠️ Chưa có PLHĐ nào đang chạy. Cần tạo PLHĐ bổ sung tối thiểu <b>${fmt(over)} ₫</b>, hoặc rà lại giá trị bill đã trình.`;
-    }
-    return flagDetailWrap(r, body, hint);
-  }
-
-  function flagDetailWrap(r, body, hint) {
-    return `<tr class="flag-detail" id="flag-detail-${r.idx}" style="display:none">
-      <td colspan="5" style="background:var(--gray1,#F5F6F8);padding:14px 18px">
-        <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:13px;max-width:620px">${body}</div>
-        ${hint ? `<div style="font-size:12.5px;color:var(--gray5);margin-top:11px;max-width:620px;line-height:1.5">${hint}</div>` : ''}
-        ${r.recId ? `<button class="btn btn-sm btn-secondary" data-open="${r.docType}" data-open-id="${r.recId}" style="margin-top:12px">Mở hồ sơ đầy đủ →</button>` : ''}
-      </td></tr>`;
-  }
-
-  const flaggedTableHtml = flaggedRows.length
-    ? `<div class="card"><div class="card-title">⚠️ Hồ sơ đang có cảnh báo (${flaggedRows.length})</div>
-      <div class="card-sub">Bấm vào một dòng để xem ngay các con số của cảnh báo đó — không cần mở hồ sơ</div>
-      ${flaggedProjects.length > 1 ? `<div style="margin-bottom:10px"><select class="btn btn-secondary" id="flagProjFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : ''}">
-        <option value="ALL">Tất cả dự án (${flaggedRows.length})</option>
-        ${flaggedProjects.map((code) => `<option value="${esc(code)}">${esc(code)} (${flaggedRows.filter((r) => r.projectCode === code).length})</option>`).join('')}
-      </select></div>` : ''}
-      <div style="overflow-x:auto"><table><thead><tr><th>Dự án</th><th>Nhà cung cấp</th><th>Loại</th><th>Số hồ sơ</th><th>Lý do</th></tr></thead><tbody>
-      ${flaggedRows
-        .map(
-          (r) => `<tr class="click" data-fi="${r.idx}" data-proj="${esc(r.projectCode)}" style="cursor:pointer">
-            <td><span class="code-chip" title="${esc(r.projectName)}">${esc(r.projectCode)}</span></td>
-            <td>${esc(r.partner)}</td>
-            <td>${r.typeLabel}</td>
-            <td class="mono">${esc(r.docNumber)}</td>
-            <td><span class="badge progress">${esc(r.reason)}</span> <span class="flag-caret" style="color:var(--gray4);font-size:10px;margin-left:4px">▼</span></td>
-          </tr>${flagDetailHtml(r)}`,
-        )
-        .join('')}
-      </tbody></table></div></div>`
-    : '';
+  // Khối "Hồ sơ đang có cảnh báo" ĐÃ GỠ 20/11/2026 theo yêu cầu. Cảnh báo vượt
+  // vẫn hiện trên từng hồ sơ ở tab Hợp đồng và Bill thanh toán.
 
   // Khối "Hồ sơ trễ hạn duyệt" ĐÃ GỠ 25/09/2026 theo yêu cầu.
 
@@ -415,52 +285,8 @@ export async function render(container, user) {
         <div style="font-size:11.5px;color:var(--gray4);margin-top:5px">${soDuong} dự án dương · ${amRows.length} dự án âm</div></div>
     </div>`;
 
-  // ---- Biểu đồ Doanh thu vs Sản lượng theo dự án (chỉ máy tính) --------------
-  // Xanh #2a78d6 / cam #eb6834: cặp màu đã kiểm bằng máy, người mù màu vẫn phân
-  // biệt được (ΔE 24.7, ngưỡng tối thiểu 8) và in đen trắng vẫn khác sắc độ.
-  const chartRows = [...summaryRows].sort((a, b) => b.chenhLech - a.chenhLech);
-  const maxBar = Math.max(1, ...chartRows.map((r) => Math.max(r.doanhThu, r.chiPhi)));
-  const ROW_H = 58, BAR_H = 15, BAR_X = 262, BAR_W = 560, SVG_W = 1060;
-  const chartH = chartRows.length * ROW_H + 46;
-  const barLen = (v) => (v > 0 ? Math.max(3, (v / maxBar) * BAR_W) : 0);
-
-  const tickStep = maxBar > 40e9 ? 10e9 : maxBar > 15e9 ? 5e9 : maxBar > 5e9 ? 2e9 : 1e9;
-  let gridSvg = '';
-  for (let t = 0; t <= maxBar; t += tickStep) {
-    const x = BAR_X + (t / maxBar) * BAR_W;
-    gridSvg += `<line x1="${x}" y1="28" x2="${x}" y2="${chartH - 18}" stroke="var(--gray2)" stroke-width="1"/>
-      <text x="${x}" y="${chartH - 4}" text-anchor="middle" font-size="10.5" fill="var(--gray4)">${t / 1e9}</text>`;
-  }
-
-  const barsSvg = chartRows.map((r, i) => {
-    const y = 34 + i * ROW_H;
-    const neg = r.chenhLech < 0;
-    return `<g>
-      <title>${esc(r.p.code)} — ${esc(r.p.name)}
-Giá trị HĐ: ${r.giaTriHD == null ? 'chưa nhập' : fmt(r.giaTriHD) + ' đ'}
-Doanh thu: ${fmt(r.doanhThu)} đ
-Sản lượng: ${fmt(r.chiPhi)} đ
-Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ</title>
-      <rect x="0" y="${y - 10}" width="${SVG_W}" height="${ROW_H - 6}" fill="transparent"/>
-      <text x="250" y="${y + 13}" text-anchor="end" font-size="13.5" font-weight="700" fill="var(--gray7)">${esc(r.p.code)}</text>
-      <text x="250" y="${y + 29}" text-anchor="end" font-size="11" fill="var(--gray4)">${esc((r.p.name || '').slice(0, 34))}</text>
-      <rect x="${BAR_X}" y="${y}" width="${barLen(r.doanhThu)}" height="${BAR_H}" rx="4" fill="#2a78d6"/>
-      <rect x="${BAR_X}" y="${y + BAR_H + 2}" width="${barLen(r.chiPhi)}" height="${BAR_H}" rx="4" fill="#eb6834"/>
-      <text x="${BAR_X + BAR_W + 22}" y="${y + 14}" font-size="14" font-weight="700" fill="${neg ? 'var(--red)' : 'var(--green)'}">${neg ? '−' : '+'}${tyVnd(Math.abs(r.chenhLech))} tỷ</text>
-      <text x="${BAR_X + BAR_W + 22}" y="${y + 30}" font-size="11" fill="var(--gray4)">${r.thuPct == null ? 'chưa có giá trị HĐ' : `đạt ${pctInt(r.thuPct)}% giá trị HĐ`}</text>
-    </g>`;
-  }).join('');
-
-  const chartHtml = IS_MOBILE ? '' : `
-    <div class="card" style="margin-bottom:16px">
-      <div class="card-title" style="margin:0">Doanh thu và sản lượng theo dự án</div>
-      <div class="card-sub">Xếp theo chênh lệch từ cao xuống thấp · đơn vị trục: tỷ đồng · rê chuột lên từng dòng để xem số đầy đủ</div>
-      <div style="display:flex;gap:18px;margin:12px 0 2px;font-size:13px;color:var(--gray6)">
-        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#2a78d6;margin-right:6px"></span>Doanh thu (CĐT xác nhận)</span>
-        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#eb6834;margin-right:6px"></span>Sản lượng (tổng bill các đơn vị)</span>
-      </div>
-      <svg viewBox="0 0 ${SVG_W} ${chartH}" width="100%" height="${chartH}" style="max-width:100%;display:block">${gridSvg}${barsSvg}</svg>
-    </div>`;
+  // Biểu đồ thanh ngang RIÊNG đã gỡ 20/11/2026 — đã nhập vào cột "So sánh"
+  // của bảng Tổng hợp, để cả trang lọt một màn hình.
 
   // ---- Cam kết theo loại hợp đồng -------------------------------------------
   // Giá trị hợp đồng ĐÃ KÝ với các đơn vị, không phải tiền đã chi.
@@ -516,70 +342,27 @@ Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ
       </div>`
     : '';
 
-  // Bảng số chi tiết giữ lại nhưng thu gọn: biểu đồ để nhìn, bảng để tra số.
-  const bangChiTietHtml = IS_MOBILE
-    ? summaryTableHtml
-    : `<details style="margin-bottom:16px"><summary style="cursor:pointer;font-size:13.5px;color:var(--gray6);padding:6px 2px">Xem bảng số chi tiết theo dự án</summary>${summaryTableHtml}</details>`;
+
+  // Nén cho vừa MỘT màn hình (yêu cầu 20/11): bảng 11 dòng + 4 ô số + cột phải
+  // cộng lại vượt chiều cao màn hình mặc định. Chỉ thu padding, KHÔNG thu cỡ chữ
+  // số tiền — lãnh đạo đọc con số, không đọc khoảng trắng.
+  const compactCss = `<style>
+    #dashCompact .card{margin-bottom:12px}
+    #dashCompact td{padding:7px 10px}
+    #dashCompact th{padding:7px 10px}
+    #dashCompact .card-sub{margin-bottom:8px}
+  </style>`;
 
   container.innerHTML =
+    compactCss +
+    '<div id="dashCompact">' +
     myRolesHtml +
     tilesHtml +
     (IS_MOBILE
-      ? chartHtml + camKetHtml + amHtml + bangChiTietHtml
+      ? summaryTableHtml + camKetHtml + amHtml
       : `<div style="display:grid;grid-template-columns:minmax(0,2.2fr) minmax(300px,1fr);gap:16px;align-items:start">
-           <div>${chartHtml}${bangChiTietHtml}</div>
+           <div>${summaryTableHtml}</div>
            <div>${camKetHtml}${amHtml}</div>
          </div>`) +
-    flaggedTableHtml;
-
-  wireFlaggedTable(container, user);
-}
-
-// ============================================================
-// Gắn sự kiện cho bảng cảnh báo: bấm dòng = bung/thu chi tiết, nút riêng để mở
-// hồ sơ đầy đủ. Module hồ sơ được nạp bằng import động ngay lúc bấm — tránh
-// nạp vòng (hopdong.js/bill.js cũng có thể tham chiếu ngược) và tránh làm hỏng
-// cả trang Tổng quan nếu 1 module lỗi.
-// ============================================================
-function wireFlaggedTable(container, user) {
-  container.querySelectorAll('tr[data-fi]').forEach((tr) => {
-    tr.addEventListener('click', () => {
-      const detail = container.querySelector(`#flag-detail-${tr.dataset.fi}`);
-      if (!detail) return;
-      const open = detail.style.display !== 'none';
-      detail.style.display = open ? 'none' : '';
-      const caret = tr.querySelector('.flag-caret');
-      if (caret) caret.textContent = open ? '▼' : '▲';
-    });
-  });
-
-  container.querySelectorAll('[data-open]').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation(); // không để cú bấm này làm thu lại dòng chi tiết
-      const type = btn.dataset.open;
-      const id = btn.dataset.openId;
-      try {
-        const mod = await import(type === 'contract' ? './hopdong.js' : './bill.js');
-        if (typeof mod.openDetail !== 'function') return toast('Không mở được hồ sơ từ đây — hãy vào tab tương ứng.', 'error');
-        mod.openDetail(id, user, () => render(container, user));
-      } catch (err) {
-        toast('Không mở được hồ sơ: ' + (err?.message || err), 'error');
-      }
-    });
-  });
-
-  const projFilter = container.querySelector('#flagProjFilter');
-  if (projFilter) {
-    projFilter.addEventListener('change', () => {
-      const v = projFilter.value;
-      container.querySelectorAll('tr[data-fi]').forEach((tr) => {
-        const show = v === 'ALL' || tr.dataset.proj === v;
-        tr.style.display = show ? '' : 'none';
-        const detail = container.querySelector(`#flag-detail-${tr.dataset.fi}`);
-        if (detail && !show) detail.style.display = 'none'; // ẩn dòng cha thì thu luôn chi tiết
-        const caret = tr.querySelector('.flag-caret');
-        if (caret && !show) caret.textContent = '▼';
-      });
-    });
-  }
+    '</div>';
 }
