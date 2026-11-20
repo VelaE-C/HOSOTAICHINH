@@ -171,6 +171,14 @@ export async function render(container, user) {
   const tChiPhi = summaryRows.reduce((s2, r) => s2 + r.chiPhi, 0);
   const tChenhLech = tDoanhThu - tChiPhi;
 
+  const tyVnd = (n) => (Number(n) / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  // Chênh lệch để 2 số lẻ: nhiều dự án chênh vài trăm triệu, làm tròn 1 số lẻ thì
+  // 149 triệu và 126 triệu đều ra "0,1 tỷ" — nhìn như nhau mà thực tế khác nhau.
+  const tyVnd2 = (n) => (Number(n) / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pct1 = (v) => Number(v).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  // Dưới 1% ghi "<1" — làm tròn về 0 khiến người đọc tưởng chưa claim đồng nào
+  const pctInt = (v) => (v > 0 && v < 1 ? '<1' : Math.round(v).toLocaleString('vi-VN'));
+
   // ============================================================
   // BẢNG TỔNG HỢP — gộp luôn biểu đồ vào trong bảng (20/11/2026)
   //
@@ -183,44 +191,10 @@ export async function render(container, user) {
   // Xếp theo chênh lệch từ cao xuống thấp — dự án đang âm rơi xuống cuối bảng,
   // đúng chỗ người đọc tìm.
   // ============================================================
-  const tableRows = [...summaryRows].sort((a, b) => b.chenhLech - a.chenhLech);
 
-  const summaryTableHtml = `
-    <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
-      <div style="padding:14px 16px 0">
-        <div class="card-title" style="margin:0">Tổng hợp theo dự án</div>
-        <div class="card-sub">Mọi con số TRƯỚC THUẾ. <b>Chênh lệch = Doanh thu − Sản lượng</b>${isSiteLimited ? ' · chỉ hiện dự án bạn phụ trách' : ''}</div>
-      </div>
-      <div style="overflow-x:auto"><table><thead><tr>
-        <th>Dự án</th>
-        <th style="text-align:right">Giá trị HĐ</th>
-        <th style="text-align:right">Doanh thu</th>
-        <th style="text-align:right">Sản lượng</th>
-        <th style="text-align:right">Chênh lệch</th>
-      </tr></thead><tbody>
-      ${tableRows.length
-        ? tableRows
-            .map(
-              (r) => `<tr>
-          <td><span class="code-chip" title="${esc(r.p.name)}">${esc(r.p.code)}</span></td>
-          <td class="mono" style="text-align:right">${r.giaTriHD == null ? '<span style="color:var(--gray3)">—</span>' : fmt(r.giaTriHD)}</td>
-          <td class="mono" style="text-align:right">${fmt(r.doanhThu)}${r.thuPct != null ? `<div style="font-size:10.5px;color:var(--gray4);font-weight:400">${r.thuPct > 0 && r.thuPct < 1 ? '<1' : r.thuPct.toFixed(0)}% HĐ</div>` : ''}</td>
-          <td class="mono" style="text-align:right">${fmt(r.chiPhi)}</td>
-          <td class="mono" style="text-align:right;font-weight:700;color:${r.chenhLech < 0 ? 'var(--red)' : 'var(--green)'}">${r.chenhLech >= 0 ? '+' : ''}${fmt(r.chenhLech)}</td>
-        </tr>`,
-            )
-            .join('')
-        : `<tr><td colspan="5" style="text-align:center;color:var(--gray4);padding:20px">Không có dự án nào trong phạm vi của bạn</td></tr>`}
-      </tbody>
-      ${summaryRows.length ? `<tfoot><tr style="background:var(--gray1);font-weight:700">
-        <td>TỔNG</td>
-        <td class="mono" style="text-align:right">${fmt(tGiaTriHD)}</td>
-        <td class="mono" style="text-align:right">${fmt(tDoanhThu)}</td>
-        <td class="mono" style="text-align:right">${fmt(tChiPhi)}</td>
-        <td class="mono" style="text-align:right;color:${tChenhLech < 0 ? 'var(--red)' : 'var(--green)'}">${tChenhLech >= 0 ? '+' : ''}${fmt(tChenhLech)}</td>
-      </tr></tfoot>` : ''}
-      </table></div>
-    </div>`;
+  // Bảng "Tổng hợp theo dự án" ĐÃ GỠ 20/11/2026: điện thoại nay cũng dùng biểu đồ
+  // thanh như máy tính, nên bảng số không còn nơi nào hiển thị. Mọi con số của
+  // bảng đều có trên biểu đồ (doanh thu, sản lượng, chênh lệch, % HĐ, giá trị HĐ).
 
   // Khối "Hồ sơ đang có cảnh báo" ĐÃ GỠ 20/11/2026 theo yêu cầu. Cảnh báo vượt
   // vẫn hiện trên từng hồ sơ ở tab Hợp đồng và Bill thanh toán.
@@ -241,30 +215,30 @@ export async function render(container, user) {
   // ⚠️ Số liệu lấy NGUYÊN từ summaryRows/tGiaTriHD/... ở trên, KHÔNG tính lại.
   //   Tính lại ở hai chỗ là sớm muộn cũng lệch nhau mà không ai biết bên nào đúng.
   // ============================================================
-  const tyVnd = (n) => (Number(n) / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  // Chênh lệch để 2 số lẻ: nhiều dự án chênh vài trăm triệu, làm tròn 1 số lẻ thì
-  // 149 triệu và 126 triệu đều ra "0,1 tỷ" — nhìn như nhau mà thực tế khác nhau.
-  const tyVnd2 = (n) => (Number(n) / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const pct1 = (v) => Number(v).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  // Dưới 1% ghi "<1" — làm tròn về 0 khiến người đọc tưởng chưa claim đồng nào
-  const pctInt = (v) => (v > 0 && v < 1 ? '<1' : Math.round(v).toLocaleString('vi-VN'));
 
   const amRows = summaryRows.filter((r) => r.chenhLech < 0).sort((a, b) => a.chenhLech - b.chenhLech);
 
   // Ô "Chênh lệch" tổng ĐÃ BỎ 20/11/2026 theo yêu cầu. Chênh lệch vẫn xem được
   // theo từng dự án ở cột bên phải biểu đồ, và cộng tổng ở hàng TỔNG của bảng
   // trên điện thoại. Còn 3 ô: Giá trị HĐ · Doanh thu · Sản lượng.
+  // ⚠️ TRÊN ĐIỆN THOẠI 3 Ô NẰM MỘT HÀNG, chữ ngắn lại (sửa 20/11 sau khi xem màn
+  //   gập thật): bản cũ xếp 2+1, nhãn dài xuống 2-3 dòng, 3 con số ăn gần một
+  //   phần tư màn hình — phải cuộn mới tới bảng. Nhãn dài giữ cho máy tính.
+  const TILES = [
+    { k: IS_MOBILE ? 'Giá trị HĐ' : 'Giá trị hợp đồng đã ký với CĐT', v: tyVnd(tGiaTriHD), color: '',
+      f: IS_MOBILE ? '' : `${fmt(tGiaTriHD)} đ` },
+    { k: IS_MOBILE ? 'Doanh thu' : 'Doanh thu — CĐT đã xác nhận', v: tyVnd(tDoanhThu), color: '#2a78d6',
+      f: tGiaTriHD ? `đạt ${pct1((tDoanhThu / tGiaTriHD) * 100)}%${IS_MOBILE ? ' HĐ' : ' giá trị hợp đồng'}` : 'chưa có giá trị HĐ' },
+    { k: IS_MOBILE ? 'Sản lượng' : 'Sản lượng — tổng bill các đơn vị', v: tyVnd(tChiPhi), color: '#eb6834',
+      f: tDoanhThu ? `bằng ${pct1((tChiPhi / tDoanhThu) * 100)}%${IS_MOBILE ? ' DT' : ' doanh thu'}` : '—' },
+  ];
   const tilesHtml = `
-    <div style="display:grid;grid-template-columns:repeat(${IS_MOBILE ? 2 : 3},1fr);gap:${IS_MOBILE ? 10 : 14}px;margin-bottom:16px">
-      <div class="card"><div class="card-sub" style="margin:0 0 6px">Giá trị hợp đồng đã ký với CĐT</div>
-        <div style="font-size:${IS_MOBILE ? 22 : 29}px;font-weight:800;letter-spacing:-.5px">${tyVnd(tGiaTriHD)} tỷ</div>
-        <div style="font-size:11.5px;color:var(--gray4);margin-top:5px">${fmt(tGiaTriHD)} đ</div></div>
-      <div class="card"><div class="card-sub" style="margin:0 0 6px">Doanh thu — CĐT đã xác nhận</div>
-        <div style="font-size:${IS_MOBILE ? 22 : 29}px;font-weight:800;letter-spacing:-.5px;color:#2a78d6">${tyVnd(tDoanhThu)} tỷ</div>
-        <div style="font-size:11.5px;color:var(--gray4);margin-top:5px">${tGiaTriHD ? `đạt ${pct1((tDoanhThu / tGiaTriHD) * 100)}% giá trị hợp đồng` : 'chưa có giá trị HĐ'}</div></div>
-      <div class="card" style="${IS_MOBILE ? 'grid-column:span 2' : ''}"><div class="card-sub" style="margin:0 0 6px">Sản lượng — tổng bill các đơn vị</div>
-        <div style="font-size:${IS_MOBILE ? 22 : 29}px;font-weight:800;letter-spacing:-.5px;color:#eb6834">${tyVnd(tChiPhi)} tỷ</div>
-        <div style="font-size:11.5px;color:var(--gray4);margin-top:5px">${tDoanhThu ? `bằng ${pct1((tChiPhi / tDoanhThu) * 100)}% doanh thu` : '—'}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:${IS_MOBILE ? 8 : 14}px;margin-bottom:${IS_MOBILE ? 12 : 16}px">
+      ${TILES.map((t) => `<div class="card" style="${IS_MOBILE ? 'padding:10px 11px' : ''}">
+        <div class="card-sub" style="margin:0 0 4px;${IS_MOBILE ? 'font-size:11px;white-space:nowrap' : ''}">${t.k}</div>
+        <div style="font-size:${IS_MOBILE ? 19 : 29}px;font-weight:800;letter-spacing:-.5px;white-space:nowrap;${t.color ? `color:${t.color}` : ''}">${t.v} tỷ</div>
+        ${t.f ? `<div style="font-size:${IS_MOBILE ? 10.5 : 11.5}px;color:var(--gray4);margin-top:4px;white-space:nowrap">${t.f}</div>` : ''}
+      </div>`).join('')}
     </div>`;
 
   // ---- Biểu đồ Doanh thu vs Sản lượng theo dự án (chỉ máy tính) --------------
@@ -277,50 +251,84 @@ export async function render(container, user) {
   //   Sửa BAR_W mà quên dời LAB_X là hai cụm chữ đè lên nhau.
   const chartRows = [...summaryRows].sort((a, b) => b.chenhLech - a.chenhLech);
   const maxChart = Math.max(1, ...chartRows.map((r) => Math.max(r.doanhThu, r.chiPhi)));
-  const ROW_H = 50, BAR_H = 14, BAR_X = 262, BAR_W = 420, SVG_W = 1060;
-  const LAB_X = BAR_X + BAR_W + 82;   // mốc cột "Chênh lệch"
-  const chartH = chartRows.length * ROW_H + 46;
-  const barLen = (v) => (v > 0 ? Math.max(3, (v / maxChart) * BAR_W) : 0);
+
+  // ⚠️ HAI HÌNH DẠNG KHÁC HẲN NHAU, KHÔNG PHẢI MỘT HÌNH THU NHỎ (sửa 20/11):
+  //   Máy tính xếp NGANG: tên dự án | thanh | chênh lệch — tận dụng bề ngang.
+  //   Điện thoại xếp DỌC: tên dự án và chênh lệch một dòng, hai thanh nằm dưới.
+  //   Nếu bê nguyên khung 1060px xuống màn 412px thì chữ co còn ~5px, không đọc
+  //   nổi. Nên màn hẹp có khung riêng rộng 400px, chữ giữ nguyên cỡ thật.
+  const CH = IS_MOBILE
+    ? { W: 400, ROW: 62, BAR_X: 0, BAR_W: 296, BAR_H: 12, PAD_TOP: 16, PAD_BOT: 24 }
+    : { W: 1060, ROW: 50, BAR_X: 262, BAR_W: 420, BAR_H: 14, PAD_TOP: 34, PAD_BOT: 46 };
+  const LAB_X = CH.BAR_X + CH.BAR_W + 82;   // mốc cột "Chênh lệch" (chỉ máy tính)
+  const chartH = chartRows.length * CH.ROW + CH.PAD_BOT;
+  const barLen = (v) => (v > 0 ? Math.max(3, (v / maxChart) * CH.BAR_W) : 0);
 
   const tickStep = maxChart > 40e9 ? 10e9 : maxChart > 15e9 ? 5e9 : maxChart > 5e9 ? 2e9 : 1e9;
   let gridSvg = '';
   for (let t = 0; t <= maxChart; t += tickStep) {
-    const x = BAR_X + (t / maxChart) * BAR_W;
-    gridSvg += `<line x1="${x}" y1="28" x2="${x}" y2="${chartH - 18}" stroke="var(--gray2)" stroke-width="1"/>
-      <text x="${x}" y="${chartH - 4}" text-anchor="middle" font-size="10.5" fill="var(--gray4)">${t / 1e9}</text>`;
+    const x = CH.BAR_X + (t / maxChart) * CH.BAR_W;
+    // Vạch đầu căn trái, vạch cuối căn phải — căn giữa thì nửa chữ số lòi ra
+    // ngoài khung svg và bị cắt mất (lỗi thấy trên màn gập 412px).
+    const anchor = t === 0 ? 'start' : t + tickStep > maxChart ? 'end' : 'middle';
+    gridSvg += `<line x1="${x}" y1="${IS_MOBILE ? 4 : 28}" x2="${x}" y2="${chartH - 18}" stroke="var(--gray2)" stroke-width="1"/>
+      <text x="${x}" y="${chartH - 4}" text-anchor="${anchor}" font-size="10.5" fill="var(--gray4)">${t / 1e9}</text>`;
   }
 
-  const barsSvg = chartRows.map((r, i) => {
-    const y = 34 + i * ROW_H;
-    const neg = r.chenhLech < 0;
-    const wDt = barLen(r.doanhThu), wSl = barLen(r.chiPhi);
-    return `<g>
-      <title>${esc(r.p.code)} — ${esc(r.p.name)}
+  const tip = (r) => `${esc(r.p.code)} — ${esc(r.p.name)}
 Giá trị HĐ: ${r.giaTriHD == null ? 'chưa nhập' : fmt(r.giaTriHD) + ' đ'}
 Doanh thu: ${fmt(r.doanhThu)} đ
 Sản lượng: ${fmt(r.chiPhi)} đ
-Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ</title>
-      <rect x="0" y="${y - 10}" width="${SVG_W}" height="${ROW_H - 6}" fill="transparent"/>
+Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ`;
+
+  const barsSvg = chartRows.map((r, i) => {
+    const y = CH.PAD_TOP + i * CH.ROW;
+    const neg = r.chenhLech < 0;
+    const wDt = barLen(r.doanhThu), wSl = barLen(r.chiPhi);
+    const col = neg ? 'var(--red)' : 'var(--green)';
+    const chenh = `${neg ? '−' : '+'}${tyVnd2(Math.abs(r.chenhLech))} tỷ`;
+    const hd = r.giaTriHD == null ? 'chưa có giá trị HĐ' : `HĐ ${tyVnd(r.giaTriHD)} tỷ`;
+    const pctTxt = r.thuPct == null ? '' : `đạt ${pctInt(r.thuPct)}% HĐ`;
+
+    if (IS_MOBILE) {
+      // Dòng 1: mã dự án (trái) · chênh lệch (phải). Dòng 2: giá trị HĐ · % HĐ.
+      // Dòng 3-4: hai thanh, số ngay sau đuôi thanh.
+      return `<g><title>${tip(r)}</title>
+      <text x="0" y="${y}" font-size="12.5" font-weight="700" fill="var(--gray7)">${esc(r.p.code)}</text>
+      <text x="${CH.W}" y="${y}" text-anchor="end" font-size="12.5" font-weight="700" fill="${col}">${chenh}</text>
+      <text x="0" y="${y + 13}" font-size="10" fill="var(--gray4)">${hd}</text>
+      <text x="${CH.W}" y="${y + 13}" text-anchor="end" font-size="10" fill="var(--gray4)">${pctTxt}</text>
+      <rect x="0" y="${y + 19}" width="${wDt}" height="${CH.BAR_H}" rx="3" fill="#2a78d6"/>
+      <text x="${wDt + 6}" y="${y + 29}" font-size="10.5" font-weight="600" fill="var(--gray7)">${tyVnd2(r.doanhThu)}</text>
+      <rect x="0" y="${y + 19 + CH.BAR_H + 2}" width="${wSl}" height="${CH.BAR_H}" rx="3" fill="#eb6834"/>
+      <text x="${wSl + 6}" y="${y + 29 + CH.BAR_H + 2}" font-size="10.5" font-weight="600" fill="var(--gray7)">${tyVnd2(r.chiPhi)}</text>
+    </g>`;
+    }
+    return `<g><title>${tip(r)}</title>
+      <rect x="0" y="${y - 10}" width="${CH.W}" height="${CH.ROW - 6}" fill="transparent"/>
       <text x="250" y="${y + 12}" text-anchor="end" font-size="13.5" font-weight="700" fill="var(--gray7)">${esc(r.p.code)}</text>
-      <text x="250" y="${y + 27}" text-anchor="end" font-size="10.5" fill="var(--gray4)">${r.giaTriHD == null ? 'chưa có giá trị HĐ' : `HĐ ${tyVnd(r.giaTriHD)} tỷ`}</text>
-      <rect x="${BAR_X}" y="${y}" width="${wDt}" height="${BAR_H}" rx="4" fill="#2a78d6"/>
-      <text x="${BAR_X + wDt + 7}" y="${y + 12}" font-size="11.5" font-weight="600" fill="var(--gray7)">${tyVnd(r.doanhThu)}</text>
-      <rect x="${BAR_X}" y="${y + BAR_H + 2}" width="${wSl}" height="${BAR_H}" rx="4" fill="#eb6834"/>
-      <text x="${BAR_X + wSl + 7}" y="${y + BAR_H + 14}" font-size="11.5" font-weight="600" fill="var(--gray7)">${tyVnd(r.chiPhi)}</text>
-      <text x="${LAB_X}" y="${y + 13}" font-size="14" font-weight="700" fill="${neg ? 'var(--red)' : 'var(--green)'}">${neg ? '−' : '+'}${tyVnd2(Math.abs(r.chenhLech))} tỷ</text>
+      <text x="250" y="${y + 27}" text-anchor="end" font-size="10.5" fill="var(--gray4)">${hd}</text>
+      <rect x="${CH.BAR_X}" y="${y}" width="${wDt}" height="${CH.BAR_H}" rx="4" fill="#2a78d6"/>
+      <text x="${CH.BAR_X + wDt + 7}" y="${y + 12}" font-size="11.5" font-weight="600" fill="var(--gray7)">${tyVnd(r.doanhThu)}</text>
+      <rect x="${CH.BAR_X}" y="${y + CH.BAR_H + 2}" width="${wSl}" height="${CH.BAR_H}" rx="4" fill="#eb6834"/>
+      <text x="${CH.BAR_X + wSl + 7}" y="${y + CH.BAR_H + 14}" font-size="11.5" font-weight="600" fill="var(--gray7)">${tyVnd(r.chiPhi)}</text>
+      <text x="${LAB_X}" y="${y + 13}" font-size="14" font-weight="700" fill="${col}">${chenh}</text>
       <text x="${LAB_X}" y="${y + 29}" font-size="11" fill="var(--gray4)">${r.thuPct == null ? 'chưa có giá trị HĐ' : `đạt ${pctInt(r.thuPct)}% giá trị HĐ`}</text>
     </g>`;
   }).join('');
 
-  const chartHtml = IS_MOBILE ? '' : `
-    <div class="card" style="margin-bottom:12px">
+  const chartHtml = `
+    <div class="card" style="margin-bottom:12px${IS_MOBILE ? ';padding:14px 12px' : ''}">
       <div class="card-title" style="margin:0">Doanh thu và sản lượng theo dự án</div>
-      <div class="card-sub">Xếp theo chênh lệch từ cao xuống thấp · số trên thanh và trục đều tính bằng tỷ đồng</div>
-      <div style="display:flex;gap:18px;margin:10px 0 2px;font-size:13px;color:var(--gray6)">
-        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#2a78d6;margin-right:6px"></span>Doanh thu (CĐT xác nhận)</span>
-        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#eb6834;margin-right:6px"></span>Sản lượng (tổng bill các đơn vị)</span>
+      <div class="card-sub">Xếp theo chênh lệch từ cao xuống thấp · đơn vị: tỷ đồng</div>
+      <div style="display:flex;gap:${IS_MOBILE ? 12 : 18}px;margin:10px 0 2px;font-size:${IS_MOBILE ? 11.5 : 13}px;color:var(--gray6);flex-wrap:wrap">
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#2a78d6;margin-right:6px"></span>Doanh thu${IS_MOBILE ? '' : ' (CĐT xác nhận)'}</span>
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#eb6834;margin-right:6px"></span>Sản lượng${IS_MOBILE ? '' : ' (tổng bill các đơn vị)'}</span>
       </div>
-      <svg viewBox="0 0 ${SVG_W} ${chartH}" width="100%" height="${chartH}" style="max-width:100%;display:block">${gridSvg}${barsSvg}</svg>
+      <!-- ⚠️ height: máy tính ĐẶT CỨNG chartH. Để "auto" thì svg phóng theo bề ngang
+           cột (1240px) và cao vống lên ~700px, trang tràn khỏi màn hình.
+           Điện thoại để auto vì khung 400px gần đúng bề ngang máy, co không đáng kể. -->
+      <svg viewBox="0 0 ${CH.W} ${chartH}" width="100%" height="${IS_MOBILE ? 'auto' : chartH}" style="max-width:100%;display:block">${gridSvg}${barsSvg}</svg>
     </div>`;
 
   // ---- Cam kết theo loại hợp đồng -------------------------------------------
@@ -393,7 +401,7 @@ Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ
     '<div id="dashCompact">' +
     tilesHtml +
     (IS_MOBILE
-      ? summaryTableHtml + camKetHtml + amHtml
+      ? chartHtml + camKetHtml + amHtml
       : `<div style="display:grid;grid-template-columns:minmax(0,2.2fr) minmax(300px,1fr);gap:16px;align-items:start">
            <div>${chartHtml}</div>
            <div>${camKetHtml}${amHtml}</div>
