@@ -1,42 +1,17 @@
 // ============================================================
-// dashboard.js — Tổng quan: Ngân sách/Cam kết/Thực chi, HĐ CĐT vs ngân sách,
-// danh sách hồ sơ vượt (Case 1/2), danh sách đơn vị đã ký hợp đồng.
-// Toàn bộ dữ liệu lấy thật từ Supabase — RLS tự lọc đúng phạm vi theo vai trò
-// đang đăng nhập, module này không cần tự kiểm tra quyền.
+// dashboard.js — Tổng quan: 3 ô số · biểu đồ Doanh thu–Sản lượng theo dự án ·
+// Cam kết theo loại hợp đồng · Dự án đang âm. Dữ liệu lấy thật từ Supabase,
+// RLS tự lọc theo vai trò nên module này không tự kiểm tra quyền.
 //
-// ⚠️ SỬA 08/10/2026 — ĐỔI NGUỒN "GIÁ TRỊ HĐ" VÀ ĐỔI TÊN CỘT
-//
-//   1. BỎ hẳn truy vấn bảng revenue_contracts. Bảng đó 0 dòng, chưa bao giờ có
-//      dữ liệu (bản kiểm kê 30/09), nên cột "Giá trị HĐ" luôn ra "—" kèm lời
-//      nhắc vào tab "Hợp đồng đầu ra (CĐT)" — mà tab đó đã ẩn ngày 08/10.
-//      Nay lấy từ owner_progress_claims (tab Doanh thu dự án), nơi đã có số thật.
-//
-//   2. 🔴 LẤY THEO ĐỢT CLAIM MỚI NHẤT, TUYỆT ĐỐI KHÔNG CỘNG DỒN.
-//      Mỗi phiếu claim CHỤP LẠI giá trị hợp đồng tại thời điểm đó. Cộng dồn 3 đợt
-//      = giá trị hợp đồng gấp 3 lần, mà vẫn ra một con số trông hợp lý nên không
-//      ai phát hiện. Hiện mỗi dự án mới có đợt 1 nên hai cách ra như nhau —
-//      đúng lúc chưa lộ mới là lúc dễ cài sai nhất.
-//
-//   3. CỘT DOANH THU THÌ NGƯỢC LẠI: VẪN CỘNG mọi đợt, vì ô amount_before_vat
-//      theo thiết kế là "(2) GIÁ TRỊ THI CÔNG KỲ NÀY" — phần tăng thêm của riêng
-//      kỳ đó, không phải lũy kế. Hai cột lấy theo hai cách ngược nhau là CỐ Ý.
-//      ⚠️ Kèm theo đó: đợt 2 trở đi chỉ được nhập PHẦN TĂNG THÊM. Nhập lũy kế
-//      vào đợt 2 là doanh thu bị cộng đôi. 10 dòng nhập ngày 08/10 là trường hợp
-//      đặc biệt (lũy kế gộp vào đợt 1), đã ghi rõ trong cột Ghi chú của chúng.
-//
-//   4. Đổi tên cột "Sản lượng từ CĐT" -> "Doanh thu", và đổi tên hai biến
-//      doanhThu/sanLuong cho khớp nghĩa mới (bản cũ đặt tên NGƯỢC: biến tên
-//      doanhThu lại đang giữ giá trị hợp đồng).
-//
-//   5. BỎ cột "Ghi chú" (yêu cầu 08/10). Bỏ luôn biến danhGia sinh ra nội dung
-//      cột đó, không để lại code chết. Dự án chưa nhập giá trị HĐ nay chỉ hiện
-//      dấu "—" xám ở cột Giá trị HĐ, không còn câu nhắc kèm theo.
+// ⚠️ HAI CỘT LẤY NGƯỢC NHAU — CỐ Ý, ĐỪNG 'SỬA CHO ĐỒNG BỘ':
+//   · GIÁ TRỊ HĐ: chỉ lấy đợt claim MỚI NHẤT (mỗi phiếu chụp lại giá trị HĐ tại
+//     thời điểm đó; cộng dồn 3 đợt = gấp 3 mà vẫn ra số trông hợp lý).
+//   · DOANH THU: CỘNG mọi đợt (amount_before_vat là phần tăng thêm của riêng kỳ).
+//     Đợt 2 trở đi chỉ nhập PHẦN TĂNG THÊM, nhập lũy kế là cộng đôi.
 // ============================================================
 import { supabase } from '../core/config.js';
 import { fmt, IS_MOBILE } from '../core/utils.js';
-// Danh sách vai trò cấp toàn công ty — nhập từ shell.js, KHÔNG chép lại.
-// Bản cũ gõ thẳng mảng này ở 2 chỗ bên dưới; sửa một chỗ quên chỗ kia là hai
-// phép lọc chạy lệch nhau mà không báo lỗi gì.
+// Vai trò cấp toàn công ty — nhập từ shell.js, KHÔNG chép lại (sửa 1 chỗ quên chỗ kia).
 import { COMPANY_WIDE_ROLES } from '../core/shell.js';
 
 // Chống vỡ HTML khi tên đối tác/dự án có ký tự đặc biệt (&, <, ">, dấu nháy)
@@ -52,72 +27,38 @@ export async function render(container, user) {
   const [{ data: projects }, { data: contracts }, { data: bills }, { data: myAssignments }, { data: claims }] =
     await Promise.all([
       supabase.from('projects').select('id, code, name').order('code'),
-      // Bổ sung status / parent_contract_id / projects(code,name) để bảng cảnh báo
-      // tra được Dự án, Nhà cung cấp và cộng dồn PLHĐ mà không phải gọi thêm query
-      // contract_type thêm 20/11/2026 cho khối "Cam kết theo loại hợp đồng"
+          // status/projects để tra dự án; contract_type cho khối Cam kết
       supabase.from('contracts').select('id, doc_number, value, value_adjustment, status, contract_type, parent_contract_id, project_id, origin_department, partners(name), projects(code, name)'),
-      // Bổ sung id / doc_number để đối chiếu đúng dòng cảnh báo là bill nào.
-      // period_no + vat_rate để tính chi phí dự án (xem khối CHI PHÍ bên dưới).
-      // ⚠️ KHÔNG lấy val_e..val_h nữa — chốt 20/11/2026 chi phí chỉ tính theo
-      //   SẢN LƯỢNG (val_d). Lấy về mà không dùng chỉ khiến người đọc sau tưởng
-      //   công thức vẫn còn cộng mấy ô đó.
+          // ⚠️ KHÔNG lấy val_e..val_h — chốt 20/11: chi phí CHỈ tính theo sản lượng (val_d).
+          //   Lấy về mà không dùng chỉ khiến người đọc sau tưởng công thức vẫn cộng mấy ô đó.
       supabase.from('bills').select('id, doc_number, contract_id, project_id, partner_id, period_no, status, val_d, vat_rate'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
-      // contract_amount + vo_amount: nguồn MỚI của cột "Giá trị HĐ" (thay revenue_contracts)
+      // contract_amount + vo_amount: nguồn cột "Giá trị HĐ"
       supabase.from('owner_progress_claims').select('project_id, claim_no, amount_before_vat, contract_amount, vo_amount, confirmed_date'),
     ]);
 
-  // Khối "Vai trò của tôi" ĐÃ BỎ 20/11/2026 theo yêu cầu — vai trò tra được ở
-  // tab Người dùng, không cần chiếm một dải ngang đầu trang Tổng quan.
 
   if (!projects || projects.length === 0) {
     container.innerHTML = `<div class="empty-note">Chưa có dự án nào trong hệ thống, hoặc bạn chưa được phân công dự án nào.</div>`;
     return;
   }
 
-  // Ngân sách/HĐ đầu ra giờ ai cũng xem được, nhưng nếu người này CÓ gắn với
-  // (các) dự án cụ thể (CHT/GĐDA/QS/PTGD-công trường...) thì chỉ hiện đúng
-  // dự án đó — vai trò văn phòng thuần (Kế toán/Pháp chế/QLCP&HĐ không gắn dự án
-  // cụ thể) vẫn thấy toàn bộ như trước, đúng vai trò xuyên suốt của họ.
+      // Người CÓ gắn dự án cụ thể (CHT/GĐDA/QS...) chỉ thấy dự án đó; vai trò văn
+      // phòng thuần (Kế toán/Pháp chế/QLCP&HĐ) vẫn thấy toàn bộ, đúng vai trò của họ.
   const myProjectIds = new Set((myAssignments || []).map((a) => a.project_id).filter(Boolean));
   const isSiteLimited = myProjectIds.size > 0 && !(user.roles || []).some((r) => COMPANY_WIDE_ROLES.includes(r));
 
-  // budgetRowsFiltered / revenueRowsFiltered đã gỡ cùng 2 khối thống kê ngân sách.
-  // contractsFiltered đã bỏ cùng bảng "Danh sách đơn vị đã ký hợp đồng" — không còn nơi nào dùng
 
 
-  // ============================================================
-  // BẢNG TỔNG THEO DỰ ÁN — Giá trị HĐ · Doanh thu · Sản lượng · Chênh lệch
-  //
-  // ⚠️ Cột hiển thị tên "Sản lượng" (đổi 20/11/2026) nhưng biến trong code vẫn tên
-  //   chiPhi / tChiPhi. CỐ Ý giữ nguyên tên biến: đổi tên biến chỉ để khớp nhãn là
-  //   sửa vào chỗ đang chạy đúng, không được lợi gì. Hai cái là một con số:
-  //   sản lượng thầu phụ đã thực hiện, trước thuế.
-  //
-  // ✅ ĐÃ CHỐT 20/11/2026 — CHI PHÍ CHỈ LẤY SẢN LƯỢNG, KHÔNG TÍNH TẠM ỨNG.
-  //
-  // CHI PHÍ DỰ ÁN = ô D (val_d, sản lượng thầu phụ đã thực hiện lũy kế) của bill kỳ
-  // MỚI NHẤT trong mỗi nhóm, quy về TRƯỚC THUẾ. val_d đã gồm VAT nên chia (1+VAT).
-  //
-  // ⚠️ BẢN CŨ LẤY I = D+E+F+G+H VÀ ĐÓ LÀ SAI. Trong đó:
-  //   F = TẠM ỨNG — tiền ứng trước cho khối lượng CHƯA LÀM, không phải chi phí.
-  //       VEGA20CAN-MEP phồng lên 515 triệu chỉ vì 703 triệu tạm ứng của 2 nhà thầu.
-  //   E = GIỮ LẠI — bị TRỪ khỏi chi phí, trong khi công đã làm rồi, chỉ là chưa trả
-  //       tiền. Đây là lý do 7/10 dự án bị thiếu chi phí, HANGHAI thiếu tới 1,01 tỷ.
-  //   Cộng lại, toàn công ty thiếu ~2,18 tỷ chi phí -> cột Chênh lệch nói lãi cao
-  //   hơn thực tế đúng chừng đó.
-  //
-  // Nay hai vế cùng một thước đo: Doanh thu = sản lượng CĐT xác nhận (trước thuế,
-  // trước giữ lại), Chi phí = sản lượng thầu phụ đã làm (trước thuế, trước giữ lại).
-  // Chênh lệch giờ mới đúng nghĩa LÃI GỘP THỰC HIỆN.
-  //
-  // ⚠️ Chi phí này KHÁC "tiền đã chi". Tạm ứng đã trả ra nhưng không nằm ở đây.
-  //   Cần theo dõi dòng tiền thì phải làm cột riêng, đừng mượn cột này.
-  //
-  // Gom nhóm theo hợp đồng; bill chưa gắn hợp đồng thì gom theo cặp Dự án+Đối tác
-  // để không bỏ sót (BCTC chỉ đếm dòng có hợp đồng — đây là lý do con số ở 2 màn
-  // hình có thể lệch nhau, và lệch đúng phần bill chưa gắn HĐ).
-  // ============================================================
+      // ============================================================
+      // SỐ THEO DỰ ÁN. ⚠️ Nhãn 'Sản lượng' nhưng biến vẫn tên chiPhi — cố ý giữ.
+          //   chia (1+VAT) về trước thuế. BẢN CŨ LẤY I = D+E+F+G+H VÀ ĐÓ LÀ SAI:
+          //   F = tạm ứng (khối lượng CHƯA LÀM — VEGA20CAN-MEP phồng 515 triệu),
+          //   E = giữ lại (bị trừ dù công đã làm — HANGHAI thiếu 1,01 tỷ).
+          //   Toàn công ty thiếu ~2,18 tỷ. Nay hai vế cùng thước đo nên Chênh lệch
+          //   mới đúng nghĩa LÃI GỘP THỰC HIỆN. ⚠️ KHÁC 'tiền đã chi'.
+          // Gom theo hợp đồng; bill chưa gắn HĐ gom theo Dự án+Đối tác để không sót.
+          // ============================================================
   const validBills = (bills || []).filter((b) => !['draft', 'cancelled', 'rejected'].includes(b.status));
   const latestBillByGroup = {};
   validBills.forEach((b) => {
@@ -137,8 +78,7 @@ export async function render(container, user) {
     return (contracts || []).find((c) => c.id === id) || null;
   }
 
-  // GIÁ TRỊ HỢP ĐỒNG — lấy của ĐỢT CLAIM MỚI NHẤT mỗi dự án. KHÔNG cộng dồn.
-  // (Xem ghi chú mục 2 đầu file để biết vì sao cộng dồn là sai.)
+  // GIÁ TRỊ HĐ — ĐỢT CLAIM MỚI NHẤT mỗi dự án, KHÔNG cộng dồn (xem đầu file).
   const latestClaimByProject = {};
   (claims || []).forEach((r) => {
     const cur = latestClaimByProject[r.project_id];
@@ -150,7 +90,7 @@ export async function render(container, user) {
     contractValueByProject[pid] = v > 0 ? v : null; // 0 hoặc trống = coi như CHƯA NHẬP, để còn nhắc
   });
 
-  // DOANH THU — CỘNG mọi đợt (ngược với cột trên). Xem ghi chú mục 3 đầu file.
+  // DOANH THU — CỘNG mọi đợt (ngược cột trên, xem đầu file).
   const claimByProject = {};
   (claims || []).forEach((r) => (claimByProject[r.project_id] = (claimByProject[r.project_id] || 0) + Number(r.amount_before_vat || 0)));
 
@@ -172,58 +112,31 @@ export async function render(container, user) {
   const tChenhLech = tDoanhThu - tChiPhi;
 
   const tyVnd = (n) => (Number(n) / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  // Chênh lệch để 2 số lẻ: nhiều dự án chênh vài trăm triệu, làm tròn 1 số lẻ thì
-  // 149 triệu và 126 triệu đều ra "0,1 tỷ" — nhìn như nhau mà thực tế khác nhau.
+  // Chênh lệch 2 số lẻ: 1 số lẻ thì 149 và 126 triệu đều ra "0,1 tỷ".
   const tyVnd2 = (n) => (Number(n) / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pct1 = (v) => Number(v).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   // Dưới 1% ghi "<1" — làm tròn về 0 khiến người đọc tưởng chưa claim đồng nào
   const pctInt = (v) => (v > 0 && v < 1 ? '<1' : Math.round(v).toLocaleString('vi-VN'));
 
-  // ============================================================
-  // BẢNG TỔNG HỢP — gộp luôn biểu đồ vào trong bảng (20/11/2026)
-  //
-  // Trước đó có MỘT biểu đồ thanh ngang riêng + MỘT bảng số riêng, cùng nói về
-  // một bộ số. Cộng lại cao hơn 1.400px, không lọt một màn hình, mà cũng vi phạm
-  // nguyên tắc "một con số chỉ hiện một chỗ".
-  // Nay nhập làm một: mỗi dòng có 2 thanh so sánh Doanh thu / Sản lượng ngay
-  // trong ô. Vẫn nhìn được hơn kém ở một cái liếc, mà chỉ cao bằng cái bảng.
-  //
-  // Xếp theo chênh lệch từ cao xuống thấp — dự án đang âm rơi xuống cuối bảng,
-  // đúng chỗ người đọc tìm.
-  // ============================================================
+      // Xếp theo chênh lệch từ cao xuống thấp — dự án âm rơi xuống cuối, đúng chỗ người đọc tìm.
 
-  // Bảng "Tổng hợp theo dự án" ĐÃ GỠ 20/11/2026: điện thoại nay cũng dùng biểu đồ
-  // thanh như máy tính, nên bảng số không còn nơi nào hiển thị. Mọi con số của
-  // bảng đều có trên biểu đồ (doanh thu, sản lượng, chênh lệch, % HĐ, giá trị HĐ).
 
-  // Khối "Hồ sơ đang có cảnh báo" ĐÃ GỠ 20/11/2026 theo yêu cầu. Cảnh báo vượt
-  // vẫn hiện trên từng hồ sơ ở tab Hợp đồng và Bill thanh toán.
 
-  // Khối "Hồ sơ trễ hạn duyệt" ĐÃ GỠ 25/09/2026 theo yêu cầu.
 
-  // ============================================================
-  // BỐ CỤC MỚI 20/11/2026 — trang này CEO và PTGĐ đọc trực tiếp
-  //
-  // 4 ô số · biểu đồ Doanh thu–Sản lượng theo dự án · Cam kết theo loại hợp đồng ·
-  // Dự án đang âm · bảng cảnh báo (giữ nguyên như cũ).
-  //
-  // ⚠️ KHÔNG dựng 3 khối Ngân sách–Thực tế, Công nợ phải thu, Công nợ phải trả.
-  //   Đã soi database 20/11: chỉ 1/11 dự án có BCTC còn hiệu lực; bảng claim không
-  //   có ô "CĐT đã trả"; bill không có trạng thái "đã duyệt, chưa chi". Vẽ ô trống
-  //   cho lãnh đạo xem còn tệ hơn không vẽ.
-  //
-  // ⚠️ Số liệu lấy NGUYÊN từ summaryRows/tGiaTriHD/... ở trên, KHÔNG tính lại.
-  //   Tính lại ở hai chỗ là sớm muộn cũng lệch nhau mà không ai biết bên nào đúng.
-  // ============================================================
+      // ============================================================
+      // BỐ CỤC 20/11 — trang này CEO và PTGĐ đọc trực tiếp.
+      // ⚠️ KHÔNG dựng 3 khối Ngân sách–Thực tế / Phải thu / Phải trả: soi DB 20/11
+      //   thấy chỉ 1/11 dự án có BCTC còn hiệu lực, claim không có ô 'CĐT đã trả',
+      //   bill không có trạng thái 'đã duyệt, chưa chi'. Vẽ ô trống cho lãnh đạo xem
+      //   còn tệ hơn không vẽ.
+      // ⚠️ Lấy NGUYÊN số từ summaryRows/tGiaTriHD ở trên, KHÔNG tính lại.
+      // ============================================================
 
   const amRows = summaryRows.filter((r) => r.chenhLech < 0).sort((a, b) => a.chenhLech - b.chenhLech);
 
-  // Ô "Chênh lệch" tổng ĐÃ BỎ 20/11/2026 theo yêu cầu. Chênh lệch vẫn xem được
-  // theo từng dự án ở cột bên phải biểu đồ, và cộng tổng ở hàng TỔNG của bảng
-  // trên điện thoại. Còn 3 ô: Giá trị HĐ · Doanh thu · Sản lượng.
-  // ⚠️ TRÊN ĐIỆN THOẠI 3 Ô NẰM MỘT HÀNG, chữ ngắn lại (sửa 20/11 sau khi xem màn
-  //   gập thật): bản cũ xếp 2+1, nhãn dài xuống 2-3 dòng, 3 con số ăn gần một
-  //   phần tư màn hình — phải cuộn mới tới bảng. Nhãn dài giữ cho máy tính.
+      // Ô 'Chênh lệch' tổng đã bỏ 20/11 theo yêu cầu — còn 3 ô, xem chênh lệch theo
+      // từng dự án trên biểu đồ. ⚠️ Điện thoại 3 ô MỘT HÀNG, nhãn ngắn lại: bản cũ
+      // xếp 2+1 với nhãn dài, 3 con số ăn gần 1/4 màn hình.
   const TILES = [
     { k: IS_MOBILE ? 'Giá trị HĐ' : 'Giá trị hợp đồng đã ký với CĐT', v: tyVnd(tGiaTriHD), color: '',
       f: IS_MOBILE ? '' : `${fmt(tGiaTriHD)} đ` },
@@ -241,29 +154,21 @@ export async function render(container, user) {
       </div>`).join('')}
     </div>`;
 
-  // ---- Biểu đồ Doanh thu vs Sản lượng theo dự án (chỉ máy tính) --------------
-  // Xanh #2a78d6 / cam #eb6834: cặp màu đã kiểm bằng máy, người mù màu vẫn phân
-  // biệt được (ΔE 24,7 — ngưỡng tối thiểu là 8) và in đen trắng vẫn khác sắc độ.
-  //
-  // ⚠️ SỐ NẰM NGAY SAU MỖI THANH (chốt 20/11): nhìn thanh biết hơn kém, đọc số
-  //   biết bao nhiêu, không phải rê chuột. Vì nhãn chạy theo đuôi thanh nên
-  //   BAR_W phải chừa đủ chỗ: thanh dài nhất + nhãn vẫn chưa chạm cột chênh lệch.
-  //   Sửa BAR_W mà quên dời LAB_X là hai cụm chữ đè lên nhau.
+      // ---- Biểu đồ Doanh thu vs Sản lượng ----
+      // Xanh #2a78d6 / cam #eb6834: người mù màu vẫn phân biệt (ΔE 24,7).
+      // ⚠️ Số nằm ngay sau mỗi thanh nên BAR_W phải chừa chỗ: thanh dài nhất + nhãn
+      //   vẫn chưa chạm cột chênh lệch. Sửa BAR_W mà quên dời LAB_X là chữ đè nhau.
   const chartRows = [...summaryRows].sort((a, b) => b.chenhLech - a.chenhLech);
   const maxChart = Math.max(1, ...chartRows.map((r) => Math.max(r.doanhThu, r.chiPhi)));
 
-  // ⚠️ HAI HÌNH DẠNG KHÁC HẲN NHAU, KHÔNG PHẢI MỘT HÌNH THU NHỎ (sửa 20/11):
-  //   Máy tính xếp NGANG: tên dự án | thanh | chênh lệch — tận dụng bề ngang.
-  //   Điện thoại xếp DỌC: tên dự án và chênh lệch một dòng, hai thanh nằm dưới.
-  //   Nếu bê nguyên khung 1060px xuống màn 412px thì chữ co còn ~5px, không đọc
-  //   nổi. Nên màn hẹp có khung riêng, chữ giữ nguyên cỡ thật.
-  //
-  // ⚠️ KHUNG MÀN HẸP PHẢI ĐO THEO BỀ NGANG MÁY, KHÔNG ĐẶT CỨNG (sửa 20/11):
-  //   IS_MOBILE trong utils.js xét user-agent, KHÔNG xét bề ngang. Màn gập mở ra
-  //   vẫn là IS_MOBILE nhưng rộng gấp đôi, nên khung cứng 400px bị svg phóng to
-  //   theo container (~1,7 lần) và CHỮ TO VỐNG LÊN — đúng lỗi anh Toàn báo.
-  //   Nay lấy innerWidth trừ lề (trang 2×12 + thẻ 2×12 ≈ 48) làm bề ngang khung,
-  //   chặn trong [330, 760] để màn quá hẹp không vỡ và máy tính bảng không loãng.
+      // ⚠️ HAI HÌNH DẠNG KHÁC HẲN, KHÔNG PHẢI MỘT HÌNH THU NHỎ: máy tính xếp NGANG
+      //   (tên | thanh | chênh lệch), màn hẹp xếp DỌC (tên+chênh lệch một dòng, hai
+      //   thanh nằm dưới). Bê khung 1060px xuống màn 412px thì chữ co còn ~5px.
+      //
+      // ⚠️ KHUNG MÀN HẸP ĐO THEO BỀ NGANG MÁY, KHÔNG ĐẶT CỨNG (sửa 20/11): IS_MOBILE
+      //   trong utils.js xét user-agent, KHÔNG xét bề ngang — màn gập mở ra vẫn là
+      //   IS_MOBILE nhưng rộng gấp đôi, khung cứng 400px bị phóng ~1,7 lần, CHỮ TO VỐNG.
+      //   Nay lấy innerWidth trừ lề (≈48), chặn trong [330, 760].
   const VPW = (typeof window !== 'undefined' && window.innerWidth) || 400;
   const mobW = Math.max(330, Math.min(VPW - 48, 760));
   const CH = IS_MOBILE
@@ -319,4 +224,99 @@ Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ
       <text x="250" y="${y + 27}" text-anchor="end" font-size="10.5" fill="var(--gray4)">${hd}</text>
       <rect x="${CH.BAR_X}" y="${y}" width="${wDt}" height="${CH.BAR_H}" rx="4" fill="#2a78d6"/>
       <text x="${CH.BAR_X + wDt + 7}" y="${y + 12}" font-size="11.5" font-weight="600" fill="var(--gray7)">${tyVnd(r.doanhThu)}</text>
-      <rect x="${CH.BAR_X}" y="${y + CH.BAR_H + 2}" width="${wSl}" height="${CH.BAR_
+      <rect x="${CH.BAR_X}" y="${y + CH.BAR_H + 2}" width="${wSl}" height="${CH.BAR_H}" rx="4" fill="#eb6834"/>
+      <text x="${CH.BAR_X + wSl + 7}" y="${y + CH.BAR_H + 14}" font-size="11.5" font-weight="600" fill="var(--gray7)">${tyVnd(r.chiPhi)}</text>
+      <text x="${LAB_X}" y="${y + 13}" font-size="14" font-weight="700" fill="${col}">${chenh}</text>
+      <text x="${LAB_X}" y="${y + 29}" font-size="11" fill="var(--gray4)">${r.thuPct == null ? 'chưa có giá trị HĐ' : `đạt ${pctInt(r.thuPct)}% giá trị HĐ`}</text>
+    </g>`;
+  }).join('');
+
+  const chartHtml = `
+    <div class="card" style="margin-bottom:12px${IS_MOBILE ? ';padding:14px 12px' : ''}">
+      <div class="card-title" style="margin:0">Doanh thu và sản lượng theo dự án</div>
+      <div class="card-sub">Xếp theo chênh lệch từ cao xuống thấp · đơn vị: tỷ đồng</div>
+      <div style="display:flex;gap:${IS_MOBILE ? 12 : 18}px;margin:10px 0 2px;font-size:${IS_MOBILE ? 11.5 : 13}px;color:var(--gray6);flex-wrap:wrap">
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#2a78d6;margin-right:6px"></span>Doanh thu${IS_MOBILE ? '' : ' (CĐT xác nhận)'}</span>
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#eb6834;margin-right:6px"></span>Sản lượng${IS_MOBILE ? '' : ' (tổng bill các đơn vị)'}</span>
+      </div>
+      <!-- ⚠️ height cứng + max-width = CH.W + xMinYMin: ba thứ đi liền nhau, bỏ một
+           là svg tự phóng theo container và chữ to vống (lỗi màn gập 20/11). -->
+      <svg viewBox="0 0 ${CH.W} ${chartH}" width="100%" height="${chartH}"
+           preserveAspectRatio="xMinYMin meet"
+           style="max-width:${CH.W}px;display:block">${gridSvg}${barsSvg}</svg>
+    </div>`;
+
+  // ---- Cam kết theo loại hợp đồng -------------------------------------------
+  // Giá trị hợp đồng ĐÃ KÝ với các đơn vị, không phải tiền đã chi.
+  const scopeIds = new Set(summaryProjects.map((p) => p.id));
+  const camKet = {};
+  (contracts || []).forEach((c) => {
+    if (c.status === 'cancelled') return;
+    if (!scopeIds.has(c.project_id)) return;
+    const k = c.contract_type || '(chưa phân loại)';
+    camKet[k] = (camKet[k] || 0) + Number(c.value || 0);
+  });
+  let camKetList = Object.entries(camKet).sort((a, b) => b[1] - a[1]);
+  // Quá 5 loại thì gộp đuôi lại — bảng xếp hạng dài không ai đọc tới dòng thứ 7
+  if (camKetList.length > 5) {
+    const khac = camKetList.slice(4).reduce((s, x) => s + x[1], 0);
+    camKetList = [...camKetList.slice(0, 4), ['Các loại khác', khac]];
+  }
+  const camKetTong = camKetList.reduce((s, x) => s + x[1], 0);
+  const camKetMax = Math.max(1, ...camKetList.map((x) => x[1]));
+  const camKetHtml = camKetList.length
+    ? `<div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin:0">Cam kết theo loại hợp đồng</div>
+        <div class="card-sub">Giá trị hợp đồng đã ký với các đơn vị · tổng ${tyVnd(camKetTong)} tỷ</div>
+        <div style="margin-top:12px">
+          ${camKetList.map(([ten, v]) => `
+            <div style="margin-bottom:13px">
+              <div style="font-size:12.5px;color:var(--gray6);margin-bottom:5px">${esc(ten)}</div>
+              <div style="display:flex;align-items:center;gap:9px">
+                <div style="height:15px;border-radius:4px;background:#2a78d6;width:${Math.max(2, (v / camKetMax) * 100)}%;max-width:100%"></div>
+                <div style="font-size:12.5px;font-weight:700;white-space:nowrap">${tyVnd(v)} tỷ</div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`
+    : '';
+
+      // Khối 'Việc đang chờ xử lý' đã bỏ 20/11 — đã tra được ở tab Duyệt hồ sơ / Hồ sơ của tôi.
+
+  // ---- Dự án đang âm ---------------------------------------------------------
+  const amHtml = amRows.length
+    ? `<div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin:0">${amRows.length} dự án đang âm</div>
+        <div class="card-sub">Sản lượng đã vượt doanh thu CĐT xác nhận</div>
+        ${amRows.map((r) => `
+          <div style="border-left:3px solid var(--red);padding:9px 0 9px 12px;margin-top:11px">
+            <div style="font-size:13px;font-weight:700;color:var(--red)">${esc(r.p.code)} · −${fmt(Math.abs(r.chenhLech))} đ</div>
+            <div style="font-size:12px;color:var(--gray6);margin-top:4px;line-height:1.6">
+              Sản lượng ${tyVnd(r.chiPhi)} tỷ so với doanh thu ${tyVnd(r.doanhThu)} tỷ${r.thuPct != null ? ` — CĐT mới xác nhận ${pctInt(r.thuPct)}% giá trị hợp đồng` : ' — dự án chưa có hợp đồng CĐT'}.
+            </div>
+          </div>`).join('')}
+      </div>`
+    : '';
+
+
+      // Nén cho vừa MỘT màn hình (20/11): chỉ thu padding, KHÔNG thu cỡ chữ số tiền
+      // — lãnh đạo đọc con số, không đọc khoảng trắng.
+  const compactCss = `<style>
+    #dashCompact .card{margin-bottom:12px}
+    #dashCompact td{padding:7px 10px}
+    #dashCompact th{padding:7px 10px}
+    #dashCompact .card-sub{margin-bottom:8px}
+  </style>`;
+
+  container.innerHTML =
+    compactCss +
+    '<div id="dashCompact">' +
+    tilesHtml +
+    (IS_MOBILE
+      ? chartHtml + camKetHtml + amHtml
+      : `<div style="display:grid;grid-template-columns:minmax(0,2.2fr) minmax(300px,1fr);gap:16px;align-items:start">
+           <div>${chartHtml}</div>
+           <div>${camKetHtml}${amHtml}</div>
+         </div>`) +
+    '</div>';
+}
