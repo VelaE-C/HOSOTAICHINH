@@ -256,9 +256,18 @@ export async function render(container, user) {
   //   Máy tính xếp NGANG: tên dự án | thanh | chênh lệch — tận dụng bề ngang.
   //   Điện thoại xếp DỌC: tên dự án và chênh lệch một dòng, hai thanh nằm dưới.
   //   Nếu bê nguyên khung 1060px xuống màn 412px thì chữ co còn ~5px, không đọc
-  //   nổi. Nên màn hẹp có khung riêng rộng 400px, chữ giữ nguyên cỡ thật.
+  //   nổi. Nên màn hẹp có khung riêng, chữ giữ nguyên cỡ thật.
+  //
+  // ⚠️ KHUNG MÀN HẸP PHẢI ĐO THEO BỀ NGANG MÁY, KHÔNG ĐẶT CỨNG (sửa 20/11):
+  //   IS_MOBILE trong utils.js xét user-agent, KHÔNG xét bề ngang. Màn gập mở ra
+  //   vẫn là IS_MOBILE nhưng rộng gấp đôi, nên khung cứng 400px bị svg phóng to
+  //   theo container (~1,7 lần) và CHỮ TO VỐNG LÊN — đúng lỗi anh Toàn báo.
+  //   Nay lấy innerWidth trừ lề (trang 2×12 + thẻ 2×12 ≈ 48) làm bề ngang khung,
+  //   chặn trong [330, 760] để màn quá hẹp không vỡ và máy tính bảng không loãng.
+  const VPW = (typeof window !== 'undefined' && window.innerWidth) || 400;
+  const mobW = Math.max(330, Math.min(VPW - 48, 760));
   const CH = IS_MOBILE
-    ? { W: 400, ROW: 62, BAR_X: 0, BAR_W: 296, BAR_H: 12, PAD_TOP: 16, PAD_BOT: 24 }
+    ? { W: mobW, ROW: 62, BAR_X: 0, BAR_W: mobW - 50, BAR_H: 12, PAD_TOP: 16, PAD_BOT: 24 }
     : { W: 1060, ROW: 50, BAR_X: 262, BAR_W: 420, BAR_H: 14, PAD_TOP: 34, PAD_BOT: 46 };
   const LAB_X = CH.BAR_X + CH.BAR_W + 82;   // mốc cột "Chênh lệch" (chỉ máy tính)
   const chartH = chartRows.length * CH.ROW + CH.PAD_BOT;
@@ -310,101 +319,4 @@ Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ
       <text x="250" y="${y + 27}" text-anchor="end" font-size="10.5" fill="var(--gray4)">${hd}</text>
       <rect x="${CH.BAR_X}" y="${y}" width="${wDt}" height="${CH.BAR_H}" rx="4" fill="#2a78d6"/>
       <text x="${CH.BAR_X + wDt + 7}" y="${y + 12}" font-size="11.5" font-weight="600" fill="var(--gray7)">${tyVnd(r.doanhThu)}</text>
-      <rect x="${CH.BAR_X}" y="${y + CH.BAR_H + 2}" width="${wSl}" height="${CH.BAR_H}" rx="4" fill="#eb6834"/>
-      <text x="${CH.BAR_X + wSl + 7}" y="${y + CH.BAR_H + 14}" font-size="11.5" font-weight="600" fill="var(--gray7)">${tyVnd(r.chiPhi)}</text>
-      <text x="${LAB_X}" y="${y + 13}" font-size="14" font-weight="700" fill="${col}">${chenh}</text>
-      <text x="${LAB_X}" y="${y + 29}" font-size="11" fill="var(--gray4)">${r.thuPct == null ? 'chưa có giá trị HĐ' : `đạt ${pctInt(r.thuPct)}% giá trị HĐ`}</text>
-    </g>`;
-  }).join('');
-
-  const chartHtml = `
-    <div class="card" style="margin-bottom:12px${IS_MOBILE ? ';padding:14px 12px' : ''}">
-      <div class="card-title" style="margin:0">Doanh thu và sản lượng theo dự án</div>
-      <div class="card-sub">Xếp theo chênh lệch từ cao xuống thấp · đơn vị: tỷ đồng</div>
-      <div style="display:flex;gap:${IS_MOBILE ? 12 : 18}px;margin:10px 0 2px;font-size:${IS_MOBILE ? 11.5 : 13}px;color:var(--gray6);flex-wrap:wrap">
-        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#2a78d6;margin-right:6px"></span>Doanh thu${IS_MOBILE ? '' : ' (CĐT xác nhận)'}</span>
-        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#eb6834;margin-right:6px"></span>Sản lượng${IS_MOBILE ? '' : ' (tổng bill các đơn vị)'}</span>
-      </div>
-      <!-- ⚠️ height: máy tính ĐẶT CỨNG chartH. Để "auto" thì svg phóng theo bề ngang
-           cột (1240px) và cao vống lên ~700px, trang tràn khỏi màn hình.
-           Điện thoại để auto vì khung 400px gần đúng bề ngang máy, co không đáng kể. -->
-      <svg viewBox="0 0 ${CH.W} ${chartH}" width="100%" height="${IS_MOBILE ? 'auto' : chartH}" style="max-width:100%;display:block">${gridSvg}${barsSvg}</svg>
-    </div>`;
-
-  // ---- Cam kết theo loại hợp đồng -------------------------------------------
-  // Giá trị hợp đồng ĐÃ KÝ với các đơn vị, không phải tiền đã chi.
-  const scopeIds = new Set(summaryProjects.map((p) => p.id));
-  const camKet = {};
-  (contracts || []).forEach((c) => {
-    if (c.status === 'cancelled') return;
-    if (!scopeIds.has(c.project_id)) return;
-    const k = c.contract_type || '(chưa phân loại)';
-    camKet[k] = (camKet[k] || 0) + Number(c.value || 0);
-  });
-  let camKetList = Object.entries(camKet).sort((a, b) => b[1] - a[1]);
-  // Quá 5 loại thì gộp đuôi lại — bảng xếp hạng dài không ai đọc tới dòng thứ 7
-  if (camKetList.length > 5) {
-    const khac = camKetList.slice(4).reduce((s, x) => s + x[1], 0);
-    camKetList = [...camKetList.slice(0, 4), ['Các loại khác', khac]];
-  }
-  const camKetTong = camKetList.reduce((s, x) => s + x[1], 0);
-  const camKetMax = Math.max(1, ...camKetList.map((x) => x[1]));
-  const camKetHtml = camKetList.length
-    ? `<div class="card" style="margin-bottom:16px">
-        <div class="card-title" style="margin:0">Cam kết theo loại hợp đồng</div>
-        <div class="card-sub">Giá trị hợp đồng đã ký với các đơn vị · tổng ${tyVnd(camKetTong)} tỷ</div>
-        <div style="margin-top:12px">
-          ${camKetList.map(([ten, v]) => `
-            <div style="margin-bottom:13px">
-              <div style="font-size:12.5px;color:var(--gray6);margin-bottom:5px">${esc(ten)}</div>
-              <div style="display:flex;align-items:center;gap:9px">
-                <div style="height:15px;border-radius:4px;background:#2a78d6;width:${Math.max(2, (v / camKetMax) * 100)}%;max-width:100%"></div>
-                <div style="font-size:12.5px;font-weight:700;white-space:nowrap">${tyVnd(v)} tỷ</div>
-              </div>
-            </div>`).join('')}
-        </div>
-      </div>`
-    : '';
-
-  // Khối "Việc đang chờ xử lý" ĐÃ BỎ 20/11/2026 theo yêu cầu — số hồ sơ chờ duyệt
-  // đã tra được ở tab Duyệt hồ sơ và Hồ sơ của tôi, còn hồ sơ cảnh báo thì bảng
-  // cảnh báo ngay bên dưới đã liệt kê đầy đủ từng dòng.
-
-  // ---- Dự án đang âm ---------------------------------------------------------
-  const amHtml = amRows.length
-    ? `<div class="card" style="margin-bottom:16px">
-        <div class="card-title" style="margin:0">${amRows.length} dự án đang âm</div>
-        <div class="card-sub">Sản lượng đã vượt doanh thu CĐT xác nhận</div>
-        ${amRows.map((r) => `
-          <div style="border-left:3px solid var(--red);padding:9px 0 9px 12px;margin-top:11px">
-            <div style="font-size:13px;font-weight:700;color:var(--red)">${esc(r.p.code)} · −${fmt(Math.abs(r.chenhLech))} đ</div>
-            <div style="font-size:12px;color:var(--gray6);margin-top:4px;line-height:1.6">
-              Sản lượng ${tyVnd(r.chiPhi)} tỷ so với doanh thu ${tyVnd(r.doanhThu)} tỷ${r.thuPct != null ? ` — CĐT mới xác nhận ${pctInt(r.thuPct)}% giá trị hợp đồng` : ' — dự án chưa có hợp đồng CĐT'}.
-            </div>
-          </div>`).join('')}
-      </div>`
-    : '';
-
-
-  // Nén cho vừa MỘT màn hình (yêu cầu 20/11): bảng 11 dòng + 4 ô số + cột phải
-  // cộng lại vượt chiều cao màn hình mặc định. Chỉ thu padding, KHÔNG thu cỡ chữ
-  // số tiền — lãnh đạo đọc con số, không đọc khoảng trắng.
-  const compactCss = `<style>
-    #dashCompact .card{margin-bottom:12px}
-    #dashCompact td{padding:7px 10px}
-    #dashCompact th{padding:7px 10px}
-    #dashCompact .card-sub{margin-bottom:8px}
-  </style>`;
-
-  container.innerHTML =
-    compactCss +
-    '<div id="dashCompact">' +
-    tilesHtml +
-    (IS_MOBILE
-      ? chartHtml + camKetHtml + amHtml
-      : `<div style="display:grid;grid-template-columns:minmax(0,2.2fr) minmax(300px,1fr);gap:16px;align-items:start">
-           <div>${chartHtml}</div>
-           <div>${camKetHtml}${amHtml}</div>
-         </div>`) +
-    '</div>';
-}
+      <rect x="${CH.BAR_X}" y="${y + CH.BAR_H + 2}" width="${wSl}" height="${CH.BAR_
