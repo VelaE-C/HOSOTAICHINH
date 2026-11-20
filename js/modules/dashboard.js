@@ -109,7 +109,12 @@ export async function render(container, user) {
   // bảng cảnh báo Case 1 vẫn dùng để tính phần vượt.
 
   // ============================================================
-  // BẢNG TỔNG THEO DỰ ÁN — Giá trị HĐ · Doanh thu · Chi phí · Chênh lệch
+  // BẢNG TỔNG THEO DỰ ÁN — Giá trị HĐ · Doanh thu · Sản lượng · Chênh lệch
+  //
+  // ⚠️ Cột hiển thị tên "Sản lượng" (đổi 20/11/2026) nhưng biến trong code vẫn tên
+  //   chiPhi / tChiPhi. CỐ Ý giữ nguyên tên biến: đổi tên biến chỉ để khớp nhãn là
+  //   sửa vào chỗ đang chạy đúng, không được lợi gì. Hai cái là một con số:
+  //   sản lượng thầu phụ đã thực hiện, trước thuế.
   //
   // ✅ ĐÃ CHỐT 20/11/2026 — CHI PHÍ CHỈ LẤY SẢN LƯỢNG, KHÔNG TÍNH TẠM ỨNG.
   //
@@ -192,13 +197,13 @@ export async function render(container, user) {
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
       <div style="padding:14px 16px 0">
         <div class="card-title" style="margin:0">Tổng hợp theo dự án</div>
-        <div class="card-sub">Mọi con số TRƯỚC THUẾ. <b>Chênh lệch = Doanh thu − Chi phí dự án</b>${isSiteLimited ? ' · chỉ hiện dự án bạn phụ trách' : ''}</div>
+        <div class="card-sub">Mọi con số TRƯỚC THUẾ. <b>Chênh lệch = Doanh thu − Sản lượng</b>${isSiteLimited ? ' · chỉ hiện dự án bạn phụ trách' : ''}</div>
       </div>
       <div style="overflow-x:auto"><table><thead><tr>
         <th>Dự án</th>
         <th style="text-align:right">Giá trị HĐ</th>
         <th style="text-align:right">Doanh thu</th>
-        <th style="text-align:right">Chi phí dự án</th>
+        <th style="text-align:right">Sản lượng</th>
         <th style="text-align:right">Chênh lệch</th>
       </tr></thead><tbody>
       ${summaryRows.length
