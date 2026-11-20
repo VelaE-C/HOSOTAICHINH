@@ -57,11 +57,12 @@ export async function render(container, user) {
       // Bổ sung status / parent_contract_id / projects(code,name) để bảng cảnh báo
       // tra được Dự án, Nhà cung cấp và cộng dồn PLHĐ mà không phải gọi thêm query
       supabase.from('contracts').select('id, doc_number, value, value_adjustment, status, parent_contract_id, project_id, origin_department, partners(name), projects(code, name)'),
-      // Bổ sung id / doc_number để đối chiếu đúng dòng cảnh báo là bill nào
-      // Bổ sung val_e..val_h + vat_rate + period_no để tính ĐÚNG chi phí dự án:
-      // chi phí = I (tổng thanh toán gồm tạm ứng) của bill kỳ MỚI NHẤT mỗi hợp đồng,
-      // quy về trước thuế — khớp đúng cột "Đã TT" của BCTC.
-      supabase.from('bills').select('id, doc_number, contract_id, project_id, partner_id, period_no, status, val_d, val_e, val_f, val_g, val_h, vat_rate'),
+      // Bổ sung id / doc_number để đối chiếu đúng dòng cảnh báo là bill nào.
+      // period_no + vat_rate để tính chi phí dự án (xem khối CHI PHÍ bên dưới).
+      // ⚠️ KHÔNG lấy val_e..val_h nữa — chốt 20/11/2026 chi phí chỉ tính theo
+      //   SẢN LƯỢNG (val_d). Lấy về mà không dùng chỉ khiến người đọc sau tưởng
+      //   công thức vẫn còn cộng mấy ô đó.
+      supabase.from('bills').select('id, doc_number, contract_id, project_id, partner_id, period_no, status, val_d, vat_rate'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
       // contract_amount + vo_amount: nguồn MỚI của cột "Giá trị HĐ" (thay revenue_contracts)
       supabase.from('owner_progress_claims').select('project_id, claim_no, amount_before_vat, contract_amount, vo_amount, confirmed_date'),
@@ -110,16 +111,29 @@ export async function render(container, user) {
   // ============================================================
   // BẢNG TỔNG THEO DỰ ÁN — Giá trị HĐ · Doanh thu · Chi phí · Chênh lệch
   //
-  // ⚠️ CHƯA CHỐT: cột "Chênh lệch" hiện = Doanh thu CĐT trừ TIỀN ĐÃ CHI (ô I của bill).
-  // Hai vế khác bản chất nên hiệu số là con số LAI — không phải lợi nhuận, không phải
-  // dòng tiền, KHÔNG phải tồn kho. Muốn ra Lợi nhuận gộp thực hiện thì cột Chi phí
-  // phải đổi sang lấy ô D (sản lượng thầu phụ đã làm), lúc đó hai vế mới cùng bản chất.
+  // ✅ ĐÃ CHỐT 20/11/2026 — CHI PHÍ CHỈ LẤY SẢN LƯỢNG, KHÔNG TÍNH TẠM ỨNG.
   //
-  // CHI PHÍ DỰ ÁN: lấy I (= D+E+F+G+H, tổng thanh toán gồm tạm ứng) của bill kỳ
-  // MỚI NHẤT trong mỗi nhóm, rồi quy về TRƯỚC THUẾ. val_d vốn đã gồm VAT nên chia
-  // cho (1+VAT). Gom nhóm theo hợp đồng; bill chưa gắn hợp đồng thì gom theo cặp
-  // Dự án+Đối tác để không bỏ sót (BCTC chỉ đếm dòng có hợp đồng — đây là lý do
-  // con số ở 2 màn hình có thể lệch nhau, và lệch đúng phần bill chưa gắn HĐ).
+  // CHI PHÍ DỰ ÁN = ô D (val_d, sản lượng thầu phụ đã thực hiện lũy kế) của bill kỳ
+  // MỚI NHẤT trong mỗi nhóm, quy về TRƯỚC THUẾ. val_d đã gồm VAT nên chia (1+VAT).
+  //
+  // ⚠️ BẢN CŨ LẤY I = D+E+F+G+H VÀ ĐÓ LÀ SAI. Trong đó:
+  //   F = TẠM ỨNG — tiền ứng trước cho khối lượng CHƯA LÀM, không phải chi phí.
+  //       VEGA20CAN-MEP phồng lên 515 triệu chỉ vì 703 triệu tạm ứng của 2 nhà thầu.
+  //   E = GIỮ LẠI — bị TRỪ khỏi chi phí, trong khi công đã làm rồi, chỉ là chưa trả
+  //       tiền. Đây là lý do 7/10 dự án bị thiếu chi phí, HANGHAI thiếu tới 1,01 tỷ.
+  //   Cộng lại, toàn công ty thiếu ~2,18 tỷ chi phí -> cột Chênh lệch nói lãi cao
+  //   hơn thực tế đúng chừng đó.
+  //
+  // Nay hai vế cùng một thước đo: Doanh thu = sản lượng CĐT xác nhận (trước thuế,
+  // trước giữ lại), Chi phí = sản lượng thầu phụ đã làm (trước thuế, trước giữ lại).
+  // Chênh lệch giờ mới đúng nghĩa LÃI GỘP THỰC HIỆN.
+  //
+  // ⚠️ Chi phí này KHÁC "tiền đã chi". Tạm ứng đã trả ra nhưng không nằm ở đây.
+  //   Cần theo dõi dòng tiền thì phải làm cột riêng, đừng mượn cột này.
+  //
+  // Gom nhóm theo hợp đồng; bill chưa gắn hợp đồng thì gom theo cặp Dự án+Đối tác
+  // để không bỏ sót (BCTC chỉ đếm dòng có hợp đồng — đây là lý do con số ở 2 màn
+  // hình có thể lệch nhau, và lệch đúng phần bill chưa gắn HĐ).
   // ============================================================
   const validBills = (bills || []).filter((b) => !['draft', 'cancelled', 'rejected'].includes(b.status));
   const latestBillByGroup = {};
@@ -132,9 +146,8 @@ export async function render(container, user) {
   Object.values(latestBillByGroup).forEach((b) => {
     const projectId = b.project_id || contractById2(b.contract_id)?.project_id;
     if (!projectId) return;
-    const I = Number(b.val_d || 0) + Number(b.val_e || 0) + Number(b.val_f || 0) + Number(b.val_g || 0) + Number(b.val_h || 0);
     const div = 1 + (Number(b.vat_rate ?? 8) || 0) / 100;
-    costByProject[projectId] = (costByProject[projectId] || 0) + Math.round(I / (div || 1));
+    costByProject[projectId] = (costByProject[projectId] || 0) + Math.round(Number(b.val_d || 0) / (div || 1));
   });
   function contractById2(id) {
     if (!id) return null;
