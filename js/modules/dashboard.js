@@ -1,5 +1,5 @@
 // ============================================================
-// dashboard.js — Tổng quan: 3 ô số · biểu đồ Doanh thu–Sản lượng theo dự án ·
+// dashboard.js — Tổng quan: 3 ô số · biểu đồ Doanh thu–Chi phí theo dự án ·
 // Cam kết theo loại hợp đồng · Dự án đang âm. Dữ liệu lấy thật từ Supabase,
 // RLS tự lọc theo vai trò nên module này không tự kiểm tra quyền.
 //
@@ -51,7 +51,7 @@ export async function render(container, user) {
 
 
       // ============================================================
-      // SỐ THEO DỰ ÁN. ⚠️ Nhãn 'Sản lượng' nhưng biến vẫn tên chiPhi — cố ý giữ.
+      // SỐ THEO DỰ ÁN. Nhãn 'Chi phí' khớp đúng tên biến chiPhi (đổi nhãn 20/11).
           //   chia (1+VAT) về trước thuế. BẢN CŨ LẤY I = D+E+F+G+H VÀ ĐÓ LÀ SAI:
           //   F = tạm ứng (khối lượng CHƯA LÀM — VEGA20CAN-MEP phồng 515 triệu),
           //   E = giữ lại (bị trừ dù công đã làm — HANGHAI thiếu 1,01 tỷ).
@@ -142,7 +142,7 @@ export async function render(container, user) {
       f: IS_MOBILE ? '' : `${fmt(tGiaTriHD)} đ` },
     { k: IS_MOBILE ? 'Doanh thu' : 'Doanh thu — CĐT đã xác nhận', v: tyVnd(tDoanhThu), color: '#2a78d6',
       f: tGiaTriHD ? `đạt ${pct1((tDoanhThu / tGiaTriHD) * 100)}%${IS_MOBILE ? ' HĐ' : ' giá trị hợp đồng'}` : 'chưa có giá trị HĐ' },
-    { k: IS_MOBILE ? 'Sản lượng' : 'Sản lượng — tổng bill các đơn vị', v: tyVnd(tChiPhi), color: '#eb6834',
+    { k: IS_MOBILE ? 'Chi phí' : 'Chi phí — tổng bill các đơn vị', v: tyVnd(tChiPhi), color: '#eb6834',
       f: tDoanhThu ? `bằng ${pct1((tChiPhi / tDoanhThu) * 100)}%${IS_MOBILE ? ' DT' : ' doanh thu'}` : '—' },
   ];
   const tilesHtml = `
@@ -154,7 +154,7 @@ export async function render(container, user) {
       </div>`).join('')}
     </div>`;
 
-      // ---- Biểu đồ Doanh thu vs Sản lượng ----
+      // ---- Biểu đồ Doanh thu vs Chi phí ----
       // Xanh #2a78d6 / cam #eb6834: người mù màu vẫn phân biệt (ΔE 24,7).
       // ⚠️ Số nằm ngay sau mỗi thanh nên BAR_W phải chừa chỗ: thanh dài nhất + nhãn
       //   vẫn chưa chạm cột chênh lệch. Sửa BAR_W mà quên dời LAB_X là chữ đè nhau.
@@ -192,7 +192,7 @@ export async function render(container, user) {
   const tip = (r) => `${esc(r.p.code)} — ${esc(r.p.name)}
 Giá trị HĐ: ${r.giaTriHD == null ? 'chưa nhập' : fmt(r.giaTriHD) + ' đ'}
 Doanh thu: ${fmt(r.doanhThu)} đ
-Sản lượng: ${fmt(r.chiPhi)} đ
+Chi phí: ${fmt(r.chiPhi)} đ
 Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ`;
 
   const barsSvg = chartRows.map((r, i) => {
@@ -233,11 +233,11 @@ Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ
 
   const chartHtml = `
     <div class="card" style="margin-bottom:12px${IS_MOBILE ? ';padding:14px 12px' : ''}">
-      <div class="card-title" style="margin:0">Doanh thu và sản lượng theo dự án</div>
+      <div class="card-title" style="margin:0">Doanh thu và chi phí theo dự án</div>
       <div class="card-sub">Xếp theo chênh lệch từ cao xuống thấp · đơn vị: tỷ đồng</div>
       <div style="display:flex;gap:${IS_MOBILE ? 12 : 18}px;margin:10px 0 2px;font-size:${IS_MOBILE ? 11.5 : 13}px;color:var(--gray6);flex-wrap:wrap">
         <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#2a78d6;margin-right:6px"></span>Doanh thu${IS_MOBILE ? '' : ' (CĐT xác nhận)'}</span>
-        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#eb6834;margin-right:6px"></span>Sản lượng${IS_MOBILE ? '' : ' (tổng bill các đơn vị)'}</span>
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#eb6834;margin-right:6px"></span>Chi phí${IS_MOBILE ? '' : ' (tổng bill các đơn vị)'}</span>
       </div>
       <!-- ⚠️ height cứng + max-width = CH.W + xMinYMin: ba thứ đi liền nhau, bỏ một
            là svg tự phóng theo container và chữ to vống (lỗi màn gập 20/11). -->
@@ -287,12 +287,12 @@ Chênh lệch: ${r.chenhLech >= 0 ? '+' : '−'}${fmt(Math.abs(r.chenhLech))} đ
   const amHtml = amRows.length
     ? `<div class="card" style="margin-bottom:16px">
         <div class="card-title" style="margin:0">${amRows.length} dự án đang âm</div>
-        <div class="card-sub">Sản lượng đã vượt doanh thu CĐT xác nhận</div>
+        <div class="card-sub">Chi phí đã vượt doanh thu CĐT xác nhận</div>
         ${amRows.map((r) => `
           <div style="border-left:3px solid var(--red);padding:9px 0 9px 12px;margin-top:11px">
             <div style="font-size:13px;font-weight:700;color:var(--red)">${esc(r.p.code)} · −${fmt(Math.abs(r.chenhLech))} đ</div>
             <div style="font-size:12px;color:var(--gray6);margin-top:4px;line-height:1.6">
-              Sản lượng ${tyVnd(r.chiPhi)} tỷ so với doanh thu ${tyVnd(r.doanhThu)} tỷ${r.thuPct != null ? ` — CĐT mới xác nhận ${pctInt(r.thuPct)}% giá trị hợp đồng` : ' — dự án chưa có hợp đồng CĐT'}.
+              Chi phí ${tyVnd(r.chiPhi)} tỷ so với doanh thu ${tyVnd(r.doanhThu)} tỷ${r.thuPct != null ? ` — CĐT mới xác nhận ${pctInt(r.thuPct)}% giá trị hợp đồng` : ' — dự án chưa có hợp đồng CĐT'}.
             </div>
           </div>`).join('')}
       </div>`
