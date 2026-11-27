@@ -73,6 +73,10 @@ const OWNER_TYPE = 'progress_claim'; // phải khớp đúng nhánh đã thêm t
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
 let VIEW_PROJECT = 'ALL';
+// Kỳ đang lọc ('ALL' hoặc 'YYYY-MM') và danh sách dự án đang xổ — để ngoài hàm
+// render để giữ nguyên sau mỗi lần dựng lại bảng.
+let VIEW_PERIOD = 'ALL';
+const EXPANDED = new Set();
 
 const canEdit = (user) => (user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'Admin'].includes(r));
 const canDelete = (user) => (user.roles || []).some((r) => ['QLCPHD_TP', 'Admin'].includes(r));
@@ -150,33 +154,169 @@ export async function render(container, user) {
   }
 
   const all = rows || [];
-  const list = VIEW_PROJECT === 'ALL' ? all : all.filter((r) => r.project_id === VIEW_PROJECT);
+
+  // ---- LỌC THEO KỲ (thêm 27/11/2026) ---------------------------------------
+  // ⚠️ Cắt 7 ký tự đầu của CHUỖI ngày ('2026-09-01' -> '2026-09'), KHÔNG dùng
+  //   new Date(): chuỗi chỉ có ngày được hiểu là UTC, máy ở múi giờ âm sẽ lùi
+  //   về 31/08 và lọt sang tháng 8. Lỗi này chỉ lộ ra trên máy người khác.
+  const ym = (d) => (d ? String(d).slice(0, 7) : '');
+  const periods = [...new Set(all.map((r) => ym(r.period_month)).filter(Boolean))].sort().reverse();
+  if (VIEW_PERIOD !== 'ALL' && !periods.includes(VIEW_PERIOD)) VIEW_PERIOD = 'ALL';
+
+  let list = VIEW_PROJECT === 'ALL' ? all : all.filter((r) => r.project_id === VIEW_PROJECT);
+  if (VIEW_PERIOD !== 'ALL') list = list.filter((r) => ym(r.period_month) === VIEW_PERIOD);
+
   // SẢN LƯỢNG thì CỘNG MỌI ĐỢT — ô (2) là phần thi công RIÊNG kỳ đó, không phải lũy kế.
   const tongSanLuong = list.reduce((s, r) => s + num(r.amount_before_vat), 0);
 
   // GIÁ TRỊ HỢP ĐỒNG thì NGƯỢC LẠI — chỉ lấy ĐỢT CLAIM MỚI NHẤT của mỗi dự án.
   // ⚠️ Sửa 20/11/2026. Bản cũ cộng trần hợp đồng của MỌI đợt claim, nên dự án nào
-  //   có 2 đợt thì giá trị hợp đồng bị tính đôi, 3 đợt thì gấp ba. Ô này đang hiện
-  //   1.008 tỷ trong khi số thật là 673 tỷ — cộng dư 335 tỷ.
+  //   có 2 đợt thì giá trị hợp đồng bị tính đôi, 3 đợt thì gấp ba.
   // ⚠️ Mỗi phiếu claim CHỤP LẠI giá trị hợp đồng tại thời điểm lập. Đợt sau đã bao
-  //   gồm cả phát sinh của đợt trước, nên cộng dồn là sai bản chất chứ không chỉ
-  //   sai số học. Lấy đợt mới nhất mới ra trần hợp đồng hiện hành.
-  // ⚠️ Cùng quy tắc với cột "Giá trị HĐ" ở trang Tổng quan — hai màn hình phải khớp.
+  //   gồm cả phát sinh của đợt trước, nên cộng dồn là sai bản chất.
+  // ⚠️ Lấy trong PHẠM VI ĐANG LỌC: chọn kỳ 09/2026 thì ra trần hợp đồng tại kỳ đó.
   const latestClaimByProject = {};
   list.forEach((r) => {
     const cur = latestClaimByProject[r.project_id];
     if (!cur || Number(r.claim_no || 0) > Number(cur.claim_no || 0)) latestClaimByProject[r.project_id] = r;
   });
-  // Trần hợp đồng = giá gốc + phát sinh (VO) — cùng mẫu số với cột "% HĐ"
   const tongHopDong = Object.values(latestClaimByProject).reduce((s, r) => s + num(r.contract_amount) + num(r.vo_amount), 0);
   const editable = canEdit(user);
+  const kyLabel = VIEW_PERIOD === 'ALL' ? '' : ` kỳ ${VIEW_PERIOD.slice(5)}/${VIEW_PERIOD.slice(0, 4)}`;
+
+  // ---- GỘP THEO DỰ ÁN (thêm 27/11/2026) ------------------------------------
+  // Dòng cha = ĐỢT MỚI NHẤT của dự án, bấm vào xổ ra các đợt cũ hơn.
+  // ⚠️ CHỈ gộp khi xem TẤT CẢ dự án VÀ TẤT CẢ các kỳ. Đã lọc 1 dự án hoặc 1 kỳ
+  //   rồi thì bày thẳng từng đợt — gộp lúc đó chỉ thêm một lần bấm chứ không gọn.
+  const grouped = VIEW_PROJECT === 'ALL' && VIEW_PERIOD === 'ALL';
+  const byProject = [];
+  if (grouped) {
+    const m = new Map();
+    list.forEach((r) => {
+      if (!m.has(r.project_id)) m.set(r.project_id, []);
+      m.get(r.project_id).push(r);
+    });
+    m.forEach((rs, pid) => {
+      rs.sort((a, b) => Number(b.claim_no || 0) - Number(a.claim_no || 0)); // mới nhất lên đầu
+      byProject.push({ pid, rs, latest: rs[0] });
+    });
+    byProject.sort((a, b) =>
+      String(a.latest.projects?.code || '').localeCompare(String(b.latest.projects?.code || ''), 'vi', { numeric: true }),
+    );
+  }
+
+  // ⚠️ MÀN HẸP PHẢI ĐỔI SANG "TỶ" (sửa 27/11/2026): 3 ô số xếp 1 hàng, mà
+  //   "121.120.615.025 ₫" dài 17 ký tự không co xuống dưới 166px được, nên ô số
+  //   đẩy trang rộng ra 421px trên màn 412px — tràn ngang, phải vuốt mới thấy hết.
+  //   Máy tính vẫn giữ số đồng đầy đủ.
+  const tien = (v) =>
+    IS_MOBILE
+      ? `${(Number(v) / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} tỷ`
+      : `${fmt(v)} ₫`;
+
+  // Hạng mục cho xuống 2 dòng rồi mới cắt — bản cũ ép 1 dòng nên tên hạng mục
+  // nào cũng cụt, phải rê chuột mới đọc được.
+  const CLAMP2 =
+    'white-space:normal;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden';
+  const xnHtml = (d) =>
+    d
+      ? `<span style="color:var(--green);font-weight:600">${fmtDate(d)}</span>`
+      : `<span style="color:var(--amber);font-weight:600">chưa XN</span>`;
+
+  // Một dòng ĐỢT claim. child = dòng con nằm dưới dòng dự án.
+  function dotRow(r, child = false) {
+    const c = calcClaim(r);
+    const k = calcCumulative(r, all);
+    const tran = num(r.contract_amount) + num(r.vo_amount);
+    const pct = tran > 0 ? Math.round((k.B1 / tran) * 100) : null;
+    const hidden = child && !EXPANDED.has(r.project_id);
+    const attr = `class="click" data-id="${r.id}" ${child ? `data-parent="${r.project_id}"` : ''} style="cursor:pointer${child ? ';background:var(--gray1)' : ''}${hidden ? ';display:none' : ''}"`;
+    const o1 = `${child ? '<span style="color:var(--gray3);margin-right:4px">└</span>' : ''}<span class="code-chip" title="${esc(r.projects?.name)}">${esc(r.projects?.code || '—')}</span>`;
+    if (IS_MOBILE) {
+      // Điện thoại chỉ đủ chỗ 3 cột, nên Kỳ và ngày CĐT xác nhận đi xuống dòng
+      // phụ ngay dưới ô tương ứng thay vì thêm cột mới.
+      return `<tr ${attr}>
+        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">${fmtPeriod(r.period_month)}</div></td>
+        <td class="mono" style="font-weight:700">${r.claim_no}</td>
+        <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
+          <div style="font-size:10.5px;font-weight:600;margin-top:2px">${xnHtml(r.confirmed_date)}</div></td></tr>`;
+    }
+    return `<tr ${attr}>
+      <td style="white-space:nowrap">${o1}</td>
+      <td class="mono" style="font-weight:700">${r.claim_no}</td>
+      <td class="mono">${fmtPeriod(r.period_month)}</td>
+      <td style="color:var(--gray6);${CLAMP2}" title="${esc(r.scope_summary)}">${esc(r.scope_summary || '—')}</td>
+      <td class="mono" style="text-align:right;color:var(--gray6)">${tran > 0 ? fmt(tran) : '—'}</td>
+      <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}</td>
+      <td class="mono" style="text-align:right;color:var(--gray6)">${fmt(k.B1)}</td>
+      <td style="text-align:center;font-size:11.5px">${xnHtml(r.confirmed_date)}</td>
+      <td class="mono" style="text-align:right;color:var(--gray5)">${pct == null ? '—' : pct + '%'}</td>
+    </tr>`;
+  }
+
+  // Dòng DỰ ÁN — số liệu lấy của ĐỢT MỚI NHẤT, bấm để xổ các đợt cũ.
+  // ⚠️ KHÔNG gắn data-id cho dòng này: data-id là dấu hiệu "bấm vào mở phiếu".
+  //   Gắn cả hai thì một cú bấm vừa xổ danh sách vừa bật phiếu lên.
+  function duAnRow({ pid, rs, latest }) {
+    const open = EXPANDED.has(pid);
+    const c = calcClaim(latest);
+    const k = calcCumulative(latest, all);
+    const tran = num(latest.contract_amount) + num(latest.vo_amount);
+    const pct = tran > 0 ? Math.round((k.B1 / tran) * 100) : null;
+    const mui = `<span data-caret="${pid}" style="display:inline-block;width:11px;color:var(--gray5);font-size:10px;transform:rotate(${open ? 90 : 0}deg);transition:transform .15s">▶</span>`;
+    const dem = rs.length > 1 ? `<span style="font-size:10.5px;color:var(--gray5);margin-left:4px;white-space:nowrap">·${rs.length} đợt</span>` : '';
+    const o1 = `${mui} <span class="code-chip" title="${esc(latest.projects?.name)}">${esc(latest.projects?.code || '—')}</span>${dem}`;
+    if (IS_MOBILE) {
+      return `<tr data-toggle="${pid}" style="cursor:pointer">
+        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">${fmtPeriod(latest.period_month)}</div></td>
+        <td class="mono" style="font-weight:700">${latest.claim_no}</td>
+        <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
+          <div style="font-size:10.5px;font-weight:600;margin-top:2px">${xnHtml(latest.confirmed_date)}</div></td></tr>`;
+    }
+    return `<tr data-toggle="${pid}" style="cursor:pointer">
+      <td style="white-space:nowrap">${o1}</td>
+      <td class="mono" style="font-weight:700">${latest.claim_no}</td>
+      <td class="mono">${fmtPeriod(latest.period_month)}</td>
+      <td style="color:var(--gray6);${CLAMP2}" title="${esc(latest.scope_summary)}">${esc(latest.scope_summary || '—')}</td>
+      <td class="mono" style="text-align:right;color:var(--gray6)">${tran > 0 ? fmt(tran) : '—'}</td>
+      <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}</td>
+      <td class="mono" style="text-align:right;color:var(--gray6)">${fmt(k.B1)}</td>
+      <td style="text-align:center;font-size:11.5px">${xnHtml(latest.confirmed_date)}</td>
+      <td class="mono" style="text-align:right;color:var(--gray5)">${pct == null ? '—' : pct + '%'}</td>
+    </tr>`;
+  }
+
+  // Cột đặt bề ngang cố định, riêng Hạng mục để auto ăn hết chỗ còn lại — bản cũ
+  // không đặt gì nên 3 cột tiền co lại còn cột hạng mục phình ra.
+  const colgroup = IS_MOBILE
+    ? '<col style="width:46%"><col style="width:12%"><col style="width:42%">'
+    : '<col style="width:186px"><col style="width:48px"><col style="width:74px"><col><col style="width:132px"><col style="width:140px"><col style="width:132px"><col style="width:102px"><col style="width:56px">';
+
+  const thead = IS_MOBILE
+    ? '<th>Dự án</th><th>Đợt</th><th style="text-align:right">Doanh thu</th>'
+    : `<th>Dự án</th><th>Đợt</th><th>Kỳ</th><th>Hạng mục</th>
+       <th style="text-align:right">Hợp đồng<br>(chưa VAT)</th>
+       <th style="text-align:right">(2) Doanh thu<br>kỳ này</th>
+       <th style="text-align:right">(1) Lũy kế</th>
+       <th style="text-align:center">CĐT<br>xác nhận</th>
+       <th style="text-align:right">% HĐ</th>`;
+
+  const bodyHtml = grouped
+    ? byProject.map((g) => duAnRow(g) + g.rs.slice(1).map((r) => dotRow(r, true)).join('')).join('')
+    : list.map((r) => dotRow(r)).join('');
 
   container.innerHTML = `
     <div style="display:flex;${IS_MOBILE ? 'flex-direction:column;align-items:stretch' : 'justify-content:space-between;flex-wrap:wrap'};margin-bottom:12px;gap:10px">
-      <select class="btn btn-secondary" id="projFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:320px'}">
-        <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
-        ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
-      </select>
+      <div style="display:flex;gap:8px;${IS_MOBILE ? 'flex-direction:column' : ''}">
+        <select class="btn btn-secondary" id="projFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:300px'}">
+          <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
+          ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
+        </select>
+        <select class="btn btn-secondary" id="periodFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:140px'}">
+          <option value="ALL" ${VIEW_PERIOD === 'ALL' ? 'selected' : ''}>Tất cả các kỳ</option>
+          ${periods.map((p) => `<option value="${p}" ${VIEW_PERIOD === p ? 'selected' : ''}>Kỳ ${p.slice(5)}/${p.slice(0, 4)}</option>`).join('')}
+        </select>
+      </div>
       <div style="display:flex;gap:8px;${IS_MOBILE ? 'flex-direction:column' : ''}">
         <button class="btn btn-secondary" id="btnExport">📊 Xuất Excel</button>
         ${editable ? `<button class="btn btn-primary" id="btnNew">+ Ghi nhận đợt claim</button>` : ''}
@@ -185,50 +325,19 @@ export async function render(container, user) {
 
     <div class="card" style="margin-bottom:14px">
       <div class="stat-row" style="grid-template-columns:repeat(3,1fr)">
-        <div><div class="card-sub" style="margin:0">Số đợt claim đã ghi nhận</div><div class="stat-num">${list.length}</div></div>
-        <div><div class="card-sub" style="margin:0">Tổng sản lượng (trước thuế)</div><div class="stat-num teal">${fmt(tongSanLuong)} ₫</div></div>
-        <div><div class="card-sub" style="margin:0">Tổng giá trị hợp đồng (chưa VAT)</div><div class="stat-num">${fmt(tongHopDong)} ₫</div></div>
+        <div><div class="card-sub" style="margin:0">Số đợt claim${kyLabel || ' đã ghi nhận'}</div><div class="stat-num">${list.length}</div></div>
+        <div><div class="card-sub" style="margin:0">${IS_MOBILE ? 'Doanh thu' : 'Tổng doanh thu'}${kyLabel}${IS_MOBILE ? '' : ' (trước thuế)'}</div><div class="stat-num teal">${tien(tongSanLuong)}</div></div>
+        <div><div class="card-sub" style="margin:0">${IS_MOBILE ? 'Giá trị HĐ' : 'Tổng giá trị hợp đồng (chưa VAT)'}</div><div class="stat-num">${tien(tongHopDong)}</div></div>
       </div>
     </div>
 
     ${!editable ? `<div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">🔒 Chỉ phòng QLCP&HĐ nhập được số liệu ở tab này — bạn chỉ xem.</div>` : ''}
 
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><thead><tr>
-        ${IS_MOBILE
-          ? '<th>Dự án</th><th>Đợt</th><th style="text-align:right">Doanh thu</th>'
-          : `<th>Dự án</th><th>Đợt</th><th>Kỳ</th><th>Hạng mục</th>
-             <th style="text-align:right">Hợp đồng (chưa VAT)</th>
-             <th style="text-align:right">(2) Doanh thu kỳ này</th>
-             <th style="text-align:right">(1) Lũy kế</th>
-             <th style="text-align:right">% HĐ</th>`}
+      <div style="overflow-x:auto"><table><colgroup>${colgroup}</colgroup><thead><tr>
+        ${thead}
       </tr></thead><tbody>
-      ${list.length
-        ? list
-            .map((r) => {
-              const c = calcClaim(r);
-              const k = calcCumulative(r, all);
-              const tran = num(r.contract_amount) + num(r.vo_amount);
-              const pct = tran > 0 ? Math.round((k.B1 / tran) * 100) : null;
-              if (IS_MOBILE) {
-                return `<tr class="click" data-id="${r.id}" style="cursor:pointer">
-                  <td><span class="code-chip">${esc(r.projects?.code || '—')}</span></td>
-                  <td class="mono" style="font-weight:700">${r.claim_no}</td>
-                  <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}</td></tr>`;
-              }
-              return `<tr class="click" data-id="${r.id}" style="cursor:pointer">
-          <td><span class="code-chip" title="${esc(r.projects?.name)}">${esc(r.projects?.code || '—')}</span></td>
-          <td class="mono" style="font-weight:700">${r.claim_no}</td>
-          <td class="mono">${fmtPeriod(r.period_month)}</td>
-          <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gray6)" title="${esc(r.scope_summary)}">${esc(r.scope_summary || '—')}</td>
-          <td class="mono" style="text-align:right;color:var(--gray6)">${tran > 0 ? fmt(tran) : '—'}</td>
-          <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}</td>
-          <td class="mono" style="text-align:right;color:var(--gray6)">${fmt(k.B1)}</td>
-          <td class="mono" style="text-align:right;color:var(--gray5)">${pct == null ? '—' : pct + '%'}</td>
-        </tr>`;
-            })
-            .join('')
-        : `<tr><td colspan="${IS_MOBILE ? 3 : 8}" style="text-align:center;color:var(--gray4);padding:22px">Chưa ghi nhận đợt claim nào${VIEW_PROJECT !== 'ALL' ? ' cho dự án này' : ''}</td></tr>`}
+      ${bodyHtml || `<tr><td colspan="${IS_MOBILE ? 3 : 9}" style="text-align:center;color:var(--gray4);padding:22px">Chưa ghi nhận đợt claim nào${VIEW_PROJECT !== 'ALL' ? ' cho dự án này' : ''}${kyLabel}</td></tr>`}
       </tbody></table></div>
     </div>`;
 
@@ -236,7 +345,28 @@ export async function render(container, user) {
     VIEW_PROJECT = e.target.value;
     render(container, user);
   });
+  container.querySelector('#periodFilter').addEventListener('change', (e) => {
+    VIEW_PERIOD = e.target.value;
+    render(container, user);
+  });
   container.querySelector('#btnNew')?.addEventListener('click', () => openForm(null, projects, all, user, () => render(container, user)));
+
+  // Xổ / thu một dự án. Chỉ ẩn hiện dòng con, KHÔNG dựng lại cả trang — dựng lại
+  // thì mất vị trí cuộn, mỗi lần bấm là màn hình nhảy về đầu bảng.
+  container.querySelectorAll('[data-toggle]').forEach((tr) =>
+    tr.addEventListener('click', () => {
+      const pid = tr.dataset.toggle;
+      const dangMo = EXPANDED.has(pid);
+      if (dangMo) EXPANDED.delete(pid);
+      else EXPANDED.add(pid);
+      container.querySelectorAll(`[data-parent="${pid}"]`).forEach((x) => {
+        x.style.display = dangMo ? 'none' : '';
+      });
+      const caret = tr.querySelector(`[data-caret="${pid}"]`);
+      if (caret) caret.style.transform = `rotate(${dangMo ? 0 : 90}deg)`;
+    }),
+  );
+
   container.querySelectorAll('[data-id]').forEach((tr) =>
     tr.addEventListener('click', () => {
       const rec = list.find((x) => x.id === tr.dataset.id);
@@ -248,7 +378,9 @@ export async function render(container, user) {
     exportListExcel(
       {
         subtitle: 'DOANH THU DỰ ÁN — SẢN LƯỢNG CHỦ ĐẦU TƯ ĐÃ XÁC NHẬN',
-        note: VIEW_PROJECT === 'ALL' ? 'Tất cả dự án' : `Dự án: ${(projects || []).find((p) => p.id === VIEW_PROJECT)?.code || ''}`,
+        note:
+          (VIEW_PROJECT === 'ALL' ? 'Tất cả dự án' : `Dự án: ${(projects || []).find((p) => p.id === VIEW_PROJECT)?.code || ''}`) +
+          (VIEW_PERIOD === 'ALL' ? '' : ` · Kỳ ${VIEW_PERIOD.slice(5)}/${VIEW_PERIOD.slice(0, 4)}`),
         columns: [
           { key: 'stt', header: 'STT', width: 6, center: true },
           { key: 'maduan', header: 'MÃ DỰ ÁN', width: 14, center: true },
