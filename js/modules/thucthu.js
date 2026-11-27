@@ -73,9 +73,12 @@ const OWNER_TYPE = 'progress_claim'; // phải khớp đúng nhánh đã thêm t
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
 let VIEW_PROJECT = 'ALL';
-// Kỳ đang lọc ('ALL' hoặc 'YYYY-MM') và danh sách dự án đang xổ — để ngoài hàm
-// render để giữ nguyên sau mỗi lần dựng lại bảng.
-let VIEW_PERIOD = 'ALL';
+// HAI bộ lọc kỳ RIÊNG BIỆT, dùng được cùng lúc (sửa 27/11/2026).
+// Bản trước gộp làm một ô kèm 2 optgroup; mỗi tháng trôi qua là danh sách dài
+// thêm 2 dòng, một năm nữa phải kéo 24 dòng mới tới cuối. Tách ra thì mỗi ô chỉ
+// dài bằng số tháng, và lọc chéo được (khối lượng T10 mà hóa đơn T11).
+let VIEW_KY_KL = 'ALL'; // 'ALL' | 'YYYY-MM'
+let VIEW_KY_HD = 'ALL'; // 'ALL' | 'YYYY-MM' | 'NULL' (chưa xuất hóa đơn)
 const EXPANDED = new Set();
 
 const canEdit = (user) => (user.roles || []).some((r) => ['QLCPHD_CV', 'QLCPHD_TP', 'Admin'].includes(r));
@@ -174,14 +177,17 @@ export async function render(container, user) {
 
   const kyKL = [...new Set(all.map(ymKL).filter(Boolean))].sort().reverse();
   const kyHD = [...new Set(all.map(ymHD))].sort().reverse(); // 'NULL' tự xuống cuối
-  const hopLe = ['ALL', ...kyKL.map((x) => `KL:${x}`), ...kyHD.map((x) => `HD:${x}`)];
-  if (!hopLe.includes(VIEW_PERIOD)) VIEW_PERIOD = 'ALL';
+  if (VIEW_KY_KL !== 'ALL' && !kyKL.includes(VIEW_KY_KL)) VIEW_KY_KL = 'ALL';
+  if (VIEW_KY_HD !== 'ALL' && !kyHD.includes(VIEW_KY_HD)) VIEW_KY_HD = 'ALL';
 
-  const kyMo = VIEW_PERIOD === 'ALL' ? null : { loai: VIEW_PERIOD.slice(0, 2), thang: VIEW_PERIOD.slice(3) };
   const thangTxt = (x) => (x === 'NULL' ? 'chưa xuất hóa đơn' : `tháng ${x.slice(5)}/${x.slice(0, 4)}`);
+  const thangNgan = (x) => (x === 'NULL' ? 'chưa XHĐ' : `T${x.slice(5)}/${x.slice(0, 4)}`);
 
   let list = VIEW_PROJECT === 'ALL' ? all : all.filter((r) => r.project_id === VIEW_PROJECT);
-  if (kyMo) list = list.filter((r) => (kyMo.loai === 'KL' ? ymKL(r) : ymHD(r)) === kyMo.thang);
+  // Hai bộ lọc cộng dồn (VÀ), không loại trừ nhau — chọn cả hai thì ra đúng các
+  // đợt khối lượng tháng này mà xuất hóa đơn tháng kia.
+  if (VIEW_KY_KL !== 'ALL') list = list.filter((r) => ymKL(r) === VIEW_KY_KL);
+  if (VIEW_KY_HD !== 'ALL') list = list.filter((r) => ymHD(r) === VIEW_KY_HD);
 
   // SẢN LƯỢNG thì CỘNG MỌI ĐỢT — ô (2) là phần thi công RIÊNG kỳ đó, không phải lũy kế.
   const tongSanLuong = list.reduce((s, r) => s + num(r.amount_before_vat), 0);
@@ -199,17 +205,16 @@ export async function render(container, user) {
   });
   const tongHopDong = Object.values(latestClaimByProject).reduce((s, r) => s + num(r.contract_amount) + num(r.vo_amount), 0);
   const editable = canEdit(user);
-  const kyLabel = !kyMo
-    ? ''
-    : IS_MOBILE
-      ? ` ${kyMo.loai === 'KL' ? 'KL' : 'HĐ'} ${kyMo.thang === 'NULL' ? 'chưa XHĐ' : `T${kyMo.thang.slice(5)}/${kyMo.thang.slice(0, 4)}`}`
-      : ` ${kyMo.loai === 'KL' ? 'khối lượng' : 'xuất hóa đơn'} ${thangTxt(kyMo.thang)}`;
+  const phan = [];
+  if (VIEW_KY_KL !== 'ALL') phan.push(IS_MOBILE ? `KL ${thangNgan(VIEW_KY_KL)}` : `khối lượng ${thangTxt(VIEW_KY_KL)}`);
+  if (VIEW_KY_HD !== 'ALL') phan.push(IS_MOBILE ? `HĐ ${thangNgan(VIEW_KY_HD)}` : `xuất hóa đơn ${thangTxt(VIEW_KY_HD)}`);
+  const kyLabel = phan.length ? ` ${phan.join(' · ')}` : '';
 
   // ---- GỘP THEO DỰ ÁN (thêm 27/11/2026) ------------------------------------
   // Dòng cha = ĐỢT MỚI NHẤT của dự án, bấm vào xổ ra các đợt cũ hơn.
   // ⚠️ CHỈ gộp khi xem TẤT CẢ dự án VÀ TẤT CẢ các kỳ. Đã lọc 1 dự án hoặc 1 kỳ
   //   rồi thì bày thẳng từng đợt — gộp lúc đó chỉ thêm một lần bấm chứ không gọn.
-  const grouped = VIEW_PROJECT === 'ALL' && VIEW_PERIOD === 'ALL';
+  const grouped = VIEW_PROJECT === 'ALL' && VIEW_KY_KL === 'ALL' && VIEW_KY_HD === 'ALL';
   const byProject = [];
   if (grouped) {
     const m = new Map();
@@ -335,14 +340,13 @@ export async function render(container, user) {
           <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
           ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
         </select>
-        <select class="btn btn-secondary" id="periodFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:230px'}">
-          <option value="ALL" ${VIEW_PERIOD === 'ALL' ? 'selected' : ''}>Tất cả các kỳ</option>
-          <optgroup label="Kỳ khối lượng (CĐT xác nhận khối lượng)">
-            ${kyKL.map((x) => `<option value="KL:${x}" ${VIEW_PERIOD === `KL:${x}` ? 'selected' : ''}>Khối lượng ${thangTxt(x)}</option>`).join('')}
-          </optgroup>
-          <optgroup label="Kỳ xuất hóa đơn (theo ngày CĐT xác nhận)">
-            ${kyHD.map((x) => `<option value="HD:${x}" ${VIEW_PERIOD === `HD:${x}` ? 'selected' : ''}>Hóa đơn ${thangTxt(x)}</option>`).join('')}
-          </optgroup>
+        <select class="btn btn-secondary" id="kyKLFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:190px'}">
+          <option value="ALL" ${VIEW_KY_KL === 'ALL' ? 'selected' : ''}>Kỳ khối lượng: tất cả</option>
+          ${kyKL.map((x) => `<option value="${x}" ${VIEW_KY_KL === x ? 'selected' : ''}>Khối lượng ${thangTxt(x)}</option>`).join('')}
+        </select>
+        <select class="btn btn-secondary" id="kyHDFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:190px'}">
+          <option value="ALL" ${VIEW_KY_HD === 'ALL' ? 'selected' : ''}>Kỳ xuất hóa đơn: tất cả</option>
+          ${kyHD.map((x) => `<option value="${x}" ${VIEW_KY_HD === x ? 'selected' : ''}>Hóa đơn ${thangTxt(x)}</option>`).join('')}
         </select>
       </div>
       <div style="display:flex;gap:8px;${IS_MOBILE ? 'flex-direction:column' : ''}">
@@ -373,8 +377,12 @@ export async function render(container, user) {
     VIEW_PROJECT = e.target.value;
     render(container, user);
   });
-  container.querySelector('#periodFilter').addEventListener('change', (e) => {
-    VIEW_PERIOD = e.target.value;
+  container.querySelector('#kyKLFilter').addEventListener('change', (e) => {
+    VIEW_KY_KL = e.target.value;
+    render(container, user);
+  });
+  container.querySelector('#kyHDFilter').addEventListener('change', (e) => {
+    VIEW_KY_HD = e.target.value;
     render(container, user);
   });
   container.querySelector('#btnNew')?.addEventListener('click', () => openForm(null, projects, all, user, () => render(container, user)));
@@ -408,7 +416,7 @@ export async function render(container, user) {
         subtitle: 'DOANH THU DỰ ÁN — SẢN LƯỢNG CHỦ ĐẦU TƯ ĐÃ XÁC NHẬN',
         note:
           (VIEW_PROJECT === 'ALL' ? 'Tất cả dự án' : `Dự án: ${(projects || []).find((p) => p.id === VIEW_PROJECT)?.code || ''}`) +
-          (kyMo ? ` · Kỳ ${kyMo.loai === 'KL' ? 'khối lượng' : 'xuất hóa đơn'} ${thangTxt(kyMo.thang)}` : ''),
+          (phan.length ? ` · ${phan.join(' · ')}` : ''),
         columns: [
           { key: 'stt', header: 'STT', width: 6, center: true },
           { key: 'maduan', header: 'MÃ DỰ ÁN', width: 14, center: true },
