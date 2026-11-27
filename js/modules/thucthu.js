@@ -155,16 +155,33 @@ export async function render(container, user) {
 
   const all = rows || [];
 
-  // ---- LỌC THEO KỲ (thêm 27/11/2026) ---------------------------------------
+  // ---- LỌC THEO KỲ — HAI LOẠI KỲ KHÁC NHAU (thêm 27/11/2026) ---------------
+  // ⚠️ MỘT ĐỢT CLAIM NẰM Ở HAI THÁNG KHÁC NHAU, TÙY HỎI THEO LOẠI NÀO:
+  //   · KỲ KHỐI LƯỢNG  = period_month   — khối lượng tháng đó CĐT đã xác nhận
+  //   · KỲ XUẤT HÓA ĐƠN = confirmed_date — tháng CĐT chốt để xuất hóa đơn
+  //   Khối lượng tháng 10 mà CĐT ký xác nhận tháng 11 thì nằm ở KL 10/2026
+  //   nhưng ở HĐ 11/2026. Hai con số báo BGĐ KHÁC NHAU, không được lẫn.
+  //   Số thật 27/11/2026: tháng 11 có KL 4 đợt / 10,31 tỷ nhưng HĐ 8 đợt / 31,11 tỷ.
+  //
   // ⚠️ Cắt 7 ký tự đầu của CHUỖI ngày ('2026-09-01' -> '2026-09'), KHÔNG dùng
   //   new Date(): chuỗi chỉ có ngày được hiểu là UTC, máy ở múi giờ âm sẽ lùi
   //   về 31/08 và lọt sang tháng 8. Lỗi này chỉ lộ ra trên máy người khác.
   const ym = (d) => (d ? String(d).slice(0, 7) : '');
-  const periods = [...new Set(all.map((r) => ym(r.period_month)).filter(Boolean))].sort().reverse();
-  if (VIEW_PERIOD !== 'ALL' && !periods.includes(VIEW_PERIOD)) VIEW_PERIOD = 'ALL';
+  const ymKL = (r) => ym(r.period_month);
+  // Chưa có ngày xác nhận = CHƯA XUẤT HÓA ĐƠN. Gom thành một nhóm riêng chứ
+  // không bỏ đi — 7 đợt / 80,3 tỷ đang nằm ở nhóm này, bỏ là mất dấu.
+  const ymHD = (r) => (r.confirmed_date ? ym(r.confirmed_date) : 'NULL');
+
+  const kyKL = [...new Set(all.map(ymKL).filter(Boolean))].sort().reverse();
+  const kyHD = [...new Set(all.map(ymHD))].sort().reverse(); // 'NULL' tự xuống cuối
+  const hopLe = ['ALL', ...kyKL.map((x) => `KL:${x}`), ...kyHD.map((x) => `HD:${x}`)];
+  if (!hopLe.includes(VIEW_PERIOD)) VIEW_PERIOD = 'ALL';
+
+  const kyMo = VIEW_PERIOD === 'ALL' ? null : { loai: VIEW_PERIOD.slice(0, 2), thang: VIEW_PERIOD.slice(3) };
+  const thangTxt = (x) => (x === 'NULL' ? 'chưa xuất hóa đơn' : `tháng ${x.slice(5)}/${x.slice(0, 4)}`);
 
   let list = VIEW_PROJECT === 'ALL' ? all : all.filter((r) => r.project_id === VIEW_PROJECT);
-  if (VIEW_PERIOD !== 'ALL') list = list.filter((r) => ym(r.period_month) === VIEW_PERIOD);
+  if (kyMo) list = list.filter((r) => (kyMo.loai === 'KL' ? ymKL(r) : ymHD(r)) === kyMo.thang);
 
   // SẢN LƯỢNG thì CỘNG MỌI ĐỢT — ô (2) là phần thi công RIÊNG kỳ đó, không phải lũy kế.
   const tongSanLuong = list.reduce((s, r) => s + num(r.amount_before_vat), 0);
@@ -182,7 +199,11 @@ export async function render(container, user) {
   });
   const tongHopDong = Object.values(latestClaimByProject).reduce((s, r) => s + num(r.contract_amount) + num(r.vo_amount), 0);
   const editable = canEdit(user);
-  const kyLabel = VIEW_PERIOD === 'ALL' ? '' : ` kỳ ${VIEW_PERIOD.slice(5)}/${VIEW_PERIOD.slice(0, 4)}`;
+  const kyLabel = !kyMo
+    ? ''
+    : IS_MOBILE
+      ? ` ${kyMo.loai === 'KL' ? 'KL' : 'HĐ'} ${kyMo.thang === 'NULL' ? 'chưa XHĐ' : `T${kyMo.thang.slice(5)}/${kyMo.thang.slice(0, 4)}`}`
+      : ` ${kyMo.loai === 'KL' ? 'khối lượng' : 'xuất hóa đơn'} ${thangTxt(kyMo.thang)}`;
 
   // ---- GỘP THEO DỰ ÁN (thêm 27/11/2026) ------------------------------------
   // Dòng cha = ĐỢT MỚI NHẤT của dự án, bấm vào xổ ra các đợt cũ hơn.
@@ -218,10 +239,12 @@ export async function render(container, user) {
   // nào cũng cụt, phải rê chuột mới đọc được.
   const CLAMP2 =
     'white-space:normal;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden';
+  // Ô "Kỳ hóa đơn": THÁNG in đậm (đơn vị báo cáo cho BGĐ) + ngày ký nhỏ bên dưới.
+  // Trước chỉ hiện mỗi ngày, người đọc phải tự quy ra tháng.
   const xnHtml = (d) =>
     d
-      ? `<span style="color:var(--green);font-weight:600">${fmtDate(d)}</span>`
-      : `<span style="color:var(--amber);font-weight:600">chưa XN</span>`;
+      ? `<div style="color:var(--green);font-weight:700;line-height:1.25">${ym(d).slice(5)}/${ym(d).slice(0, 4)}</div><div style="font-size:10px;color:var(--gray5)">ký ${fmtDate(d)}</div>`
+      : `<span style="color:var(--amber);font-weight:600">chưa XHĐ</span>`;
 
   // Một dòng ĐỢT claim. child = dòng con nằm dưới dòng dự án.
   function dotRow(r, child = false) {
@@ -236,10 +259,10 @@ export async function render(container, user) {
       // Điện thoại chỉ đủ chỗ 3 cột, nên Kỳ và ngày CĐT xác nhận đi xuống dòng
       // phụ ngay dưới ô tương ứng thay vì thêm cột mới.
       return `<tr ${attr}>
-        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">${fmtPeriod(r.period_month)}</div></td>
+        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">KL ${fmtPeriod(r.period_month)}</div></td>
         <td class="mono" style="font-weight:700">${r.claim_no}</td>
         <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
-          <div style="font-size:10.5px;font-weight:600;margin-top:2px">${xnHtml(r.confirmed_date)}</div></td></tr>`;
+          <div style="font-size:10.5px;font-weight:600;margin-top:2px">${r.confirmed_date ? `<span style="color:var(--green)">HĐ ${fmtPeriod(r.confirmed_date)}</span>` : '<span style="color:var(--amber)">chưa XHĐ</span>'}</div></td></tr>`;
     }
     return `<tr ${attr}>
       <td style="white-space:nowrap">${o1}</td>
@@ -268,10 +291,10 @@ export async function render(container, user) {
     const o1 = `${mui} <span class="code-chip" title="${esc(latest.projects?.name)}">${esc(latest.projects?.code || '—')}</span>${dem}`;
     if (IS_MOBILE) {
       return `<tr data-toggle="${pid}" style="cursor:pointer">
-        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">${fmtPeriod(latest.period_month)}</div></td>
+        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">KL ${fmtPeriod(latest.period_month)}</div></td>
         <td class="mono" style="font-weight:700">${latest.claim_no}</td>
         <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
-          <div style="font-size:10.5px;font-weight:600;margin-top:2px">${xnHtml(latest.confirmed_date)}</div></td></tr>`;
+          <div style="font-size:10.5px;font-weight:600;margin-top:2px">${latest.confirmed_date ? `<span style="color:var(--green)">HĐ ${fmtPeriod(latest.confirmed_date)}</span>` : '<span style="color:var(--amber)">chưa XHĐ</span>'}</div></td></tr>`;
     }
     return `<tr data-toggle="${pid}" style="cursor:pointer">
       <td style="white-space:nowrap">${o1}</td>
@@ -294,11 +317,11 @@ export async function render(container, user) {
 
   const thead = IS_MOBILE
     ? '<th>Dự án</th><th>Đợt</th><th style="text-align:right">Doanh thu</th>'
-    : `<th>Dự án</th><th>Đợt</th><th>Kỳ</th><th>Hạng mục</th>
+    : `<th>Dự án</th><th>Đợt</th><th>Kỳ<br>khối lượng</th><th>Hạng mục</th>
        <th style="text-align:right">Hợp đồng<br>(chưa VAT)</th>
        <th style="text-align:right">(2) Doanh thu<br>kỳ này</th>
        <th style="text-align:right">(1) Lũy kế</th>
-       <th style="text-align:center">CĐT<br>xác nhận</th>
+       <th style="text-align:center">Kỳ<br>xuất hóa đơn</th>
        <th style="text-align:right">% HĐ</th>`;
 
   const bodyHtml = grouped
@@ -312,9 +335,14 @@ export async function render(container, user) {
           <option value="ALL" ${VIEW_PROJECT === 'ALL' ? 'selected' : ''}>Tất cả dự án</option>
           ${(projects || []).map((p) => `<option value="${p.id}" ${VIEW_PROJECT === p.id ? 'selected' : ''}>${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
         </select>
-        <select class="btn btn-secondary" id="periodFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:140px'}">
+        <select class="btn btn-secondary" id="periodFilter" style="${IS_MOBILE ? 'width:100%;max-width:100%;box-sizing:border-box' : 'min-width:230px'}">
           <option value="ALL" ${VIEW_PERIOD === 'ALL' ? 'selected' : ''}>Tất cả các kỳ</option>
-          ${periods.map((p) => `<option value="${p}" ${VIEW_PERIOD === p ? 'selected' : ''}>Kỳ ${p.slice(5)}/${p.slice(0, 4)}</option>`).join('')}
+          <optgroup label="Kỳ khối lượng (CĐT xác nhận khối lượng)">
+            ${kyKL.map((x) => `<option value="KL:${x}" ${VIEW_PERIOD === `KL:${x}` ? 'selected' : ''}>Khối lượng ${thangTxt(x)}</option>`).join('')}
+          </optgroup>
+          <optgroup label="Kỳ xuất hóa đơn (theo ngày CĐT xác nhận)">
+            ${kyHD.map((x) => `<option value="HD:${x}" ${VIEW_PERIOD === `HD:${x}` ? 'selected' : ''}>Hóa đơn ${thangTxt(x)}</option>`).join('')}
+          </optgroup>
         </select>
       </div>
       <div style="display:flex;gap:8px;${IS_MOBILE ? 'flex-direction:column' : ''}">
@@ -380,7 +408,7 @@ export async function render(container, user) {
         subtitle: 'DOANH THU DỰ ÁN — SẢN LƯỢNG CHỦ ĐẦU TƯ ĐÃ XÁC NHẬN',
         note:
           (VIEW_PROJECT === 'ALL' ? 'Tất cả dự án' : `Dự án: ${(projects || []).find((p) => p.id === VIEW_PROJECT)?.code || ''}`) +
-          (VIEW_PERIOD === 'ALL' ? '' : ` · Kỳ ${VIEW_PERIOD.slice(5)}/${VIEW_PERIOD.slice(0, 4)}`),
+          (kyMo ? ` · Kỳ ${kyMo.loai === 'KL' ? 'khối lượng' : 'xuất hóa đơn'} ${thangTxt(kyMo.thang)}` : ''),
         columns: [
           { key: 'stt', header: 'STT', width: 6, center: true },
           { key: 'maduan', header: 'MÃ DỰ ÁN', width: 14, center: true },
