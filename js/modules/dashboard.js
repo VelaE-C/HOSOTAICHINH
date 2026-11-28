@@ -34,7 +34,7 @@ export async function render(container, user) {
       supabase.from('bills').select('id, doc_number, contract_id, project_id, partner_id, period_no, status, val_d, vat_rate'),
       supabase.from('project_role_assignments').select('role_type, project_id, projects(code)').eq('user_id', user.id).is('effective_to', null),
       // contract_amount + vo_amount: nguồn cột "Giá trị HĐ"
-      supabase.from('owner_progress_claims').select('project_id, claim_no, amount_before_vat, contract_amount, vo_amount, confirmed_date'),
+      supabase.from('owner_progress_claims').select('project_id, package, claim_no, amount_before_vat, contract_amount, vo_amount, confirmed_date'),
     ]);
 
 
@@ -79,15 +79,24 @@ export async function render(container, user) {
   }
 
   // GIÁ TRỊ HĐ — ĐỢT CLAIM MỚI NHẤT mỗi dự án, KHÔNG cộng dồn (xem đầu file).
-  const latestClaimByProject = {};
+  // ⚠️ GOM THEO DỰ ÁN + GÓI THẦU CĐT (sửa 28/11/2026), KHÔNG chỉ theo dự án.
+  //   Một dự án có thể ký NHIỀU gói riêng với CĐT: VEGACITY66CAN có gói 62 căn
+  //   và gói 4 căn mẫu, mỗi gói một bộ claim, một trần hợp đồng, một dãy số đợt.
+  //   Lấy đợt mới nhất THEO DỰ ÁN thôi thì chỉ còn trần của MỘT gói, mất gói kia
+  //   — giá trị HĐ của dự án hụt đi đúng phần gói bị bỏ.
+  //   Đúng là: lấy đợt mới nhất của TỪNG gói, rồi CỘNG các gói lại.
+  const pkgKey = (r) => `${r.project_id}||${String(r.package || '').trim()}`;
+  const latestClaimByPkg = {};
   (claims || []).forEach((r) => {
-    const cur = latestClaimByProject[r.project_id];
-    if (!cur || Number(r.claim_no || 0) > Number(cur.claim_no || 0)) latestClaimByProject[r.project_id] = r;
+    const k = pkgKey(r);
+    const cur = latestClaimByPkg[k];
+    if (!cur || Number(r.claim_no || 0) > Number(cur.claim_no || 0)) latestClaimByPkg[k] = r;
   });
   const contractValueByProject = {};
-  Object.entries(latestClaimByProject).forEach(([pid, r]) => {
+  Object.values(latestClaimByPkg).forEach((r) => {
     const v = Number(r.contract_amount || 0) + Number(r.vo_amount || 0);
-    contractValueByProject[pid] = v > 0 ? v : null; // 0 hoặc trống = coi như CHƯA NHẬP, để còn nhắc
+    if (v > 0) contractValueByProject[r.project_id] = (contractValueByProject[r.project_id] || 0) + v;
+    else if (!(r.project_id in contractValueByProject)) contractValueByProject[r.project_id] = null; // 0/trống = CHƯA NHẬP
   });
 
   // DOANH THU — CỘNG mọi đợt (ngược cột trên, xem đầu file).
