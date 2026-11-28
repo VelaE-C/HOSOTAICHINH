@@ -286,8 +286,10 @@ export async function render(container, user) {
       : `<span style="color:var(--amber);font-weight:600">chưa XHĐ</span>`;
 
   // Một dòng ĐỢT claim. child = dòng con nằm dưới dòng dự án.
+  // Màn hẹp KHÔNG gắn chip: tên gói đã nằm ở dòng phụ ngay dưới mã dự án rồi,
+  // gắn thêm chip là vừa lặp vừa đẩy cột 1 rộng ra 430px, bảng phải cuộn ngang.
   const chipPkg = (r) =>
-    pkgOf(r)
+    !IS_MOBILE && pkgOf(r)
       ? `<span class="code-chip" style="background:#fdf3dd;color:#8a6200;margin-left:4px" title="Gói thầu CĐT">${esc(pkgOf(r))}</span>`
       : '';
 
@@ -333,7 +335,7 @@ export async function render(container, user) {
     const tran = num(latest.contract_amount) + num(latest.vo_amount);
     const pct = tran > 0 ? Math.round((k.B1 / tran) * 100) : null;
     const mui = `<span data-caret="${pid}" style="display:inline-block;width:11px;color:var(--gray5);font-size:10px;transform:rotate(${open ? 90 : 0}deg);transition:transform .15s">▶</span>`;
-    const dem = rs.length > 1 ? `<span style="font-size:10.5px;color:var(--gray5);margin-left:4px;white-space:nowrap">·${rs.length} đợt</span>` : '';
+    const dem = `<span style="font-size:10.5px;color:var(--gray5);margin-left:4px;white-space:nowrap">·${rs.length} đợt</span>`;
     const o1 = `${mui} <span class="code-chip" title="${esc(latest.projects?.name)}">${esc(latest.projects?.code || '—')}</span>${chipPkg(latest)}${dem}`;
     if (IS_MOBILE) {
       return `<tr data-toggle="${pid}" data-key="${esc(key)}" style="cursor:pointer">
@@ -370,8 +372,14 @@ export async function render(container, user) {
        <th style="text-align:center">Kỳ<br>xuất hóa đơn</th>
        <th style="text-align:right">% HĐ</th>`;
 
+  // ⚠️ XỔ RA PHẢI CÓ ĐỦ MỌI ĐỢT, KỂ CẢ ĐỢT MỚI NHẤT (sửa 28/11/2026).
+  //   Bản trước cắt rs.slice(1) cho khỏi lặp với dòng cha. Hậu quả: đợt mới nhất
+  //   KHÔNG bấm vào sửa được — dòng cha chỉ dùng để xổ/thu, không mở phiếu. Dự án
+  //   chỉ có 1 đợt (IEC29CAN) thì xổ ra trống trơn, không mở được dòng nào.
+  //   Nay dòng cha là DÒNG TÓM TẮT, xổ ra là danh sách đầy đủ để bấm vào sửa.
+  //   Nhờ vậy số dòng con cũng khớp đúng với badge "·N đợt".
   const bodyHtml = grouped
-    ? byProject.map((g) => duAnRow(g) + g.rs.slice(1).map((r) => dotRow(r, true)).join('')).join('')
+    ? byProject.map((g) => duAnRow(g) + g.rs.map((r) => dotRow(r, true)).join('')).join('')
     : list.map((r) => dotRow(r)).join('');
 
   container.innerHTML = `
