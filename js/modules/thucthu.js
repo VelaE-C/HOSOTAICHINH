@@ -93,6 +93,21 @@ const fromMonthInput = (v) => (v ? `${v}-01` : null);
 const num = (v) => Number(v || 0);
 
 // ============================================================
+// GÓI THẦU CĐT (thêm 28/11/2026)
+// Một dự án có thể ký NHIỀU gói riêng với chủ đầu tư. VEGACITY66CAN có gói 62
+// căn và gói 4 căn mẫu: hai bộ hồ sơ claim, hai trần hợp đồng, hai dãy số đợt.
+// Chi phí thì KHÔNG tách được (142 bill đã duyệt chung cho cả 66 căn) — nên
+// gói chỉ tồn tại ở phía claim, còn bill và hợp đồng vẫn thuộc về dự án.
+//
+// ⚠️ MỌI PHÉP CỘNG DỒN CỦA CLAIM PHẢI GOM THEO DỰ ÁN + GÓI, KHÔNG CHỈ DỰ ÁN:
+//   lũy kế (1), số đợt kế tiếp, trần hợp đồng, % HĐ. Gom theo dự án thôi thì
+//   lũy kế của gói này cộng nhầm sang gói kia, trần hợp đồng mất một gói.
+// Để trống = dự án chỉ có một gói (hầu hết dự án) — chạy y như trước.
+const pkgOf = (r) => String(r?.package || '').trim();
+const pkgKey = (r) => `${r.project_id}||${pkgOf(r)}`;
+const pkgLabel = (v) => (v ? v : 'Gói chính');
+
+// ============================================================
 // TÍNH 1 ĐỢT CLAIM — đúng thứ tự dòng của phiếu giấy
 // Mọi ô khấu trừ nhận SỐ DƯƠNG, hàm này tự trừ.
 // ============================================================
@@ -126,7 +141,9 @@ export function calcClaim(r) {
 //   (13) = tổng tạm ứng + tổng (12) của các đợt <= đợt này
 // ============================================================
 export function calcCumulative(r, all) {
-  const sib = (all || []).filter((x) => x.project_id === r.project_id && x.claim_no != null);
+  // ⚠️ Lọc cả GÓI: hai gói của cùng dự án có hai dãy số đợt độc lập, trộn vào
+  //   nhau thì lũy kế (1) của gói 4 căn cộng luôn sản lượng gói 62 căn.
+  const sib = (all || []).filter((x) => x.project_id === r.project_id && pkgOf(x) === pkgOf(r) && x.claim_no != null);
   const n = Number(r.claim_no);
   const upTo = sib.filter((x) => Number(x.claim_no) <= n);
   const before = sib.filter((x) => Number(x.claim_no) < n);
@@ -198,12 +215,14 @@ export async function render(container, user) {
   // ⚠️ Mỗi phiếu claim CHỤP LẠI giá trị hợp đồng tại thời điểm lập. Đợt sau đã bao
   //   gồm cả phát sinh của đợt trước, nên cộng dồn là sai bản chất.
   // ⚠️ Lấy trong PHẠM VI ĐANG LỌC: chọn kỳ 09/2026 thì ra trần hợp đồng tại kỳ đó.
-  const latestClaimByProject = {};
+  // ⚠️ Mới nhất theo TỪNG GÓI rồi mới cộng — xem ghi chú GÓI THẦU CĐT đầu file.
+  const latestClaimByPkg = {};
   list.forEach((r) => {
-    const cur = latestClaimByProject[r.project_id];
-    if (!cur || Number(r.claim_no || 0) > Number(cur.claim_no || 0)) latestClaimByProject[r.project_id] = r;
+    const k = pkgKey(r);
+    const cur = latestClaimByPkg[k];
+    if (!cur || Number(r.claim_no || 0) > Number(cur.claim_no || 0)) latestClaimByPkg[k] = r;
   });
-  const tongHopDong = Object.values(latestClaimByProject).reduce((s, r) => s + num(r.contract_amount) + num(r.vo_amount), 0);
+  const tongHopDong = Object.values(latestClaimByPkg).reduce((s, r) => s + num(r.contract_amount) + num(r.vo_amount), 0);
   const editable = canEdit(user);
   const phan = [];
   if (VIEW_KY_KL !== 'ALL') phan.push(IS_MOBILE ? `KL ${thangNgan(VIEW_KY_KL)}` : `khối lượng ${thangTxt(VIEW_KY_KL)}`);
@@ -215,21 +234,30 @@ export async function render(container, user) {
   // ⚠️ CHỈ gộp khi xem TẤT CẢ dự án VÀ TẤT CẢ các kỳ. Đã lọc 1 dự án hoặc 1 kỳ
   //   rồi thì bày thẳng từng đợt — gộp lúc đó chỉ thêm một lần bấm chứ không gọn.
   const grouped = VIEW_PROJECT === 'ALL' && VIEW_KY_KL === 'ALL' && VIEW_KY_HD === 'ALL';
+  // Mỗi GÓI một dòng cha. Dự án 2 gói thì ra 2 dòng — đúng bản chất, vì hai gói
+  // có hai trần hợp đồng khác nhau, gộp chung thì % HĐ vô nghĩa.
   const byProject = [];
   if (grouped) {
     const m = new Map();
     list.forEach((r) => {
-      if (!m.has(r.project_id)) m.set(r.project_id, []);
-      m.get(r.project_id).push(r);
+      const k = pkgKey(r);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(r);
     });
-    m.forEach((rs, pid) => {
+    m.forEach((rs, key) => {
       rs.sort((a, b) => Number(b.claim_no || 0) - Number(a.claim_no || 0)); // mới nhất lên đầu
-      byProject.push({ pid, rs, latest: rs[0] });
+      byProject.push({ key, rs, latest: rs[0] });
     });
-    byProject.sort((a, b) =>
-      String(a.latest.projects?.code || '').localeCompare(String(b.latest.projects?.code || ''), 'vi', { numeric: true }),
+    byProject.sort(
+      (a, b) =>
+        String(a.latest.projects?.code || '').localeCompare(String(b.latest.projects?.code || ''), 'vi', { numeric: true }) ||
+        pkgOf(a.latest).localeCompare(pkgOf(b.latest), 'vi'),
     );
   }
+  // DOM id cho dòng cha: KHÔNG nhét thẳng tên gói vào thuộc tính rồi đem đi
+  // querySelector — tên gói có dấu, có khoảng trắng, có thể có dấu nháy, là vỡ
+  // bộ chọn CSS. Đánh số g0, g1… còn EXPANDED vẫn nhớ theo key thật.
+  const gid = new Map(byProject.map((g, i) => [g.key, `g${i}`]));
 
   // ⚠️ MÀN HẸP PHẢI ĐỔI SANG "TỶ" (sửa 27/11/2026): 3 ô số xếp 1 hàng, mà
   //   "121.120.615.025 ₫" dài 17 ký tự không co xuống dưới 166px được, nên ô số
@@ -252,19 +280,25 @@ export async function render(container, user) {
       : `<span style="color:var(--amber);font-weight:600">chưa XHĐ</span>`;
 
   // Một dòng ĐỢT claim. child = dòng con nằm dưới dòng dự án.
+  const chipPkg = (r) =>
+    pkgOf(r)
+      ? `<span class="code-chip" style="background:#fdf3dd;color:#8a6200;margin-left:4px" title="Gói thầu CĐT">${esc(pkgOf(r))}</span>`
+      : '';
+
   function dotRow(r, child = false) {
     const c = calcClaim(r);
     const k = calcCumulative(r, all);
     const tran = num(r.contract_amount) + num(r.vo_amount);
     const pct = tran > 0 ? Math.round((k.B1 / tran) * 100) : null;
-    const hidden = child && !EXPANDED.has(r.project_id);
-    const attr = `class="click" data-id="${r.id}" ${child ? `data-parent="${r.project_id}"` : ''} style="cursor:pointer${child ? ';background:var(--gray1)' : ''}${hidden ? ';display:none' : ''}"`;
-    const o1 = `${child ? '<span style="color:var(--gray3);margin-right:4px">└</span>' : ''}<span class="code-chip" title="${esc(r.projects?.name)}">${esc(r.projects?.code || '—')}</span>`;
+    const hidden = child && !EXPANDED.has(pkgKey(r));
+    const pid = gid.get(pkgKey(r)) || '';
+    const attr = `class="click" data-id="${r.id}" ${child ? `data-parent="${pid}"` : ''} style="cursor:pointer${child ? ';background:var(--gray1)' : ''}${hidden ? ';display:none' : ''}"`;
+    const o1 = `${child ? '<span style="color:var(--gray3);margin-right:4px">└</span>' : ''}<span class="code-chip" title="${esc(r.projects?.name)}">${esc(r.projects?.code || '—')}</span>${child ? '' : chipPkg(r)}`;
     if (IS_MOBILE) {
       // Điện thoại chỉ đủ chỗ 3 cột, nên Kỳ và ngày CĐT xác nhận đi xuống dòng
       // phụ ngay dưới ô tương ứng thay vì thêm cột mới.
       return `<tr ${attr}>
-        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">KL ${fmtPeriod(r.period_month)}</div></td>
+        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">${pkgOf(r) ? `${esc(pkgOf(r))} · ` : ''}KL ${fmtPeriod(r.period_month)}</div></td>
         <td class="mono" style="font-weight:700">${r.claim_no}</td>
         <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
           <div style="font-size:10.5px;font-weight:600;margin-top:2px">${r.confirmed_date ? `<span style="color:var(--green)">HĐ ${fmtPeriod(r.confirmed_date)}</span>` : '<span style="color:var(--amber)">chưa XHĐ</span>'}</div></td></tr>`;
@@ -285,23 +319,24 @@ export async function render(container, user) {
   // Dòng DỰ ÁN — số liệu lấy của ĐỢT MỚI NHẤT, bấm để xổ các đợt cũ.
   // ⚠️ KHÔNG gắn data-id cho dòng này: data-id là dấu hiệu "bấm vào mở phiếu".
   //   Gắn cả hai thì một cú bấm vừa xổ danh sách vừa bật phiếu lên.
-  function duAnRow({ pid, rs, latest }) {
-    const open = EXPANDED.has(pid);
+  function duAnRow({ key, rs, latest }) {
+    const open = EXPANDED.has(key);
+    const pid = gid.get(key);
     const c = calcClaim(latest);
     const k = calcCumulative(latest, all);
     const tran = num(latest.contract_amount) + num(latest.vo_amount);
     const pct = tran > 0 ? Math.round((k.B1 / tran) * 100) : null;
     const mui = `<span data-caret="${pid}" style="display:inline-block;width:11px;color:var(--gray5);font-size:10px;transform:rotate(${open ? 90 : 0}deg);transition:transform .15s">▶</span>`;
     const dem = rs.length > 1 ? `<span style="font-size:10.5px;color:var(--gray5);margin-left:4px;white-space:nowrap">·${rs.length} đợt</span>` : '';
-    const o1 = `${mui} <span class="code-chip" title="${esc(latest.projects?.name)}">${esc(latest.projects?.code || '—')}</span>${dem}`;
+    const o1 = `${mui} <span class="code-chip" title="${esc(latest.projects?.name)}">${esc(latest.projects?.code || '—')}</span>${chipPkg(latest)}${dem}`;
     if (IS_MOBILE) {
-      return `<tr data-toggle="${pid}" style="cursor:pointer">
-        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">KL ${fmtPeriod(latest.period_month)}</div></td>
+      return `<tr data-toggle="${pid}" data-key="${esc(key)}" style="cursor:pointer">
+        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">${pkgOf(latest) ? `${esc(pkgOf(latest))} · ` : ''}KL ${fmtPeriod(latest.period_month)}</div></td>
         <td class="mono" style="font-weight:700">${latest.claim_no}</td>
         <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
           <div style="font-size:10.5px;font-weight:600;margin-top:2px">${latest.confirmed_date ? `<span style="color:var(--green)">HĐ ${fmtPeriod(latest.confirmed_date)}</span>` : '<span style="color:var(--amber)">chưa XHĐ</span>'}</div></td></tr>`;
     }
-    return `<tr data-toggle="${pid}" style="cursor:pointer">
+    return `<tr data-toggle="${pid}" data-key="${esc(key)}" style="cursor:pointer">
       <td style="white-space:nowrap">${o1}</td>
       <td class="mono" style="font-weight:700">${latest.claim_no}</td>
       <td class="mono">${fmtPeriod(latest.period_month)}</td>
@@ -392,9 +427,10 @@ export async function render(container, user) {
   container.querySelectorAll('[data-toggle]').forEach((tr) =>
     tr.addEventListener('click', () => {
       const pid = tr.dataset.toggle;
-      const dangMo = EXPANDED.has(pid);
-      if (dangMo) EXPANDED.delete(pid);
-      else EXPANDED.add(pid);
+      const key = tr.dataset.key;
+      const dangMo = EXPANDED.has(key);
+      if (dangMo) EXPANDED.delete(key);
+      else EXPANDED.add(key);
       container.querySelectorAll(`[data-parent="${pid}"]`).forEach((x) => {
         x.style.display = dangMo ? 'none' : '';
       });
@@ -420,6 +456,7 @@ export async function render(container, user) {
         columns: [
           { key: 'stt', header: 'STT', width: 6, center: true },
           { key: 'maduan', header: 'MÃ DỰ ÁN', width: 14, center: true },
+          { key: 'goithau', header: 'GÓI THẦU CĐT', width: 18 },
           { key: 'kyclaim', header: 'KỲ CLAIM', width: 11, center: true },
           { key: 'tenduan', header: 'Tên dự án', width: 26 },
           { key: 'hangmuc', header: 'Hạng mục', width: 40 },
@@ -444,6 +481,7 @@ export async function render(container, user) {
           return {
             stt: i + 1,
             maduan: r.projects?.code || '',
+            goithau: pkgOf(r),
             kyclaim: r.claim_no,
             tenduan: r.projects?.name || '',
             hangmuc: r.scope_summary || '',
@@ -501,13 +539,18 @@ async function openForm(rec, projects, all, user, onClose) {
 
   // Đợt mới: kế thừa giá trị HĐ, VO và hai tỉ lệ từ đợt gần nhất của cùng dự án.
   // Nhập một lần ở đợt 01, các đợt sau khỏi gõ lại — và khỏi gõ lệch.
-  function inheritFrom(projectId) {
-    const sib = (all || []).filter((x) => x.project_id === projectId);
+  function inheritFrom(projectId, pkg) {
+    const k = String(pkg || '').trim();
+    const sib = (all || []).filter((x) => x.project_id === projectId && pkgOf(x) === k);
     if (!sib.length) return null;
     return sib.reduce((a, b) => (Number(b.claim_no) > Number(a.claim_no) ? b : a));
   }
+  // Các gói CĐT đã dùng ở dự án đang chọn — đổ vào gợi ý để khỏi gõ lệch tên.
+  // Gõ lệch một chữ là thành gói thứ ba, lũy kế tách làm đôi mà không ai thấy.
+  const goiCua = (projectId) =>
+    [...new Set((all || []).filter((x) => x.project_id === projectId).map(pkgOf).filter(Boolean))].sort();
   const firstProject = rec?.project_id || projects?.[0]?.id;
-  const seed = isNew ? inheritFrom(firstProject) : null;
+  const seed = isNew ? inheritFrom(firstProject, '') : null;
   const base = rec || {
     contract_amount: seed?.contract_amount ?? null,
     vo_amount: seed?.vo_amount ?? 0,
@@ -520,7 +563,7 @@ async function openForm(rec, projects, all, user, onClose) {
   };
 
   modal.innerHTML = `<div class="panel-box" style="max-width:820px">
-    <div class="panel-header"><div>${isNew ? 'Ghi nhận đợt claim mới' : `Đợt ${rec.claim_no} — ${esc(rec.projects?.code || '')}`}</div>
+    <div class="panel-header"><div>${isNew ? 'Ghi nhận đợt claim mới' : `Đợt ${rec.claim_no} — ${esc(rec.projects?.code || '')}${pkgOf(rec) ? ` · ${esc(pkgOf(rec))}` : ''}`}</div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${!isNew ? `<button class="btn btn-sm btn-secondary" id="btnPrint">🖨️ In phiếu</button>` : ''}
         ${!isNew && canDelete(user) ? `<button class="btn btn-sm btn-danger" id="btnDelete">🗑️ Xóa</button>` : ''}
@@ -538,6 +581,17 @@ async function openForm(rec, projects, all, user, onClose) {
           ${(projects || []).map((p) => `<option value="${p.id}" ${base?.project_id === p.id || (isNew && p.id === firstProject) ? 'selected' : ''}>${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
         </select>
         ${isNew ? '' : '<div style="font-size:11px;color:var(--gray4);margin-top:4px">Không đổi được dự án của đợt đã ghi nhận — nhập nhầm thì xóa dòng này rồi tạo lại.</div>'}</div>
+
+      <div style="margin-bottom:13px"><label class="form-label">Gói thầu CĐT</label>
+        <input id="fPackage" class="form-input" list="pkgList" autocomplete="off"
+               placeholder="Để TRỐNG nếu dự án chỉ ký một gói với CĐT"
+               value="${esc(rec ? pkgOf(rec) : '')}" ${isNew ? '' : 'disabled style="background:var(--gray1)"'}>
+        <datalist id="pkgList">${goiCua(firstProject).map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
+        <div style="font-size:11px;color:var(--gray4);margin-top:4px">
+          Dự án ký nhiều gói riêng với CĐT thì ghi tên gói ở đây (VD: <b>Gói 62 căn</b>, <b>Gói 4 căn mẫu</b>).
+          Mỗi gói có dãy số đợt riêng, trần hợp đồng riêng, lũy kế riêng. Chi phí vẫn tính chung cho cả dự án.
+          ${isNew ? '' : '<br>Không đổi được gói của đợt đã ghi nhận — nhập nhầm thì xóa dòng này rồi tạo lại.'}
+        </div></div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
         <div><label class="form-label">Đợt claim *</label>
@@ -638,6 +692,7 @@ async function openForm(rec, projects, all, user, onClose) {
     return {
       id: rec?.id,
       project_id: modal.querySelector('#fProject').value,
+      package: (modal.querySelector('#fPackage').value || '').trim(),
       claim_no: Number(modal.querySelector('#fClaim').value) || 0,
       contract_amount: parseMoneyInput(modal.querySelector('#fContract').value),
       vo_amount: parseMoneyInput(modal.querySelector('#fVo').value),
@@ -695,12 +750,20 @@ async function openForm(rec, projects, all, user, onClose) {
     const note = modal.querySelector('#claimNote');
     const projectId = modal.querySelector('#fProject').value;
     const claimNo = Number(modal.querySelector('#fClaim').value);
+    const pkg = (modal.querySelector('#fPackage').value || '').trim();
     if (!projectId || !claimNo) return (note.innerHTML = '');
-    if (!isNew && claimNo === rec.claim_no) return (note.innerHTML = '');
-    const { data } = await supabase.from('owner_progress_claims').select('id').eq('project_id', projectId).eq('claim_no', claimNo).limit(1);
+    if (!isNew && claimNo === rec.claim_no && pkg === pkgOf(rec)) return (note.innerHTML = '');
+    const { data } = await supabase
+      .from('owner_progress_claims')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('package', pkg)
+      .eq('claim_no', claimNo)
+      .limit(1);
+    const tenGoi = pkg ? ` của ${pkg}` : '';
     note.innerHTML = data && data.length
-      ? `<span style="color:var(--red);font-weight:600">✕ Đợt ${claimNo} của dự án này đã ghi nhận rồi.</span>`
-      : `<span style="color:var(--green,#16A34A)">✓ Đợt này chưa có.</span>`;
+      ? `<span style="color:var(--red);font-weight:600">✕ Đợt ${claimNo}${tenGoi} đã ghi nhận rồi.</span>`
+      : `<span style="color:var(--green,#16A34A)">✓ Đợt này chưa có${tenGoi}.</span>`;
   }
   modal.querySelector('#fClaim').addEventListener('input', () => {
     clearTimeout(claimTimer);
@@ -708,9 +771,8 @@ async function openForm(rec, projects, all, user, onClose) {
   });
 
   // Đổi dự án khi đang tạo mới -> kế thừa lại giá trị HĐ và số đợt tiếp theo
-  modal.querySelector('#fProject').addEventListener('change', (e) => {
-    if (!isNew) return;
-    const s = inheritFrom(e.target.value);
+  function apDungKeThua(projectId, pkg) {
+    const s = inheritFrom(projectId, pkg);
     modal.querySelector('#fContract').value = formatMoneyInput(s?.contract_amount || 0);
     modal.querySelector('#fVo').value = formatMoneyInput(s?.vo_amount || 0);
     modal.querySelector('#fScope').value = s?.scope_summary || '';
@@ -721,6 +783,18 @@ async function openForm(rec, projects, all, user, onClose) {
     modal.querySelector('#fClaim').value = s ? Number(s.claim_no) + 1 : 1;
     refresh();
     checkClaimDup();
+  }
+  modal.querySelector('#fProject').addEventListener('change', (e) => {
+    if (!isNew) return;
+    // Đổi dự án thì danh sách gói gợi ý cũng phải đổi theo, và ô gói xóa trắng —
+    // giữ nguyên tên gói của dự án cũ là tạo ra một gói ma ở dự án mới.
+    modal.querySelector('#fPackage').value = '';
+    modal.querySelector('#pkgList').innerHTML = goiCua(e.target.value).map((g) => `<option value="${esc(g)}"></option>`).join('');
+    apDungKeThua(e.target.value, '');
+  });
+  modal.querySelector('#fPackage').addEventListener('change', (e) => {
+    if (!isNew) return;
+    apDungKeThua(modal.querySelector('#fProject').value, e.target.value);
   });
 
   // Đính kèm: dòng ĐÃ có thì gắn thẳng; dòng MỚI chưa có id nên chọn tạm, lưu xong mới tải lên
@@ -762,6 +836,7 @@ async function openForm(rec, projects, all, user, onClose) {
     // CỐ Ý không gửi created_by/updated_by — trigger bên database tự ghi, không ai giả được
     const payload = {
       project_id: f.project_id,
+      package: f.package,
       claim_no: f.claim_no,
       period_month,
       confirmed_date,
@@ -786,7 +861,7 @@ async function openForm(rec, projects, all, user, onClose) {
       const { data: created, error } = await supabase.from('owner_progress_claims').insert(payload).select('id').single();
       if (error) {
         if (error.message.includes('project_claim_unique') || error.message.includes('duplicate key')) {
-          return toast(`Đợt ${f.claim_no} của dự án này đã được ghi nhận rồi — mở dòng đó ra sửa, đừng tạo trùng.`, 'error');
+          return toast(`Đợt ${f.claim_no}${f.package ? ' của ' + f.package : ''} đã được ghi nhận rồi — mở dòng đó ra sửa, đừng tạo trùng.`, 'error');
         }
         if (error.message.includes('opc_khau_tru_khong_am')) {
           return toast('Các ô khấu trừ phải là số dương — phần mềm tự trừ.', 'error');
@@ -799,7 +874,7 @@ async function openForm(rec, projects, all, user, onClose) {
       const { error } = await supabase.from('owner_progress_claims').update(payload).eq('id', rec.id);
       if (error) {
         if (error.message.includes('project_claim_unique') || error.message.includes('duplicate key')) {
-          return toast(`Đợt ${f.claim_no} của dự án này đã có dòng khác dùng rồi.`, 'error');
+          return toast(`Đợt ${f.claim_no}${f.package ? ' của ' + f.package : ''} đã có dòng khác dùng rồi.`, 'error');
         }
         if (error.message.includes('opc_khau_tru_khong_am')) {
           return toast('Các ô khấu trừ phải là số dương — phần mềm tự trừ.', 'error');
@@ -848,7 +923,7 @@ function openPrintClaim(r, all) {
         <tr><td colspan="3" class="title">BẢNG TÓM TẮT THANH TOÁN<div class="sub">SUMMARY OF PAYMENT</div></td></tr>
         <tr><td class="label">Dự án</td><td colspan="2">${esc(r.projects?.name || '—')}</td></tr>
         <tr><td class="label">Hạng mục</td><td colspan="2">${esc(r.scope_summary || '—')}</td></tr>
-        <tr><td class="label">Đợt claim</td><td colspan="2">Đợt ${r.claim_no} — kỳ ${fmtPeriod(r.period_month)}</td></tr>
+        <tr><td class="label">Đợt claim</td><td colspan="2">Đợt ${r.claim_no} — kỳ ${fmtPeriod(r.period_month)}${pkgOf(r) ? ` — ${esc(pkgOf(r))}` : ''}</td></tr>
         <tr><td class="label">Ngày CĐT xác nhận</td><td colspan="2">${vnDate(r.confirmed_date)}</td></tr>
       </table>
 
