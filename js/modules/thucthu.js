@@ -286,11 +286,18 @@ export async function render(container, user) {
       : `<span style="color:var(--amber);font-weight:600">chưa XHĐ</span>`;
 
   // Một dòng ĐỢT claim. child = dòng con nằm dưới dòng dự án.
-  // Màn hẹp KHÔNG gắn chip: tên gói đã nằm ở dòng phụ ngay dưới mã dự án rồi,
-  // gắn thêm chip là vừa lặp vừa đẩy cột 1 rộng ra 430px, bảng phải cuộn ngang.
+  // Chip gói, nền vàng cho dễ nhận ra giữa một rừng mã dự án giống nhau.
+  // ⚠️ Màn hẹp KHÔNG gắn chip cạnh mã dự án: gắn ở đó vừa lặp với dòng phụ bên
+  //   dưới, vừa đẩy cột 1 rộng ra 430px trên màn 412px -> bảng phải cuộn ngang.
+  //   Màn hẹp dùng chipPkgNho đặt ngay trong dòng phụ — vẫn khung vàng, chữ nhỏ
+  //   hơn nên không nong cột ra.
   const chipPkg = (r) =>
     !IS_MOBILE && pkgOf(r)
       ? `<span class="code-chip" style="background:#fdf3dd;color:#8a6200;margin-left:4px" title="Gói thầu CĐT">${esc(pkgOf(r))}</span>`
+      : '';
+  const chipPkgNho = (r) =>
+    pkgOf(r)
+      ? `<span style="display:inline-block;font-size:9.5px;font-weight:700;line-height:1.5;padding:0 5px;border-radius:5px;background:#fdf3dd;color:#8a6200;margin-right:5px">${esc(pkgOf(r))}</span>`
       : '';
 
   function dotRow(r, child = false) {
@@ -306,7 +313,7 @@ export async function render(container, user) {
       // Điện thoại chỉ đủ chỗ 3 cột, nên Kỳ và ngày CĐT xác nhận đi xuống dòng
       // phụ ngay dưới ô tương ứng thay vì thêm cột mới.
       return `<tr ${attr}>
-        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">${pkgOf(r) ? `${esc(pkgOf(r))} · ` : ''}KL ${fmtPeriod(r.period_month)}</div></td>
+        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:3px">${chipPkgNho(r)}KL ${fmtPeriod(r.period_month)}</div></td>
         <td class="mono" style="font-weight:700">${r.claim_no}</td>
         <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
           <div style="font-size:10.5px;font-weight:600;margin-top:2px">${r.confirmed_date ? `<span style="color:var(--green)">HĐ ${fmtPeriod(r.confirmed_date)}</span>` : '<span style="color:var(--amber)">chưa XHĐ</span>'}</div></td></tr>`;
@@ -339,7 +346,7 @@ export async function render(container, user) {
     const o1 = `${mui} <span class="code-chip" title="${esc(latest.projects?.name)}">${esc(latest.projects?.code || '—')}</span>${chipPkg(latest)}${dem}`;
     if (IS_MOBILE) {
       return `<tr data-toggle="${pid}" data-key="${esc(key)}" style="cursor:pointer">
-        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:2px">${pkgOf(latest) ? `${esc(pkgOf(latest))} · ` : ''}KL ${fmtPeriod(latest.period_month)}</div></td>
+        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:3px">${chipPkgNho(latest)}KL ${fmtPeriod(latest.period_month)}</div></td>
         <td class="mono" style="font-weight:700">${latest.claim_no}</td>
         <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
           <div style="font-size:10.5px;font-weight:600;margin-top:2px">${latest.confirmed_date ? `<span style="color:var(--green)">HĐ ${fmtPeriod(latest.confirmed_date)}</span>` : '<span style="color:var(--amber)">chưa XHĐ</span>'}</div></td></tr>`;
