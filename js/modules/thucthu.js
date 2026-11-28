@@ -313,7 +313,7 @@ export async function render(container, user) {
       // Điện thoại chỉ đủ chỗ 3 cột, nên Kỳ và ngày CĐT xác nhận đi xuống dòng
       // phụ ngay dưới ô tương ứng thay vì thêm cột mới.
       return `<tr ${attr}>
-        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:3px">${chipPkgNho(r)}KL ${fmtPeriod(r.period_month)}</div></td>
+        <td><span style="white-space:nowrap">${o1}</span><div style="font-size:10.5px;color:var(--gray5);margin-top:3px">${chipPkgNho(r)}KL ${fmtPeriod(r.period_month)}</div></td>
         <td class="mono" style="font-weight:700">${r.claim_no}</td>
         <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
           <div style="font-size:10.5px;font-weight:600;margin-top:2px">${r.confirmed_date ? `<span style="color:var(--green)">HĐ ${fmtPeriod(r.confirmed_date)}</span>` : '<span style="color:var(--amber)">chưa XHĐ</span>'}</div></td></tr>`;
@@ -346,7 +346,7 @@ export async function render(container, user) {
     const o1 = `${mui} <span class="code-chip" title="${esc(latest.projects?.name)}">${esc(latest.projects?.code || '—')}</span>${chipPkg(latest)}${dem}`;
     if (IS_MOBILE) {
       return `<tr data-toggle="${pid}" data-key="${esc(key)}" style="cursor:pointer">
-        <td style="white-space:nowrap">${o1}<div style="font-size:10.5px;color:var(--gray5);margin-top:3px">${chipPkgNho(latest)}KL ${fmtPeriod(latest.period_month)}</div></td>
+        <td><span style="white-space:nowrap">${mui} <span class="code-chip">${esc(latest.projects?.code || '—')}</span></span><div style="font-size:10.5px;color:var(--gray5);margin-top:3px">${chipPkgNho(latest)}KL ${fmtPeriod(latest.period_month)} <span style="color:var(--gray4)">·${rs.length} đợt</span></div></td>
         <td class="mono" style="font-weight:700">${latest.claim_no}</td>
         <td class="mono" style="text-align:right;font-weight:700">${fmt(c.B2)}
           <div style="font-size:10.5px;font-weight:600;margin-top:2px">${latest.confirmed_date ? `<span style="color:var(--green)">HĐ ${fmtPeriod(latest.confirmed_date)}</span>` : '<span style="color:var(--amber)">chưa XHĐ</span>'}</div></td></tr>`;
@@ -367,7 +367,7 @@ export async function render(container, user) {
   // Cột đặt bề ngang cố định, riêng Hạng mục để auto ăn hết chỗ còn lại — bản cũ
   // không đặt gì nên 3 cột tiền co lại còn cột hạng mục phình ra.
   const colgroup = IS_MOBILE
-    ? '<col style="width:46%"><col style="width:12%"><col style="width:42%">'
+    ? '<col style="width:44%"><col style="width:11%"><col style="width:45%">'
     : '<col style="width:186px"><col style="width:48px"><col style="width:74px"><col><col style="width:132px"><col style="width:140px"><col style="width:132px"><col style="width:102px"><col style="width:56px">';
 
   const thead = IS_MOBILE
@@ -421,8 +421,22 @@ export async function render(container, user) {
 
     ${!editable ? `<div style="font-size:11.5px;color:var(--gray4);margin-bottom:8px">🔒 Chỉ phòng QLCP&HĐ nhập được số liệu ở tab này — bạn chỉ xem.</div>` : ''}
 
+    ${IS_MOBILE
+      ? `<style>
+          /* ⚠️ Màn hẹp: bảng PHẢI co vừa khung, không được đẩy ngang. table-layout
+             fixed buộc trình duyệt theo đúng % ở colgroup thay vì nong theo nội
+             dung dài nhất; word-break để mã dự án dài như VEGACITY66CAN vẫn gãy
+             được. Thiếu hai thứ này là tràn ngang, phải vuốt mới thấy cột tiền. */
+          #claimTbl{table-layout:fixed;width:100%}
+          #claimTbl td,#claimTbl th{padding:7px 6px;overflow-wrap:anywhere}
+          #claimTbl .code-chip{font-size:10px;padding:1px 5px;letter-spacing:-.2px}
+          /* Mã dự án KHÔNG gãy giữa chữ — "TTHC2.4(BLOCK" / "D)" đọc như hai mã
+             khác nhau. Cột đã đủ rộng cho mã dài nhất ở cỡ chữ này. */
+          #claimTbl .code-chip{white-space:nowrap}
+        </style>`
+      : ''}
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="overflow-x:auto"><table><colgroup>${colgroup}</colgroup><thead><tr>
+      <div style="overflow-x:auto"><table id="claimTbl"><colgroup>${colgroup}</colgroup><thead><tr>
         ${thead}
       </tr></thead><tbody>
       ${bodyHtml || `<tr><td colspan="${IS_MOBILE ? 3 : 9}" style="text-align:center;color:var(--gray4);padding:22px">Chưa ghi nhận đợt claim nào${VIEW_PROJECT !== 'ALL' ? ' cho dự án này' : ''}${kyLabel}</td></tr>`}
