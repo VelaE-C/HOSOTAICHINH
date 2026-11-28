@@ -103,7 +103,13 @@ const num = (v) => Number(v || 0);
 //   lũy kế (1), số đợt kế tiếp, trần hợp đồng, % HĐ. Gom theo dự án thôi thì
 //   lũy kế của gói này cộng nhầm sang gói kia, trần hợp đồng mất một gói.
 // Để trống = dự án chỉ có một gói (hầu hết dự án) — chạy y như trước.
-const pkgOf = (r) => String(r?.package || '').trim();
+// Gộp khoảng trắng thừa: "Gói  62 căn" và "Gói 62 căn" phải là MỘT gói.
+const chuanGoi = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+const pkgOf = (r) => chuanGoi(r?.package);
+// So gần giống: bỏ dấu, bỏ hoa thường, bỏ khoảng trắng — để bắt "Gói 4 căn"
+// với "gói 4 can" là một. Chỉ dùng để CẢNH BÁO, không tự sửa của người dùng.
+const khoaGoi = (v) =>
+  chuanGoi(v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').replace(/\s/g, '').toLowerCase();
 const pkgKey = (r) => `${r.project_id}||${pkgOf(r)}`;
 const pkgLabel = (v) => (v ? v : 'Gói chính');
 
@@ -548,7 +554,25 @@ async function openForm(rec, projects, all, user, onClose) {
   // Các gói CĐT đã dùng ở dự án đang chọn — đổ vào gợi ý để khỏi gõ lệch tên.
   // Gõ lệch một chữ là thành gói thứ ba, lũy kế tách làm đôi mà không ai thấy.
   const goiCua = (projectId) =>
-    [...new Set((all || []).filter((x) => x.project_id === projectId).map(pkgOf).filter(Boolean))].sort();
+    [...new Set((all || []).filter((x) => x.project_id === projectId).map(pkgOf).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, 'vi'),
+    );
+  // ⚠️ CHỌN TỪ DANH SÁCH, KHÔNG GÕ TAY (sửa 28/11/2026). Bản trước để ô text:
+  //   lần đầu gõ "Gói 4 căn", lần sau gõ "Gói 4 căn mẫu" là thành HAI gói, lũy kế
+  //   tách đôi, trần hợp đồng cộng đôi — mà bảng vẫn trông bình thường, không ai
+  //   nhìn ra. Nay chỉ lần khai báo ĐẦU TIÊN mới gõ, các đợt sau chọn lại.
+  const optGoi = (projectId, dangChon) =>
+    [
+      `<option value="" ${dangChon === '' ? 'selected' : ''}>— Dự án chỉ ký MỘT gói với CĐT —</option>`,
+      ...goiCua(projectId).map((g) => `<option value="${esc(g)}" ${dangChon === g ? 'selected' : ''}>${esc(g)}</option>`),
+      `<option value="__MOI__">➕ Khai báo gói mới…</option>`,
+    ].join('');
+  // Tên gói đang chọn thật sự — gộp cả ô chọn lẫn ô gõ tên mới.
+  function goiDangChon() {
+    const sel = modal.querySelector('#fPackage');
+    if (!sel) return '';
+    return sel.value === '__MOI__' ? chuanGoi(modal.querySelector('#fPackageNew').value) : chuanGoi(sel.value);
+  }
   const firstProject = rec?.project_id || projects?.[0]?.id;
   const seed = isNew ? inheritFrom(firstProject, '') : null;
   const base = rec || {
@@ -583,13 +607,15 @@ async function openForm(rec, projects, all, user, onClose) {
         ${isNew ? '' : '<div style="font-size:11px;color:var(--gray4);margin-top:4px">Không đổi được dự án của đợt đã ghi nhận — nhập nhầm thì xóa dòng này rồi tạo lại.</div>'}</div>
 
       <div style="margin-bottom:13px"><label class="form-label">Gói thầu CĐT</label>
-        <input id="fPackage" class="form-input" list="pkgList" autocomplete="off"
-               placeholder="Để TRỐNG nếu dự án chỉ ký một gói với CĐT"
-               value="${esc(rec ? pkgOf(rec) : '')}" ${isNew ? '' : 'disabled style="background:var(--gray1)"'}>
-        <datalist id="pkgList">${goiCua(firstProject).map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
+        <select id="fPackage" class="form-input" ${isNew ? '' : 'disabled style="background:var(--gray1)"'}>
+          ${optGoi(firstProject, rec ? pkgOf(rec) : '')}
+        </select>
+        <input id="fPackageNew" class="form-input" autocomplete="off" style="margin-top:7px;display:none"
+               placeholder="Tên gói mới — VD: Gói 4 căn mẫu">
+        <div id="pkgNote" style="font-size:11.5px;margin-top:4px"></div>
         <div style="font-size:11px;color:var(--gray4);margin-top:4px">
-          Dự án ký nhiều gói riêng với CĐT thì ghi tên gói ở đây (VD: <b>Gói 62 căn</b>, <b>Gói 4 căn mẫu</b>).
-          Mỗi gói có dãy số đợt riêng, trần hợp đồng riêng, lũy kế riêng. Chi phí vẫn tính chung cho cả dự án.
+          Dự án ký nhiều gói riêng với CĐT thì chọn gói ở đây. Mỗi gói có dãy số đợt riêng,
+          trần hợp đồng riêng, lũy kế riêng. Chi phí vẫn tính chung cho cả dự án.
           ${isNew ? '' : '<br>Không đổi được gói của đợt đã ghi nhận — nhập nhầm thì xóa dòng này rồi tạo lại.'}
         </div></div>
 
@@ -692,7 +718,7 @@ async function openForm(rec, projects, all, user, onClose) {
     return {
       id: rec?.id,
       project_id: modal.querySelector('#fProject').value,
-      package: (modal.querySelector('#fPackage').value || '').trim(),
+      package: goiDangChon(),
       claim_no: Number(modal.querySelector('#fClaim').value) || 0,
       contract_amount: parseMoneyInput(modal.querySelector('#fContract').value),
       vo_amount: parseMoneyInput(modal.querySelector('#fVo').value),
@@ -750,7 +776,7 @@ async function openForm(rec, projects, all, user, onClose) {
     const note = modal.querySelector('#claimNote');
     const projectId = modal.querySelector('#fProject').value;
     const claimNo = Number(modal.querySelector('#fClaim').value);
-    const pkg = (modal.querySelector('#fPackage').value || '').trim();
+    const pkg = goiDangChon();
     if (!projectId || !claimNo) return (note.innerHTML = '');
     if (!isNew && claimNo === rec.claim_no && pkg === pkgOf(rec)) return (note.innerHTML = '');
     const { data } = await supabase
@@ -788,13 +814,38 @@ async function openForm(rec, projects, all, user, onClose) {
     if (!isNew) return;
     // Đổi dự án thì danh sách gói gợi ý cũng phải đổi theo, và ô gói xóa trắng —
     // giữ nguyên tên gói của dự án cũ là tạo ra một gói ma ở dự án mới.
-    modal.querySelector('#fPackage').value = '';
-    modal.querySelector('#pkgList').innerHTML = goiCua(e.target.value).map((g) => `<option value="${esc(g)}"></option>`).join('');
+    modal.querySelector('#fPackage').innerHTML = optGoi(e.target.value, '');
+    modal.querySelector('#fPackageNew').value = '';
+    modal.querySelector('#fPackageNew').style.display = 'none';
+    modal.querySelector('#pkgNote').innerHTML = '';
     apDungKeThua(e.target.value, '');
   });
   modal.querySelector('#fPackage').addEventListener('change', (e) => {
     if (!isNew) return;
-    apDungKeThua(modal.querySelector('#fProject').value, e.target.value);
+    const oMoi = modal.querySelector('#fPackageNew');
+    const moi = e.target.value === '__MOI__';
+    oMoi.style.display = moi ? '' : 'none';
+    modal.querySelector('#pkgNote').innerHTML = '';
+    if (moi) {
+      oMoi.value = '';
+      oMoi.focus();
+      apDungKeThua(modal.querySelector('#fProject').value, ''); // gói mới -> chưa có gì để kế thừa
+    } else {
+      apDungKeThua(modal.querySelector('#fProject').value, e.target.value);
+    }
+  });
+  // Gõ tên gói mới mà trùng gần giống gói đã có thì cản lại ngay — đây chính là
+  // chỗ sinh ra gói trùng nếu để tự do.
+  modal.querySelector('#fPackageNew').addEventListener('input', () => {
+    const note = modal.querySelector('#pkgNote');
+    const ten = chuanGoi(modal.querySelector('#fPackageNew').value);
+    if (!ten) return (note.innerHTML = '');
+    const trung = goiCua(modal.querySelector('#fProject').value).find((g) => khoaGoi(g) === khoaGoi(ten));
+    note.innerHTML = trung
+      ? `<span style="color:var(--red);font-weight:600">✕ Dự án đã có gói “${esc(trung)}” — chọn lại gói đó ở ô trên, đừng tạo thêm.</span>`
+      : `<span style="color:var(--green,#16A34A)">✓ Tên gói mới, chưa trùng gói nào của dự án này.</span>`;
+    clearTimeout(claimTimer);
+    claimTimer = setTimeout(checkClaimDup, 350);
   });
 
   // Đính kèm: dòng ĐÃ có thì gắn thẳng; dòng MỚI chưa có id nên chọn tạm, lưu xong mới tải lên
@@ -823,6 +874,12 @@ async function openForm(rec, projects, all, user, onClose) {
     const note = modal.querySelector('#fNote').value.trim() || null;
 
     if (!f.project_id || !f.claim_no) return toast('Chọn Dự án và điền Đợt claim', 'error');
+    if (modal.querySelector('#fPackage')?.value === '__MOI__' && !f.package)
+      return toast('Đang khai báo gói mới — điền tên gói, hoặc chọn lại gói có sẵn', 'error');
+    if (isNew && f.package) {
+      const trung = goiCua(f.project_id).find((g) => khoaGoi(g) === khoaGoi(f.package) && g !== f.package);
+      if (trung) return toast(`Dự án đã có gói “${trung}” — chọn lại gói đó, đừng tạo gói trùng tên.`, 'error');
+    }
     if (!f.amount_before_vat) return toast('Điền dòng (2) Giá trị thi công kỳ này', 'error');
     if (!f.contract_amount) return toast('Điền Giá trị hợp đồng ban đầu ở khối A', 'error');
 
